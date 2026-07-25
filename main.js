@@ -1,4 +1,4 @@
-const { Plugin, ItemView, Modal, Notice } = require('obsidian');
+const { Plugin, ItemView, Modal, Notice, requestUrl } = require('obsidian');
 
 const VIEW_TYPE = 'carnet-du-poete-view';
 
@@ -19,33 +19,38 @@ function nettoieMot(mot){
   return (mot || '').toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
 }
 
-function trouveGroupesVoyelles(w){
+function trouveGroupesAvecPositions(w){
   // Cas particulier du français : un "y" entre deux voyelles (ra-yon,
   // cra-yon, vo-yage, essa-yer...) se comporte comme un double "i" et
   // sépare deux syllabes au lieu de fusionner avec elles. Un "y" qui
   // n'est PAS entre deux voyelles (yeux, pays, cycle...) reste une
   // voyelle normale.
   const groupes = [];
-  let courant = '';
-  for (let i = 0; i < w.length; i++){
+  let debut = -1;
+  for (let i = 0; i <= w.length; i++){
     const ch = w[i];
-    if (ch === 'y') {
-      const avantVoyelle = i > 0 && estVoyelle(w[i - 1]);
-      const apresVoyelle = i < w.length - 1 && estVoyelle(w[i + 1]);
-      if (avantVoyelle && apresVoyelle) {
-        if (courant) { groupes.push(courant); courant = ''; }
-        continue; // le y intervocalique agit comme une consonne, il n'entre dans aucun groupe
+    let estVoyelleIci = false;
+    if (ch !== undefined) {
+      if (ch === 'y') {
+        const avantVoyelle = i > 0 && estVoyelle(w[i - 1]);
+        const apresVoyelle = i < w.length - 1 && estVoyelle(w[i + 1]);
+        estVoyelleIci = !(avantVoyelle && apresVoyelle);
+      } else {
+        estVoyelleIci = estVoyelle(ch);
       }
     }
-    if (estVoyelle(ch)) {
-      courant += ch;
-    } else if (courant) {
-      groupes.push(courant);
-      courant = '';
+    if (estVoyelleIci) {
+      if (debut === -1) debut = i;
+    } else if (debut !== -1) {
+      groupes.push({ texte: w.slice(debut, i), debut, fin: i });
+      debut = -1;
     }
   }
-  if (courant) groupes.push(courant);
   return groupes;
+}
+
+function trouveGroupesVoyelles(w){
+  return trouveGroupesAvecPositions(w).map(g => g.texte);
 }
 
 function detecteHiatus(w, groupes){
@@ -61,6 +66,82 @@ function detecteHiatus(w, groupes){
     }
   });
   return count;
+}
+
+function estMuetFinal(w){
+  let base = w;
+  if (base.endsWith('s') && !base.endsWith('ss') && base.length > 2) base = base.slice(0, -1);
+  return base.endsWith('e');
+}
+
+/* Découpage des consonnes entre deux noyaux vocaliques en (coda de la
+   syllabe précédente) + (attaque de la syllabe suivante). Les groupes
+   consonne+liquide usuels (bl, cl, fl, gl, pl, br, cr, dr, fr, gr, pr,
+   tr, vr) restent groupés comme attaque de la syllabe suivante plutôt
+   que d'être coupés en deux (ex. "re-gret", pas "reg-ret"). */
+const CLUSTERS_LIQUIDES = new Set([
+  'bl','cl','fl','gl','pl','br','cr','dr','fr','gr','pr','tr','vr',
+  'gn','ch','ph','th' // digraphes représentant un seul son, jamais coupés
+]);
+function decoupeConsonnes(cluster){
+  if (cluster.length === 0) return ['', ''];
+  if (cluster.length === 1) return ['', cluster];
+  const deuxDerniers = cluster.slice(-2).toLowerCase();
+  if (CLUSTERS_LIQUIDES.has(deuxDerniers)) {
+    return [cluster.slice(0, -2), cluster.slice(-2)];
+  }
+  return [cluster.slice(0, -1), cluster.slice(-1)];
+}
+
+/* Découpe un mot en syllabes affichables (approximation graphique des
+   règles de syllabation du français). diereseIndices : ensemble
+   d'indices de groupes vocaliques à scinder en deux syllabes plutôt
+   qu'à lire en synérèse (pour la variante "avec diérèse"). */
+function syllabifieMot(motBrut, finalEPrononce, diereseIndices){
+  diereseIndices = diereseIndices || new Set();
+  const w = nettoieMot(motBrut);
+  if (!w) return [];
+  const groupes = trouveGroupesAvecPositions(w);
+  if (groupes.length === 0) return [w];
+
+  const syllabes = [];
+  let prefixe = w.slice(0, groupes[0].debut);
+
+  for (let i = 0; i < groupes.length; i++){
+    const g = groupes[i];
+    const estDernierGroupe = i === groupes.length - 1;
+    const finDeMotAvecS = w.endsWith('s') && !w.endsWith('ss') && g.fin === w.length - 1;
+    const finDeMotSansS = g.fin === w.length;
+    const estMuetADroper = estDernierGroupe && g.texte === 'e' && estMuetFinal(w)
+      && !finalEPrononce && (finDeMotAvecS || finDeMotSansS);
+
+    if (diereseIndices.has(i) && g.texte.length >= 2) {
+      const partie1 = g.texte.slice(0, 1);
+      const partie2 = g.texte.slice(1);
+      syllabes.push(prefixe + partie1);
+      syllabes.push(partie2);
+    } else if (estMuetADroper) {
+      const sFinal = finDeMotAvecS ? 's' : '';
+      if (syllabes.length > 0) {
+        syllabes[syllabes.length - 1] += prefixe + g.texte + sFinal;
+      } else {
+        syllabes.push(prefixe + g.texte + sFinal);
+      }
+    } else {
+      syllabes.push(prefixe + g.texte);
+    }
+    prefixe = '';
+
+    if (!estDernierGroupe) {
+      const cluster = w.slice(g.fin, groupes[i + 1].debut);
+      const [coda, attaque] = decoupeConsonnes(cluster);
+      if (syllabes.length > 0) syllabes[syllabes.length - 1] += coda;
+      prefixe = attaque;
+    } else if (!estMuetADroper) {
+      syllabes[syllabes.length - 1] += w.slice(g.fin);
+    }
+  }
+  return syllabes.filter(s => s.length > 0);
 }
 
 // Retourne {min, max, hiatus} pour un mot isolé.
@@ -93,6 +174,39 @@ function compteSyllabesMot(motBrut, finalEPrononce){
   return { min: compte, max: compte + hiatusCount, hiatus: hiatusCount > 0 };
 }
 
+/* Indices des groupes vocaliques comportant un hiatus possible, pour un
+   mot déjà nettoyé (utilisé par syllabifieMot pour la variante diérèse). */
+function indicesHiatus(motBrut){
+  const w = nettoieMot(motBrut);
+  const groupes = trouveGroupesAvecPositions(w);
+  const indices = new Set();
+  groupes.forEach((g, idx) => {
+    let check = g.texte;
+    const estDernier = idx === groupes.length - 1;
+    if (estDernier && g.texte.endsWith('e') && w.endsWith(g.texte)) {
+      check = g.texte.slice(0, -1);
+    }
+    if (check.length >= 2 && DIPHTONGUES_FIXES.indexOf(check) === -1) {
+      indices.add(idx);
+    }
+  });
+  return indices;
+}
+
+/* Réintègre la ponctuation de bord (virgule, tiret, guillemet...) que
+   nettoieMot a retirée, autour du découpage syllabique, pour l'affichage. */
+function segmenteMotPourAffichage(motBrut, syllabes){
+  if (!syllabes || syllabes.length === 0) return motBrut;
+  const avantMatch = motBrut.match(/^[^a-zàâäéèêëîïôöùûüÿœç']*/i);
+  const apresMatch = motBrut.match(/[^a-zàâäéèêëîïôöùûüÿœç']*$/i);
+  const avant = avantMatch ? avantMatch[0] : '';
+  const apres = apresMatch ? apresMatch[0] : '';
+  const copie = syllabes.slice();
+  copie[0] = avant + copie[0];
+  copie[copie.length - 1] = copie[copie.length - 1] + apres;
+  return copie.join('‧');
+}
+
 function analyseLigne(ligne){
   // le trait d'union sépare deux mots phonétiques distincts (ex. "vois-tu", "dit-il")
   // on écarte aussi les tokens de pure ponctuation isolés par une espace
@@ -107,9 +221,13 @@ function analyseLigne(ligne){
     const suivantVoyelleOuH = motSuivant ? /^[aeiouyàâäéèêëîïôöùûüÿœh]/.test(motSuivant) : false;
     const finalEPrononce = !estDernier && !suivantVoyelleOuH;
     const r = compteSyllabesMot(motBrut, finalEPrononce);
+    const syllabes = syllabifieMot(motBrut, finalEPrononce, new Set());
+    const syllabesDierese = r.hiatus
+      ? syllabifieMot(motBrut, finalEPrononce, indicesHiatus(motBrut))
+      : null;
     total += r.min; totalMax += r.max;
     if (r.hiatus) hasHiatus = true;
-    details.push({ mot: motBrut, min: r.min, max: r.max, hiatus: r.hiatus });
+    details.push({ mot: motBrut, min: r.min, max: r.max, hiatus: r.hiatus, syllabes, syllabesDierese });
   });
   return { total, totalMax, hasHiatus, details };
 }
@@ -600,10 +718,187 @@ function chercheInspiration(motSaisi){
   return partiels;
 }
 
+/* =========================================================
+   SYNONYMES & ANTONYMES
+   ========================================================= */
+const SYNONYMES_BASE = [
+  { mot:"beau", synonymes:["magnifique","splendide","superbe","radieux","ravissant"], antonymes:["laid","hideux","affreux"] },
+  { mot:"laid", synonymes:["hideux","affreux","difforme","disgracieux"], antonymes:["beau","splendide"] },
+  { mot:"grand", synonymes:["immense","vaste","colossal","gigantesque"], antonymes:["petit","minuscule","infime"] },
+  { mot:"petit", synonymes:["minuscule","infime","menu","chétif"], antonymes:["grand","immense","vaste"] },
+  { mot:"fort", synonymes:["puissant","robuste","vigoureux","solide"], antonymes:["faible","fragile","chétif"] },
+  { mot:"faible", synonymes:["fragile","chétif","débile","frêle"], antonymes:["fort","puissant","robuste"] },
+  { mot:"joyeux", synonymes:["gai","heureux","allègre","radieux","jubilant"], antonymes:["triste","morose","chagrin"] },
+  { mot:"triste", synonymes:["mélancolique","morose","chagrin","affligé","sombre"], antonymes:["joyeux","gai","radieux"] },
+  { mot:"aimer", synonymes:["chérir","adorer","affectionner","idolâtrer"], antonymes:["haïr","détester","abhorrer"] },
+  { mot:"haïr", synonymes:["détester","abhorrer","exécrer","abominer"], antonymes:["aimer","chérir","adorer"] },
+  { mot:"lumière", synonymes:["clarté","éclat","lueur","luminosité"], antonymes:["obscurité","ténèbres","ombre"] },
+  { mot:"obscurité", synonymes:["ténèbres","noirceur","pénombre"], antonymes:["lumière","clarté","éclat"] },
+  { mot:"vie", synonymes:["existence","souffle","destinée"], antonymes:["mort","trépas","néant"] },
+  { mot:"mort", synonymes:["trépas","décès","fin","néant"], antonymes:["vie","naissance","existence"] },
+  { mot:"jeune", synonymes:["juvénile","adolescent","nouveau"], antonymes:["vieux","âgé","ancien"] },
+  { mot:"vieux", synonymes:["âgé","ancien","antique","suranné"], antonymes:["jeune","nouveau","neuf"] },
+  { mot:"rapide", synonymes:["vif","prompt","fulgurant","véloce"], antonymes:["lent","lourd","poussif"] },
+  { mot:"lent", synonymes:["lourd","poussif","languissant"], antonymes:["rapide","vif","prompt"] },
+  { mot:"chaud", synonymes:["brûlant","ardent","torride","tiède"], antonymes:["froid","glacial","gelé"] },
+  { mot:"froid", synonymes:["glacial","gelé","frais","glacé"], antonymes:["chaud","brûlant","torride"] },
+  { mot:"doux", synonymes:["tendre","suave","délicat","moelleux"], antonymes:["dur","rude","âpre"] },
+  { mot:"dur", synonymes:["rude","âpre","rigide","sévère"], antonymes:["doux","tendre","suave"] },
+  { mot:"calme", synonymes:["paisible","serein","tranquille","apaisé"], antonymes:["agité","tumultueux","fébrile"] },
+  { mot:"agité", synonymes:["tumultueux","fébrile","houleux","turbulent"], antonymes:["calme","paisible","serein"] },
+  { mot:"riche", synonymes:["fortuné","opulent","aisé","prospère"], antonymes:["pauvre","démuni","indigent"] },
+  { mot:"pauvre", synonymes:["démuni","indigent","misérable","besogneux"], antonymes:["riche","fortuné","opulent"] },
+  { mot:"libre", synonymes:["indépendant","affranchi","dégagé"], antonymes:["captif","prisonnier","asservi"] },
+  { mot:"captif", synonymes:["prisonnier","enchaîné","asservi"], antonymes:["libre","indépendant","affranchi"] },
+  { mot:"vrai", synonymes:["véritable","authentique","sincère","réel"], antonymes:["faux","mensonger","factice"] },
+  { mot:"faux", synonymes:["mensonger","factice","trompeur","illusoire"], antonymes:["vrai","authentique","sincère"] },
+  { mot:"pur", synonymes:["limpide","immaculé","candide","intact"], antonymes:["impur","souillé","corrompu"] },
+  { mot:"silence", synonymes:["mutisme","calme","quiétude"], antonymes:["bruit","vacarme","tumulte"] },
+  { mot:"bruit", synonymes:["vacarme","tumulte","fracas","brouhaha"], antonymes:["silence","calme","quiétude"] },
+  { mot:"proche", synonymes:["voisin","proximité","attenant"], antonymes:["lointain","distant","éloigné"] },
+  { mot:"lointain", synonymes:["distant","éloigné","reculé"], antonymes:["proche","voisin","attenant"] },
+  { mot:"commencer", synonymes:["débuter","entamer","amorcer","engager"], antonymes:["finir","achever","terminer"] },
+  { mot:"finir", synonymes:["achever","terminer","conclure","clore"], antonymes:["commencer","débuter","entamer"] },
+  { mot:"monter", synonymes:["grimper","s'élever","gravir","escalader"], antonymes:["descendre","dévaler","chuter"] },
+  { mot:"descendre", synonymes:["dévaler","chuter","tomber"], antonymes:["monter","s'élever","gravir"] },
+  { mot:"ouvrir", synonymes:["déployer","dévoiler","entrouvrir"], antonymes:["fermer","clore","refermer"] },
+  { mot:"fermer", synonymes:["clore","refermer","verrouiller"], antonymes:["ouvrir","déployer","dévoiler"] },
+  { mot:"donner", synonymes:["offrir","céder","octroyer"], antonymes:["prendre","ôter","retirer"] },
+  { mot:"prendre", synonymes:["saisir","s'emparer","capturer"], antonymes:["donner","offrir","céder"] },
+  { mot:"espoir", synonymes:["espérance","confiance","attente"], antonymes:["désespoir","désillusion","abattement"] },
+  { mot:"désespoir", synonymes:["désillusion","abattement","accablement"], antonymes:["espoir","espérance","confiance"] },
+  { mot:"courage", synonymes:["bravoure","vaillance","hardiesse","témérité"], antonymes:["lâcheté","peur","couardise"] },
+  { mot:"lâcheté", synonymes:["couardise","pusillanimité"], antonymes:["courage","bravoure","vaillance"] },
+  { mot:"sagesse", synonymes:["prudence","raison","discernement"], antonymes:["folie","démence","déraison"] },
+  { mot:"folie", synonymes:["démence","déraison","délire"], antonymes:["sagesse","raison","prudence"] },
+  { mot:"paix", synonymes:["harmonie","sérénité","concorde"], antonymes:["guerre","conflit","discorde"] },
+  { mot:"guerre", synonymes:["conflit","combat","bataille"], antonymes:["paix","harmonie","concorde"] },
+  { mot:"ombre", synonymes:["obscurité","pénombre","ténèbres"], antonymes:["lumière","clarté","éclat"] },
+  { mot:"vide", synonymes:["creux","vacant","dépouillé"], antonymes:["plein","comblé","rempli"] },
+  { mot:"plein", synonymes:["comblé","rempli","empli"], antonymes:["vide","creux","vacant"] },
+  { mot:"éphémère", synonymes:["fugace","passager","transitoire"], antonymes:["éternel","perpétuel","durable"] },
+  { mot:"éternel", synonymes:["perpétuel","durable","immortel"], antonymes:["éphémère","fugace","passager"] },
+  { mot:"immense", synonymes:["colossal","gigantesque","démesuré"], antonymes:["minuscule","infime","microscopique"] },
+  { mot:"clair", synonymes:["lumineux","limpide","transparent"], antonymes:["sombre","obscur","opaque"] },
+  { mot:"sombre", synonymes:["obscur","ténébreux","opaque"], antonymes:["clair","lumineux","limpide"] },
+  { mot:"heureux", synonymes:["joyeux","comblé","radieux","satisfait"], antonymes:["malheureux","misérable","accablé"] },
+  { mot:"malheureux", synonymes:["misérable","accablé","infortuné"], antonymes:["heureux","comblé","radieux"] },
+  { mot:"beauté", synonymes:["splendeur","grâce","charme","éclat"], antonymes:["laideur","difformité"] },
+  { mot:"tendresse", synonymes:["affection","douceur","attachement"], antonymes:["dureté","froideur","indifférence"] },
+  { mot:"souvenir", synonymes:["mémoire","réminiscence","évocation"], antonymes:["oubli"] },
+  { mot:"oubli", synonymes:["amnésie","effacement"], antonymes:["souvenir","mémoire"] }
+];
+const SYNONYMES = SYNONYMES_BASE.slice();
+
+function chercheSynonymes(motSaisi){
+  const w = normaliseMot(motSaisi);
+  const wSouple = normaliseSouple(motSaisi);
+  if (!w) return null;
+  return SYNONYMES.find(e => normaliseMot(e.mot) === w || normaliseSouple(e.mot) === wSouple) || null;
+}
+
+/* =========================================================
+   SOURCES EN LIGNE (synonymes/antonymes)
+   Chaque source expose : id, nom, url(mot), chercher(mot) -> Promise<{synonymes, antonymes}>
+   Ajouter une nouvelle source = ajouter une entrée ici + à
+   SOURCES_EN_LIGNE_ORDRE. requestUrl (API Obsidian) est utilisé
+   plutôt que fetch() : il fonctionne sans restriction CORS, sur
+   ordinateur comme sur mobile.
+   ========================================================= */
+
+function extraitLiensDepuisSegment(html, motExclu){
+  const mots = [];
+  const regex = /<a\b[^>]*>([^<]+)<\/a>/gi;
+  let m;
+  while ((m = regex.exec(html))) {
+    const texte = m[1].replace(/&amp;/g, '&').replace(/&eacute;/g, 'é').trim();
+    if (texte && normaliseMot(texte) !== normaliseMot(motExclu || '')) {
+      mots.push(texte);
+    }
+  }
+  return [...new Set(mots)];
+}
+
+async function chercheSynonymesWiktionnaire(mot){
+  const url = `https://fr.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(mot)}&format=json&prop=wikitext&origin=*`;
+  const reponse = await requestUrl({ url, throw: false });
+  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
+  const data = reponse.json;
+  if (!data || data.error || !data.parse) return { synonymes: [], antonymes: [], trouve: false };
+
+  const wikitext = (data.parse.wikitext && data.parse.wikitext['*']) || '';
+
+  const extraitSection = (nomSection) => {
+    const regexDebut = new RegExp('\\{\\{S\\|' + nomSection + '[^}]*\\}\\}', 'i');
+    const m = regexDebut.exec(wikitext);
+    if (!m) return [];
+    const debut = m.index + m[0].length;
+    const suite = wikitext.slice(debut);
+    const finMatch = suite.match(/\n==|\{\{S\|/);
+    const bloc = finMatch ? suite.slice(0, finMatch.index) : suite.slice(0, 1000);
+    const mots = [];
+    let mm;
+    const reLien = /\{\{lien\|([^|}]+)/g;
+    while ((mm = reLien.exec(bloc))) mots.push(mm[1]);
+    const reL = /\{\{l\|([^|}]+)/g;
+    while ((mm = reL.exec(bloc))) mots.push(mm[1]);
+    const reCrochets = /\[\[([^\]|#]+)/g;
+    while ((mm = reCrochets.exec(bloc))) mots.push(mm[1]);
+    return [...new Set(mots.map(s => s.trim()).filter(Boolean))]
+      .filter(s => normaliseMot(s) !== normaliseMot(mot));
+  };
+
+  return {
+    synonymes: extraitSection('synonymes'),
+    antonymes: extraitSection('antonymes'),
+    trouve: true
+  };
+}
+
+async function chercheSynonymesCrisco(mot){
+  const url = `https://crisco4.unicaen.fr/des/synonymes/${encodeURIComponent(mot)}`;
+  const reponse = await requestUrl({ url, throw: false });
+  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
+  const html = reponse.text || '';
+
+  if (!/synonymes\//i.test(html)) return { synonymes: [], antonymes: [], trouve: false };
+
+  const synMatch = html.match(/(\d+)\s*synonymes?/i);
+  const antoMatch = html.match(/(\d+)\s*antonymes?/i);
+  const finSection = html.search(/Classement des premiers synonymes/i);
+
+  let synonymes = [];
+  if (synMatch) {
+    const debut = synMatch.index + synMatch[0].length;
+    let fin = antoMatch ? antoMatch.index : (finSection !== -1 ? finSection : debut + 4000);
+    if (fin < debut) fin = debut + 4000;
+    synonymes = extraitLiensDepuisSegment(html.slice(debut, fin), mot);
+  }
+
+  let antonymes = [];
+  if (antoMatch) {
+    const debut = antoMatch.index + antoMatch[0].length;
+    const fin = finSection !== -1 && finSection > debut ? finSection : debut + 2000;
+    antonymes = extraitLiensDepuisSegment(html.slice(debut, fin), mot);
+  }
+
+  return { synonymes, antonymes, trouve: synMatch || antoMatch ? true : false };
+}
+
+const SOURCES_EN_LIGNE = {
+  wiktionnaire: { id: 'wiktionnaire', nom: 'Wiktionnaire', chercher: chercheSynonymesWiktionnaire },
+  crisco: { id: 'crisco', nom: 'CRISCO', chercher: chercheSynonymesCrisco }
+};
+const SOURCES_EN_LIGNE_ORDRE = ['wiktionnaire', 'crisco'];
+
 function estFeminine(mot){
   let w = normaliseMot(mot);
   if (w.endsWith('s') && !w.endsWith('ss')) w = w.slice(0, -1);
-  return /[^aeiouyàâäéèêëîïôöùûüÿœ]e$/.test(w);
+  // rime féminine : le mot se termine par un e non accentué (vie, joie,
+  // écartée, rose...), quelle que soit la lettre qui le précède —
+  // contrairement à une précédente version, un e précédé d'une voyelle
+  // (comme dans "vie" ou "écartée") compte aussi comme féminin.
+  return w.endsWith('e');
 }
 
 /* Genre de la rime d'un vers : féminine si le dernier mot se termine par
@@ -653,22 +948,54 @@ let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
       personnalisé, et le dossier .obsidian est souvent caché ou
       inaccessible sur mobile. En posant le fichier n'importe où dans
       le coffre (même à la racine), Obsidian le retrouve tout seul. */
-async function trouveEtLisDictionnairePerso(plugin){
+async function chercheRecursivementDansDossier(adapter, dossier, nomFichier, profondeurMax){
+  if (profondeurMax <= 0) return null;
+  let listing;
   try {
-    const dir = plugin.manifest.dir || `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
-    const path = `${dir}/dictionnaire-perso.json`;
-    console.log('[Carnet du Poète] recherche 1/2 (dossier du plugin) :', path);
-    if (await plugin.app.vault.adapter.exists(path)) {
-      console.log('[Carnet du Poète] trouvé dans le dossier du plugin.');
-      return await plugin.app.vault.adapter.read(path);
-    }
+    listing = await adapter.list(dossier);
   } catch (e) {
-    console.warn('[Carnet du Poète] recherche dans le dossier du plugin impossible', e);
+    return null;
+  }
+  if (listing && Array.isArray(listing.files)) {
+    const trouve = listing.files.find(f => f.split('/').pop() === nomFichier);
+    if (trouve) return trouve;
+  }
+  if (listing && Array.isArray(listing.folders)) {
+    for (const sousDossier of listing.folders) {
+      const res = await chercheRecursivementDansDossier(adapter, sousDossier, nomFichier, profondeurMax - 1);
+      if (res) return res;
+    }
+  }
+  return null;
+}
+
+async function trouveEtLisDictionnairePerso(plugin){
+  const adapter = plugin.app.vault.adapter;
+  const configDir = plugin.app.vault.configDir; // en général ".obsidian", mais peut être renommé
+  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+  const nomFichier = 'dictionnaire-perso.json';
+
+  // 1) Emplacements précis les plus probables, testés directement (rapide,
+  //    fonctionne même sur Android où l'exploration de fichiers est limitée)
+  const candidats = [
+    `${pluginDir}/${nomFichier}`,   // dossier du plugin (installation manuelle)
+    `${configDir}/${nomFichier}`,   // racine de .obsidian (dépôt "à la racine du coffre .obsidian")
+    nomFichier                      // racine du coffre lui-même
+  ];
+  for (const chemin of candidats) {
+    try {
+      if (await adapter.exists(chemin)) {
+        console.log('[Carnet du Poète] dictionnaire personnel trouvé :', chemin);
+        return await adapter.read(chemin);
+      }
+    } catch (e) {
+      console.warn('[Carnet du Poète] erreur en testant', chemin, e);
+    }
   }
 
+  // 2) N'importe où dans le contenu normal du coffre (notes, sous-dossiers)
   try {
-    console.log('[Carnet du Poète] recherche 2/2 (n\'importe où dans le coffre)…');
-    const fichier = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
+    const fichier = plugin.app.vault.getFiles().find(f => f.name === nomFichier);
     if (fichier) {
       console.log('[Carnet du Poète] trouvé dans le coffre :', fichier.path);
       return await plugin.app.vault.read(fichier);
@@ -677,7 +1004,87 @@ async function trouveEtLisDictionnairePerso(plugin){
     console.warn('[Carnet du Poète] recherche dans le coffre impossible', e);
   }
 
+  // 3) Recherche récursive dans tout le dossier .obsidian (au cas où le
+  //    fichier a été déposé dans un sous-dossier inattendu — dossier
+  //    "plugins/" directement, autre plugin, etc.), profondeur limitée
+  //    pour rester rapide y compris sur mobile.
+  try {
+    const trouve = await chercheRecursivementDansDossier(adapter, configDir, nomFichier, 5);
+    if (trouve) {
+      console.log('[Carnet du Poète] trouvé par recherche récursive dans .obsidian :', trouve);
+      return await adapter.read(trouve);
+    }
+  } catch (e) {
+    console.warn('[Carnet du Poète] recherche récursive impossible', e);
+  }
+
+  console.log('[Carnet du Poète] dictionnaire personnel introuvable. Emplacements testés :', candidats.join(' | '), '+ tout le coffre + recherche récursive dans', configDir);
   return null;
+}
+
+/* Enregistre (ou met à jour) une entrée de synonymes/antonymes dans
+   dictionnaire-perso.json : réutilise le fichier existant s'il y en a
+   un (peu importe où il a été trouvé), sinon en crée un nouveau à la
+   racine du coffre. Recharge ensuite le dictionnaire en mémoire. */
+async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
+  const adapter = plugin.app.vault.adapter;
+  let chemin = null;
+  let data = {};
+
+  // on retente les mêmes emplacements que trouveEtLisDictionnairePerso,
+  // en gardant le chemin cette fois (pas seulement le contenu)
+  const configDir = plugin.app.vault.configDir;
+  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+  const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
+  for (const c of candidats) {
+    if (await adapter.exists(c)) { chemin = c; break; }
+  }
+  if (!chemin) {
+    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
+    if (fichierVault) chemin = fichierVault.path;
+  }
+  if (!chemin) {
+    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
+  }
+
+  if (chemin) {
+    try {
+      const raw = await adapter.read(chemin);
+      data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') data = {};
+    } catch (e) {
+      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant, un nouveau contenu sera écrit avec prudence', e);
+      data = {};
+    }
+  } else {
+    // aucun fichier existant : on en crée un nouveau à la racine du coffre
+    chemin = 'dictionnaire-perso.json';
+    data = {};
+  }
+
+  if (!Array.isArray(data.synonymes)) data.synonymes = [];
+  const motNorm = normaliseMot(mot);
+  const existante = data.synonymes.find(e => e && normaliseMot(e.mot) === motNorm);
+  if (existante) {
+    existante.synonymes = [...new Set([...(existante.synonymes || []), ...synonymes])];
+    existante.antonymes = [...new Set([...(existante.antonymes || []), ...antonymes])];
+  } else {
+    data.synonymes.push({ mot, synonymes, antonymes });
+  }
+
+  const contenu = JSON.stringify(data, null, 2);
+  try {
+    if (await adapter.exists(chemin)) {
+      await adapter.write(chemin, contenu);
+    } else {
+      await plugin.app.vault.create(chemin, contenu);
+    }
+    new Notice(`Carnet du Poète : « ${mot} » enregistré dans ${chemin}.`);
+    await chargeDictionnairePerso(plugin);
+  } catch (e) {
+    console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
+    new Notice('Carnet du Poète : échec de l\'enregistrement (voir la console).');
+  }
 }
 
 async function chargeDictionnairePerso(plugin, opts){
@@ -688,6 +1095,8 @@ async function chargeDictionnairePerso(plugin, opts){
   FAMILLES.push(...FAMILLES_BASE);
   CHAMPS_LEXICAUX.length = 0;
   CHAMPS_LEXICAUX.push(...CHAMPS_LEXICAUX_BASE);
+  SYNONYMES.length = 0;
+  SYNONYMES.push(...SYNONYMES_BASE);
   DICO_PHONETIQUE = null;
   DICO_PHONETIQUE_GROUPES = null;
 
@@ -696,7 +1105,7 @@ async function chargeDictionnairePerso(plugin, opts){
     if (raw === null) {
       console.log('[Carnet du Poète] aucun dictionnaire-perso.json trouvé (ni dans le dossier du plugin, ni dans le coffre).');
       if (notifierAbsence) {
-        new Notice('Carnet du Poète : aucun dictionnaire-perso.json trouvé — ni dans le dossier du plugin, ni ailleurs dans le coffre. Vérifie le nom exact du fichier.', 6000);
+        new Notice('Carnet du Poète : aucun dictionnaire-perso.json trouvé — ni dans le dossier du plugin, ni à la racine de .obsidian, ni dans le coffre, ni dans les sous-dossiers de .obsidian. Vérifie le nom exact du fichier (voir la console pour le détail).', 8000);
       }
       return;
     }
@@ -730,6 +1139,20 @@ async function chargeDictionnairePerso(plugin, opts){
       }
     }
 
+    // Synonymes/antonymes personnalisés (idem, indépendant)
+    let synoCount = 0;
+    if (Array.isArray(data.synonymes)) {
+      data.synonymes.forEach(s => {
+        if (s && s.mot && (Array.isArray(s.synonymes) || Array.isArray(s.antonymes))) {
+          SYNONYMES.push({ mot: s.mot, synonymes: s.synonymes || [], antonymes: s.antonymes || [] });
+          synoCount++;
+        }
+      });
+      if (synoCount > 0) {
+        new Notice(`Carnet du Poète : ${synoCount} entrée(s) de synonymes/antonymes personnalisée(s) chargée(s).`);
+      }
+    }
+
     // Format A : familles personnalisées
     if (Array.isArray(data.familles)) {
       let count = 0;
@@ -741,7 +1164,7 @@ async function chargeDictionnairePerso(plugin, opts){
       });
       if (count > 0) {
         new Notice(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
-      } else if (champsCount === 0) {
+      } else if (champsCount === 0 && synoCount === 0) {
         new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
       }
       return;
@@ -750,11 +1173,11 @@ async function chargeDictionnairePerso(plugin, opts){
     // Format B : dictionnaire phonétique complet (objet plat clé -> mots[])
     // (on exclut les clés déjà traitées ci-dessus pour ne pas les confondre
     // avec des groupes de rimes)
-    const cles = Object.keys(data).filter(k => k !== 'familles' && k !== 'champsLexicaux');
+    const cles = Object.keys(data).filter(k => k !== 'familles' && k !== 'champsLexicaux' && k !== 'synonymes');
     const clesValides = cles.filter(k => Array.isArray(data[k]));
     if (clesValides.length === 0) {
-      if (champsCount === 0) {
-        new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme champs lexicaux, ni comme dictionnaire phonétique (objet clé → liste de mots).');
+      if (champsCount === 0 && synoCount === 0) {
+        new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme champs lexicaux, ni comme synonymes, ni comme dictionnaire phonétique (objet clé → liste de mots).');
       }
       return;
     }
@@ -885,6 +1308,63 @@ function renderResultatsInspiration(container, motSaisi){
   });
 }
 
+/* Rendu partagé des résultats de synonymes/antonymes. */
+function buildGroupeMots(container, titre, liste, cls){
+  if (!liste || liste.length === 0) return;
+  const g = container.createDiv({ cls: 'cp-groupe' });
+  g.createDiv({ cls: 'cp-titre', text: titre });
+  const motsDiv = g.createDiv({ cls: 'cp-mots' });
+  liste.forEach(m => { motsDiv.createSpan({ cls: cls, text: m }); });
+}
+
+async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActives){
+  container.empty();
+  const saisie = (motSaisi || '').trim();
+  if (!saisie) return;
+
+  // --- dictionnaire local (toujours vérifié en premier, instantané) ---
+  const blocLocal = container.createDiv({ cls: 'cp-groupe' });
+  blocLocal.createDiv({ cls: 'cp-son-label', text: `${saisie} — dictionnaire local` });
+  const entree = chercheSynonymes(saisie);
+  if (entree) {
+    buildGroupeMots(blocLocal, 'Synonymes', entree.synonymes, 'cp-mot cp-mot-syno');
+    buildGroupeMots(blocLocal, 'Antonymes', entree.antonymes, 'cp-mot cp-mot-anto');
+  } else {
+    blocLocal.createEl('p', { cls: 'cp-vide', text: 'Pas d\'entrée locale pour ce mot.' });
+  }
+
+  // --- sources en ligne sélectionnées ---
+  const liste = (sourcesActives || []).map(id => SOURCES_EN_LIGNE[id]).filter(Boolean);
+  liste.forEach(source => {
+    const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
+    bloc.createDiv({ cls: 'cp-son-label', text: `${saisie} — ${source.nom}` });
+    const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+
+    source.chercher(saisie).then(resultat => {
+      statut.remove();
+      if (!resultat || !resultat.trouve || (resultat.synonymes.length === 0 && resultat.antonymes.length === 0)) {
+        bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
+        return;
+      }
+      buildGroupeMots(bloc, 'Synonymes', resultat.synonymes, 'cp-mot cp-mot-syno');
+      buildGroupeMots(bloc, 'Antonymes', resultat.antonymes, 'cp-mot cp-mot-anto');
+
+      if (plugin && (resultat.synonymes.length > 0 || resultat.antonymes.length > 0)) {
+        const btnSauver = bloc.createEl('button', { cls: 'cp-link-btn', text: `💾 Enregistrer dans mon dictionnaire personnel` });
+        btnSauver.addEventListener('click', async () => {
+          btnSauver.disabled = true;
+          btnSauver.setText('Enregistrement…');
+          await enregistreSynonymePerso(plugin, saisie, resultat.synonymes, resultat.antonymes);
+          btnSauver.setText('Enregistré ✓');
+        });
+      }
+    }).catch(err => {
+      console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
+      statut.setText(`Recherche impossible sur ${source.nom} (pas de connexion, ou le site a changé — voir la console).`);
+    });
+  });
+}
+
 /* =========================================================
    VUE PRINCIPALE
    ========================================================= */
@@ -909,29 +1389,41 @@ class CarnetView extends ItemView {
     const tabSyl = tabBar.createEl('button', { text: 'Syllabes', cls: 'cp-tab active' });
     const tabRimes = tabBar.createEl('button', { text: 'Rimes', cls: 'cp-tab' });
     const tabInspi = tabBar.createEl('button', { text: 'Inspiration', cls: 'cp-tab' });
+    const tabSyno = tabBar.createEl('button', { text: 'Synonymes', cls: 'cp-tab' });
+    const tabGuide = tabBar.createEl('button', { text: 'Guide', cls: 'cp-tab' });
 
     const panelSyl = container.createDiv({ cls: 'cp-panel active' });
     const panelRimes = container.createDiv({ cls: 'cp-panel' });
     const panelInspi = container.createDiv({ cls: 'cp-panel' });
+    const panelSyno = container.createDiv({ cls: 'cp-panel' });
+    const panelGuide = container.createDiv({ cls: 'cp-panel' });
 
     const switchTab = (which) => {
       tabSyl.toggleClass('active', which === 'syl');
       tabRimes.toggleClass('active', which === 'rimes');
       tabInspi.toggleClass('active', which === 'inspi');
+      tabSyno.toggleClass('active', which === 'syno');
+      tabGuide.toggleClass('active', which === 'guide');
       panelSyl.toggleClass('active', which === 'syl');
       panelRimes.toggleClass('active', which === 'rimes');
       panelInspi.toggleClass('active', which === 'inspi');
+      panelSyno.toggleClass('active', which === 'syno');
+      panelGuide.toggleClass('active', which === 'guide');
     };
     tabSyl.addEventListener('click', () => switchTab('syl'));
     tabRimes.addEventListener('click', () => switchTab('rimes'));
     tabInspi.addEventListener('click', () => switchTab('inspi'));
+    tabSyno.addEventListener('click', () => switchTab('syno'));
+    tabGuide.addEventListener('click', () => switchTab('guide'));
 
     this.buildPanelSyllabes(panelSyl);
     this.buildPanelRimes(panelRimes);
     this.buildPanelInspiration(panelInspi);
+    this.buildPanelSynonymes(panelSyno);
+    this.buildPanelGuide(panelGuide);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
-    footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèses possibles, affichées entre parenthèses). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, ou champs lexicaux).');
+    footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèse affichée en variante complète). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
   }
 
   buildPanelSyllabes(panelSyl){
@@ -961,8 +1453,10 @@ class CarnetView extends ItemView {
         const r = analyseLigne(ligne);
         total += r.total;
         const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
-        ligneEl.createSpan({ cls: 'cp-texte', text: ligne });
-        const badges = ligneEl.createDiv({ cls: 'cp-badges' });
+        const ligneTop = ligneEl.createDiv({ cls: 'cp-ligne-top' });
+        const texteStandard = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabes)).join(' ');
+        ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
+        const badges = ligneTop.createDiv({ cls: 'cp-badges' });
         const genre = genreDuVers(r.details);
         if (genre) {
           const badgeGenre = badges.createSpan({
@@ -976,10 +1470,16 @@ class CarnetView extends ItemView {
         if (METRES[r.total]) {
           badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
         }
-        if (r.hasHiatus && r.totalMax !== r.total) {
-          badges.createSpan({ cls: 'cp-hiatus-badge', text: `diérèse possible : ${r.totalMax}` });
-        }
         badges.createSpan({ cls: 'cp-compte', text: String(r.total) });
+
+        if (r.hasHiatus && r.totalMax !== r.total) {
+          const ligneAlt = analyseDiv.createDiv({ cls: 'cp-ligne-alt' });
+          const texteAlt = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabesDierese || d.syllabes)).join(' ');
+          ligneAlt.createSpan({ cls: 'cp-texte-alt', text: texteAlt });
+          const badgesAlt = ligneAlt.createDiv({ cls: 'cp-badges' });
+          badgesAlt.createSpan({ cls: 'cp-hiatus-badge', text: 'avec diérèse' });
+          badgesAlt.createSpan({ cls: 'cp-compte cp-compte-alt', text: String(r.totalMax) });
+        }
       });
       totalBar.style.display = 'flex';
       totalBar.empty();
@@ -1056,6 +1556,116 @@ class CarnetView extends ItemView {
     };
   }
 
+  buildPanelSynonymes(panelSyno){
+    const intro = panelSyno.createEl('p', { cls: 'cp-inspi-intro' });
+    intro.setText('Tape un mot courant pour voir ses synonymes et ses antonymes — utile pour varier une rime ou un rythme sans changer le sens.');
+
+    const sourcesDiv = panelSyno.createDiv({ cls: 'cp-sources' });
+    sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Rechercher aussi en ligne : ' });
+    const cases = {};
+    SOURCES_EN_LIGNE_ORDRE.forEach(id => {
+      const source = SOURCES_EN_LIGNE[id];
+      const label = sourcesDiv.createEl('label', { cls: 'cp-source-toggle' });
+      const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
+      label.createSpan({ text: ' ' + source.nom });
+      cases[id] = case_;
+    });
+
+    const form = panelSyno.createDiv({ cls: 'cp-rime-form' });
+    const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. beau, triste, lumière)' } });
+    const btnChercher = form.createEl('button', { text: 'Chercher' });
+    const resultatsDiv = panelSyno.createDiv({ cls: 'cp-resultats' });
+
+    const sourcesActives = () => SOURCES_EN_LIGNE_ORDRE.filter(id => cases[id].checked);
+
+    const sauvePreferenceSources = async () => {
+      const data = (await this.plugin.loadData()) || {};
+      data.sourcesEnLigne = sourcesActives();
+      await this.plugin.saveData(data);
+    };
+
+    (async () => {
+      const data = await this.plugin.loadData();
+      const prefs = (data && Array.isArray(data.sourcesEnLigne)) ? data.sourcesEnLigne : ['wiktionnaire'];
+      SOURCES_EN_LIGNE_ORDRE.forEach(id => { cases[id].checked = prefs.includes(id); });
+    })();
+
+    Object.values(cases).forEach(c => c.addEventListener('change', sauvePreferenceSources));
+
+    const chercher = () => renderResultatsSynonymes(resultatsDiv, motInput.value, this.plugin, sourcesActives());
+
+    btnChercher.addEventListener('click', chercher);
+    motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+
+    this._prefillSynoInput = (mot) => {
+      motInput.value = mot;
+      chercher();
+    };
+  }
+
+  buildPanelGuide(panelGuide){
+    const section = (titre) => {
+      const el = panelGuide.createEl('h3', { cls: 'cp-guide-titre', text: titre });
+      return el;
+    };
+    const para = (texte) => { panelGuide.createEl('p', { cls: 'cp-guide-p', text: texte }); };
+    const liste = (items) => {
+      const ul = panelGuide.createEl('ul', { cls: 'cp-guide-liste' });
+      items.forEach(it => {
+        const li = ul.createEl('li');
+        if (typeof it === 'string') {
+          li.setText(it);
+        } else {
+          li.createEl('strong', { text: it.titre + ' — ' });
+          li.createSpan({ text: it.texte });
+        }
+      });
+    };
+
+    section('Compter les syllabes en français');
+    para('On compte les groupes de voyelles réellement prononcés dans le vers, pas les lettres.');
+    liste([
+      { titre:'Le e caduc (e muet)', texte:'compté seulement s\'il est suivi d\'un mot commençant par une consonne ; jamais compté en fin de vers ; élidé (jamais compté) devant un mot commençant par une voyelle ou un h muet — ex. « la fleuve aux vagues » : le e de « fleuve » ne compte pas devant « aux ».' },
+      { titre:'Les diphtongues fixes', texte:'ai, au, eau, eu, ou, oi, ei... comptent toujours pour une seule syllabe (« beau » = 1 syllabe).' },
+      { titre:'Le hiatus et la diérèse', texte:'deux voyelles qui ne forment pas une diphtongue fixe (comme « ti-on », « pi-eu », « lu-mi-ère ») peuvent se lire en une seule syllabe (synérèse, la lecture la plus courante) ou en deux (diérèse, souvent utilisée pour allonger un vers) — c\'est un choix du poète selon le mètre recherché. Le Carnet du Poète affiche les deux lectures quand le cas se présente.' },
+      { titre:'La liaison', texte:'change la prononciation mais pas le nombre de syllabes.' },
+      { titre:'Le y intervocalique', texte:'entre deux voyelles (rayon, crayon, voyage), il sépare deux syllabes au lieu de fusionner avec elles.' }
+    ]);
+
+    section('Quelques formes de poèmes classiques');
+    liste([
+      { titre:'Sonnet', texte:'14 vers, généralement en alexandrins : deux quatrains suivis de deux tercets. Schéma de rimes fréquent : ABBA ABBA CCD EED (ou CCD EDE).' },
+      { titre:'Rondeau', texte:'forme à refrain, souvent 13 ou 15 vers en trois strophes ; le début du premier vers revient comme refrain.' },
+      { titre:'Ballade', texte:'trois strophes suivies d\'un envoi plus court, avec un même vers-refrain répété à la fin de chaque strophe.' },
+      { titre:'Villanelle', texte:'19 vers : cinq tercets puis un quatrain, avec deux vers-refrains qui reviennent alternativement.' },
+      { titre:'Pantoum', texte:'forme d\'origine malaise : les 2e et 4e vers de chaque strophe deviennent les 1er et 3e vers de la strophe suivante.' },
+      { titre:'Ode', texte:'poème lyrique de forme régulière célébrant une personne, une chose ou une idée.' },
+      { titre:'Haïku', texte:'poème très court d\'origine japonaise, en 3 vers (5-7-5 syllabes en tradition japonaise), qui capture un instant, souvent lié à la nature.' },
+      { titre:'Fable', texte:'court récit en vers, souvent animalier, portant une morale (La Fontaine).' },
+      { titre:'Acrostiche', texte:'la première lettre de chaque vers, lue verticalement, forme un mot.' }
+    ]);
+
+    section('Les rimes : généralités');
+    para('Disposition des rimes dans une strophe :');
+    liste([
+      { titre:'Rimes plates (ou suivies) — AABB', texte:'deux vers qui riment se suivent directement.' },
+      { titre:'Rimes croisées — ABAB', texte:'un vers sur deux rime avec le suivant du même type.' },
+      { titre:'Rimes embrassées — ABBA', texte:'deux rimes s\'enferment autour de deux autres.' }
+    ]);
+    para('Qualité d\'une rime (nombre de sons communs à la fin des mots) :');
+    liste([
+      { titre:'Rime pauvre', texte:'un seul son commun (ex. « ami / parti »).' },
+      { titre:'Rime suffisante', texte:'deux sons communs (ex. « chagrin / matin »).' },
+      { titre:'Rime riche', texte:'trois sons communs ou plus (ex. « tendresse / paresse »).' }
+    ]);
+    para('Genre d\'une rime, et règle d\'alternance classique :');
+    liste([
+      { titre:'Rime féminine', texte:'le vers se termine par un e muet (ex. « montagne », « chêne »).' },
+      { titre:'Rime masculine', texte:'le vers ne se termine pas par un e muet (ex. « amour », « instant »).' },
+      { titre:'Alternance', texte:'la poésie classique française alterne généralement rimes masculines et féminines d\'une strophe à l\'autre (c\'est la pastille F/M affichée dans l\'onglet Syllabes).' }
+    ]);
+  }
+
   async onClose(){}
 }
 
@@ -1107,7 +1717,7 @@ class InspirationModal extends Modal {
 const CARNET_CSS = `
 .carnet-poete-view{ padding: 4px 14px 24px; font-family: var(--font-interface); }
 .carnet-poete-view h2{ font-family: var(--font-text); font-style: italic; font-weight: 500; margin-bottom: 4px; }
-.cp-tabs{ display:flex; gap: 4px; margin: 10px 0 16px; border-bottom: 1px solid var(--background-modifier-border); }
+.cp-tabs{ display:flex; flex-wrap: wrap; gap: 2px 4px; margin: 10px 0 16px; border-bottom: 1px solid var(--background-modifier-border); }
 .cp-tab{ background:none; border:none; box-shadow:none; padding: 6px 12px 8px; cursor:pointer; color: var(--text-muted); font-weight: 600; font-size: 0.88em; }
 .cp-tab.active{ color: var(--text-normal); border-bottom: 2px solid var(--text-accent); }
 .cp-panel{ display:none; }
@@ -1118,11 +1728,15 @@ const CARNET_CSS = `
 .cp-link-btn{ background:none; border:none; box-shadow:none; color: var(--text-muted); text-decoration: underline; font-size: 0.78em; cursor:pointer; padding:0; }
 .cp-link-btn:hover{ color: var(--text-accent); }
 .cp-analyse{ margin-top: 14px; }
-.cp-ligne{ display:flex; flex-wrap: wrap; align-items:center; row-gap: 4px; column-gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.88em; }
+.cp-ligne{ padding: 7px 0; border-bottom: 1px dashed var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.88em; }
 .cp-ligne:last-child{ border-bottom:none; }
-.cp-texte{ flex: 1 1 220px; min-width: 140px; color: var(--text-normal); white-space: pre-wrap; word-break: break-word; }
+.cp-ligne-top{ display:flex; flex-wrap: wrap; align-items:center; row-gap: 4px; column-gap: 10px; }
+.cp-ligne-alt{ display:flex; flex-wrap: wrap; align-items:center; row-gap: 4px; column-gap: 10px; margin-top: 4px; padding-top: 4px; border-top: 1px dotted var(--background-modifier-border); opacity: 0.85; }
+.cp-texte{ flex: 1 1 220px; min-width: 140px; color: var(--text-normal); white-space: pre-wrap; word-break: break-word; letter-spacing: 0.2px; }
+.cp-texte-alt{ flex: 1 1 220px; min-width: 140px; color: var(--text-muted); white-space: pre-wrap; word-break: break-word; font-style: italic; }
 .cp-badges{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-left:auto; }
 .cp-compte{ display:inline-block; color: #fff; background: var(--text-accent); font-weight: 700; min-width: 18px; text-align:center; padding: 2px 9px; border-radius: 10px; }
+.cp-compte-alt{ background: var(--text-muted); }
 .cp-metre{ font-family: var(--font-interface); font-size: 0.68em; color: var(--text-muted); background: var(--background-modifier-hover); padding: 2px 8px; border-radius: 10px; white-space:nowrap; }
 .cp-genre{ display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; font-size:0.66em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-genre-f{ background: var(--text-accent); color:#fff; }
@@ -1130,6 +1744,11 @@ const CARNET_CSS = `
 .cp-total-bar{ display:flex; flex-wrap:wrap; justify-content: space-between; gap:8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.82em; color: var(--text-muted); }
 .cp-total-bar strong{ color: var(--text-normal); }
 .cp-rime-form{ display:flex; gap:6px; margin-bottom: 16px; }
+.cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:0.82em; color: var(--text-muted); }
+.cp-sources-label{ font-weight:600; }
+.cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
+.cp-source-toggle input{ cursor:pointer; }
+.cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
 .cp-rime-form input{ flex:1; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }
@@ -1137,6 +1756,14 @@ const CARNET_CSS = `
 .cp-mots{ display:flex; flex-wrap:wrap; gap:6px; }
 .cp-mot{ display:inline-block; font-family: var(--font-monospace); font-size: 0.84em; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); border-left: 3px solid var(--text-accent); padding: 4px 8px; border-radius: 3px; color: var(--text-normal); }
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
+.cp-mot-syno{ border-left-color: var(--text-accent); }
+.cp-mot-anto{ border-left-color: var(--text-muted); opacity: 0.85; }
+.cp-guide-titre{ font-family: var(--font-text); font-style: italic; font-weight: 500; font-size: 1.05em; margin: 22px 0 8px; color: var(--text-accent); }
+.cp-guide-titre:first-child{ margin-top: 0; }
+.cp-guide-p{ font-size: 0.86em; color: var(--text-muted); line-height: 1.6; margin: 0 0 8px; }
+.cp-guide-liste{ margin: 0 0 14px; padding-left: 20px; font-size: 0.86em; line-height: 1.6; }
+.cp-guide-liste li{ margin-bottom: 8px; color: var(--text-normal); }
+.cp-guide-liste strong{ color: var(--text-accent); }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
 .cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
 .cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }
