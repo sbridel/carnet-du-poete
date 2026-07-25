@@ -280,7 +280,44 @@ function estFeminine(mot){
 let DICO_PHONETIQUE = null;        // Map: mot (minuscule) -> clé de rime
 let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
 
-async function chargeDictionnairePerso(plugin){
+/* Cherche dictionnaire-perso.json à deux endroits, dans l'ordre :
+   1. Le dossier technique du plugin (.obsidian/plugins/carnet-du-poete/)
+      — pratique en installation manuelle sur ordinateur.
+   2. N'importe où dans le coffre lui-même (comme une note normale)
+      — c'est le cas le plus utile en pratique : BRAT ne télécharge que
+      main.js/manifest.json/styles.css, jamais de fichier de données
+      personnalisé, et le dossier .obsidian est souvent caché ou
+      inaccessible sur mobile. En posant le fichier n'importe où dans
+      le coffre (même à la racine), Obsidian le retrouve tout seul. */
+async function trouveEtLisDictionnairePerso(plugin){
+  try {
+    const dir = plugin.manifest.dir || `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
+    const path = `${dir}/dictionnaire-perso.json`;
+    console.log('[Carnet du Poète] recherche 1/2 (dossier du plugin) :', path);
+    if (await plugin.app.vault.adapter.exists(path)) {
+      console.log('[Carnet du Poète] trouvé dans le dossier du plugin.');
+      return await plugin.app.vault.adapter.read(path);
+    }
+  } catch (e) {
+    console.warn('[Carnet du Poète] recherche dans le dossier du plugin impossible', e);
+  }
+
+  try {
+    console.log('[Carnet du Poète] recherche 2/2 (n\'importe où dans le coffre)…');
+    const fichier = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
+    if (fichier) {
+      console.log('[Carnet du Poète] trouvé dans le coffre :', fichier.path);
+      return await plugin.app.vault.read(fichier);
+    }
+  } catch (e) {
+    console.warn('[Carnet du Poète] recherche dans le coffre impossible', e);
+  }
+
+  return null;
+}
+
+async function chargeDictionnairePerso(plugin, opts){
+  const notifierAbsence = !!(opts && opts.notifierAbsence);
   // on repart toujours de la base pour ne jamais accumuler de doublons
   // si cette fonction est appelée plusieurs fois (rechargement manuel)
   FAMILLES.length = 0;
@@ -289,19 +326,15 @@ async function chargeDictionnairePerso(plugin){
   DICO_PHONETIQUE_GROUPES = null;
 
   try {
-    // manifest.dir n'est pas garanti sur toutes les versions/plateformes ;
-    // on reconstruit le chemin à partir du dossier de config du coffre.
-    const dir = plugin.manifest.dir || `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
-    const path = `${dir}/dictionnaire-perso.json`;
-    console.log('[Carnet du Poète] recherche du dictionnaire personnel :', path);
-
-    const exists = await plugin.app.vault.adapter.exists(path);
-    if (!exists) {
-      console.log('[Carnet du Poète] aucun dictionnaire-perso.json trouvé à cet emplacement.');
+    const raw = await trouveEtLisDictionnairePerso(plugin);
+    if (raw === null) {
+      console.log('[Carnet du Poète] aucun dictionnaire-perso.json trouvé (ni dans le dossier du plugin, ni dans le coffre).');
+      if (notifierAbsence) {
+        new Notice('Carnet du Poète : aucun dictionnaire-perso.json trouvé — ni dans le dossier du plugin, ni ailleurs dans le coffre. Vérifie le nom exact du fichier.', 6000);
+      }
       return;
     }
 
-    const raw = await plugin.app.vault.adapter.read(path);
     let data;
     try {
       data = JSON.parse(raw);
@@ -659,7 +692,7 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
     this.addCommand({
       id: 'recharger-dictionnaire-perso',
       name: 'Recharger le dictionnaire personnel de rimes (dictionnaire-perso.json)',
-      callback: async () => { await chargeDictionnairePerso(this); }
+      callback: async () => { await chargeDictionnairePerso(this, { notifierAbsence: true }); }
     });
 
     this.addCommand({
