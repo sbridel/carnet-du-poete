@@ -99,7 +99,7 @@ const METRES = {
    DICTIONNAIRE DE RIMES — ~60 familles de sons
    ========================================================= */
 
-const FAMILLES = [
+const FAMILLES_BASE = [
   {son:"-oi / -oie [wa]", exemple:"roi, joie", terms:['oie','oies','ois','oit','oix','oi'],
    mots:["roi","loi","joie","voix","moi","toi","soi","quoi","foi","croix","fois","emploi","effroi","désarroi","autrefois","parfois","pourquoi","tournoi","proie","courroie","soie","voie","oie"]},
   {son:"-an / -ent / -emps [ɑ̃]", exemple:"temps, enfant", terms:['emps','ant','ent','ang','and','an'],
@@ -227,6 +227,7 @@ const FAMILLES = [
   {son:"-ique (bis) / -yque", exemple:"lyrique, angélique", terms:['yque'],
    mots:["lyrique"]}
 ];
+const FAMILLES = FAMILLES_BASE.slice();
 
 function normaliseMot(mot){
   return (mot || '').toLowerCase().trim().replace(/[^a-zàâäéèêëîïôöùûüÿœ']/gi, '');
@@ -261,23 +262,54 @@ function estFeminine(mot){
    }
    ========================================================= */
 async function chargeDictionnairePerso(plugin){
+  // on repart toujours de la base pour ne jamais accumuler de doublons
+  // si cette fonction est appelée plusieurs fois (rechargement manuel)
+  FAMILLES.length = 0;
+  FAMILLES.push(...FAMILLES_BASE);
   try {
-    const dir = plugin.manifest.dir; // ex: .obsidian/plugins/carnet-du-poete
-    const path = dir + '/dictionnaire-perso.json';
+    // manifest.dir n'est pas garanti sur toutes les versions/plateformes ;
+    // on reconstruit le chemin à partir du dossier de config du coffre.
+    const dir = plugin.manifest.dir || `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`;
+    const path = `${dir}/dictionnaire-perso.json`;
+    console.log('[Carnet du Poète] recherche du dictionnaire personnel :', path);
+
     const exists = await plugin.app.vault.adapter.exists(path);
-    if (!exists) return;
+    if (!exists) {
+      console.log('[Carnet du Poète] aucun dictionnaire-perso.json trouvé à cet emplacement.');
+      return;
+    }
+
     const raw = await plugin.app.vault.adapter.read(path);
-    const data = JSON.parse(raw);
-    if (data && Array.isArray(data.familles)) {
-      data.familles.forEach(f => {
-        if (f && f.son && Array.isArray(f.terms) && Array.isArray(f.mots)) {
-          FAMILLES.push(f);
-        }
-      });
-      new Notice(`Carnet du Poète : ${data.familles.length} famille(s) personnalisée(s) chargée(s).`);
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (parseErr) {
+      console.error('[Carnet du Poète] dictionnaire-perso.json : JSON invalide', parseErr);
+      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé mais le JSON est invalide (voir la console pour le détail).');
+      return;
+    }
+
+    if (!data || !Array.isArray(data.familles)) {
+      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais la clé "familles" est absente ou invalide.');
+      return;
+    }
+
+    let count = 0;
+    data.familles.forEach(f => {
+      if (f && f.son && Array.isArray(f.terms) && Array.isArray(f.mots)) {
+        FAMILLES.push(f);
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      new Notice(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
+    } else {
+      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
     }
   } catch (e) {
-    console.error('Carnet du Poète — erreur de chargement du dictionnaire personnel', e);
+    console.error('[Carnet du Poète] erreur de chargement du dictionnaire personnel', e);
+    new Notice('Carnet du Poète : erreur lors du chargement du dictionnaire personnel (voir la console : Ctrl/Cmd+Maj+I).');
   }
 }
 
@@ -352,13 +384,14 @@ class CarnetView extends ItemView {
         total += r.total;
         const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
         ligneEl.createSpan({ cls: 'cp-texte', text: ligne });
+        const badges = ligneEl.createDiv({ cls: 'cp-badges' });
         if (METRES[r.total]) {
-          ligneEl.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
+          badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
         }
         if (r.hasHiatus && r.totalMax !== r.total) {
-          ligneEl.createSpan({ cls: 'cp-hiatus-badge', text: `diérèse possible : ${r.totalMax}` });
+          badges.createSpan({ cls: 'cp-hiatus-badge', text: `diérèse possible : ${r.totalMax}` });
         }
-        ligneEl.createSpan({ cls: 'cp-compte', text: String(r.total) });
+        badges.createSpan({ cls: 'cp-compte', text: String(r.total) });
       });
       totalBar.style.display = 'flex';
       totalBar.empty();
@@ -494,11 +527,54 @@ class RhymeModal extends Modal {
 }
 
 /* =========================================================
+   STYLE INJECTÉ EN JS
+   (indépendant du chargement de styles.css, qui n'est pas
+   toujours pris en compte selon la plateforme/le moment
+   d'installation — on l'injecte donc nous-mêmes pour être sûr
+   que l'affichage ne se retrouve jamais "tout collé")
+   ========================================================= */
+const CARNET_CSS = `
+.carnet-poete-view{ padding: 4px 14px 24px; font-family: var(--font-interface); }
+.carnet-poete-view h2{ font-family: var(--font-text); font-style: italic; font-weight: 500; margin-bottom: 4px; }
+.cp-tabs{ display:flex; gap: 4px; margin: 10px 0 16px; border-bottom: 1px solid var(--background-modifier-border); }
+.cp-tab{ background:none; border:none; box-shadow:none; padding: 6px 12px 8px; cursor:pointer; color: var(--text-muted); font-weight: 600; font-size: 0.88em; }
+.cp-tab.active{ color: var(--text-normal); border-bottom: 2px solid var(--text-accent); }
+.cp-panel{ display:none; }
+.cp-panel.active{ display:block; }
+.cp-textarea{ width: 100%; min-height: 160px; resize: vertical; font-family: var(--font-monospace); font-size: 0.92em; line-height: 1.8; padding: 10px 12px; border-radius: 4px; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); color: var(--text-normal); }
+.cp-toolbar{ display:flex; justify-content: flex-end; align-items:center; gap: 12px; margin-top: 6px; }
+.cp-save-state{ font-size: 0.75em; color: var(--text-faint); font-style: italic; }
+.cp-link-btn{ background:none; border:none; box-shadow:none; color: var(--text-muted); text-decoration: underline; font-size: 0.78em; cursor:pointer; padding:0; }
+.cp-link-btn:hover{ color: var(--text-accent); }
+.cp-analyse{ margin-top: 14px; }
+.cp-ligne{ display:flex; flex-wrap: wrap; align-items:center; row-gap: 4px; column-gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.88em; }
+.cp-ligne:last-child{ border-bottom:none; }
+.cp-texte{ flex: 1 1 220px; min-width: 140px; color: var(--text-normal); white-space: pre-wrap; word-break: break-word; }
+.cp-badges{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-left:auto; }
+.cp-compte{ display:inline-block; color: #fff; background: var(--text-accent); font-weight: 700; min-width: 18px; text-align:center; padding: 2px 9px; border-radius: 10px; }
+.cp-metre{ font-family: var(--font-interface); font-size: 0.68em; color: var(--text-muted); background: var(--background-modifier-hover); padding: 2px 8px; border-radius: 10px; white-space:nowrap; }
+.cp-total-bar{ display:flex; flex-wrap:wrap; justify-content: space-between; gap:8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.82em; color: var(--text-muted); }
+.cp-total-bar strong{ color: var(--text-normal); }
+.cp-rime-form{ display:flex; gap:6px; margin-bottom: 16px; }
+.cp-rime-form input{ flex:1; }
+.cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
+.cp-groupe{ margin-bottom: 10px; }
+.cp-titre{ font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
+.cp-mots{ display:flex; flex-wrap:wrap; gap:6px; }
+.cp-mot{ display:inline-block; font-family: var(--font-monospace); font-size: 0.84em; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); border-left: 3px solid var(--text-accent); padding: 4px 8px; border-radius: 3px; color: var(--text-normal); }
+.cp-mot sup{ color: var(--text-faint); margin-left:2px; }
+.cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
+.cp-footer{ margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--background-modifier-border); font-size: 0.72em; color: var(--text-faint); line-height: 1.6; }
+.cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
+`;
+
+/* =========================================================
    PLUGIN
    ========================================================= */
 
 module.exports = class CarnetDuPoetePlugin extends Plugin {
   async onload(){
+    this.injectStyles();
     await chargeDictionnairePerso(this);
 
     this.registerView(VIEW_TYPE, (leaf) => new CarnetView(leaf, this));
@@ -509,6 +585,12 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
       id: 'ouvrir-carnet-du-poete',
       name: 'Ouvrir le Carnet du Poète',
       callback: () => this.activateView()
+    });
+
+    this.addCommand({
+      id: 'recharger-dictionnaire-perso',
+      name: 'Recharger le dictionnaire personnel de rimes (dictionnaire-perso.json)',
+      callback: async () => { await chargeDictionnairePerso(this); }
     });
 
     this.addCommand({
@@ -543,8 +625,22 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
     });
   }
 
+  injectStyles(){
+    if (document.getElementById('carnet-du-poete-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'carnet-du-poete-styles';
+    style.textContent = CARNET_CSS;
+    document.head.appendChild(style);
+  }
+
+  removeStyles(){
+    const el = document.getElementById('carnet-du-poete-styles');
+    if (el) el.remove();
+  }
+
   onunload(){
     this.app.workspace.detachLeavesOfType(VIEW_TYPE);
+    this.removeStyles();
   }
 
   async activateView(){
