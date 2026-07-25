@@ -1,75 +1,75 @@
-# Le Carnet du Poète — plugin Obsidian
+# Le Carnet du Poete
 
-Compteur de syllabes (versification française) et dictionnaire de rimes, directement dans Obsidian.
+Syllable counter (French versification) and rhyming dictionary, directly within Obsidian.
 
-## Installation manuelle
+## Manual installation
 
-1. Repère le dossier de plugins de ton coffre : `<ton-coffre>/.obsidian/plugins/`
-   (si le dossier `plugins` n'existe pas encore, crée-le).
-2. Copie le dossier entier `carnet-du-poete-plugin` à l'intérieur, puis renomme-le `carnet-du-poete`
-   (le dossier doit contenir `manifest.json`, `main.js`, `styles.css`).
-3. Dans Obsidian : **Paramètres → Plugins tiers**. Désactive le "Mode sans échec" si besoin,
-   puis active **Carnet du Poète** dans la liste.
-4. Une plume 🪶 apparaît dans la barre latérale gauche : clique dessus pour ouvrir le carnet.
+1. Locate your vault’s plugins folder: `<your-vault>/.obsidian/plugins/`
+   (if the `plugins` folder does not yet exist, create it).
+2. Copy the entire `carnet-du-poete-plugin` folder into it, then rename it to `carnet-du-poete`
+   (the folder must contain `manifest.json`, `main.js` and `styles.css`).
+3. In Obsidian: **Settings → Third-party plugins**. Disable “Safe Mode” if necessary,
+   then enable **Poet’s Notebook** from the list.
+4. A quill 🪶 appears in the left-hand sidebar: click on it to open the notebook.
 
-Aucune compilation n'est nécessaire : le plugin est écrit en JavaScript pur, prêt à l'emploi.
+No compilation is required: the plugin is written in pure JavaScript and is ready to use.
 
-## Ce que fait le plugin
+## What the plugin does
 
-- **Panneau "Syllabes"** : colle ou écris tes vers, chaque ligne est comptée en direct selon
-  la règle du *e* caduc (compté seulement s'il n'est ni en fin de vers, ni suivi d'un mot
-  commençant par une voyelle). Le mètre (octosyllabe, alexandrin…) est reconnu automatiquement.
-  Quand un mot contient un hiatus ambigu (ex. "nation", "poésie", "patience"), le compte
-  "avec diérèse" est affiché à côté — à toi de choisir la lecture qui sert ton vers.
-- **Panneau "Rimes"** : tape un mot, l'outil reconnaît sa famille sonore parmi une soixantaine
-  de familles et propose des rimes masculines/féminines avec leur nombre de syllabes.
-- **Brouillon persistant** : ton texte est sauvegardé automatiquement (stocké dans les données
-  du plugin, propre à ton coffre).
-- **Commandes** (palette de commandes, `Ctrl/Cmd+P`) :
-  - *Ouvrir le Carnet du Poète*
-  - *Compter les syllabes de la sélection (ou de la ligne courante)* — affiche le résultat
-    dans une notification, utilisable directement pendant l'écriture d'une note.
-  - *Chercher des rimes pour le mot sélectionné* — ouvre une fenêtre de résultats.
+- **‘Syllables’ panel**: paste or type your verses; each line is counted in real time according to
+  the rule for the silent *e* (counted only if it is neither at the end of a line nor followed by a word
+  beginning with a vowel). The metre (octosyllable, alexandrine, etc.) is recognised automatically.
+  When a word contains an ambiguous hiatus (e.g. ‘nation’, ‘poésie’, ‘patience’), the count
+  ‘with diaeresis’ is displayed alongside — it’s up to you to choose the pronunciation that best suits your verse.
+- **‘Rhymes’ panel**: type in a word, and the tool identifies its sound family from among around sixty
+  families and suggests masculine/feminine rhymes along with their syllable counts.
+- **Persistent draft**:Your text is saved automatically (stored in the plugin’s data,
+  specific to your vault).
+- **Commands** (commands palette, `Ctrl/Cmd+P`):
+  - *Open the Poet’s Notebook*
+  - *Count the syllables in the selection (or the current line)* — displays the result
+    in a notification, which can be used directly whilst writing a note.
+  - *Search for rhymes for the selected word* — opens a results window.
 
-## Étendre le dictionnaire de rimes
+## Expanding the rhyme dictionary
 
-Le dictionnaire intégré (~60 familles de sons, ~1000 mots) est un choix éditorial, pas un
-lexique phonétique exhaustif — il ne remplace pas un vrai dictionnaire de rimes basé sur des
-transcriptions phonétiques complètes (ex. Lexique383, ou l'API du projet open source
-[Remède](https://github.com/camarm-dev/remede)). Générer un tel lexique complet demande un
-gros fichier de données (des dizaines de Mo) que je n'ai pas pu embarquer directement ici.
+The built-in dictionary (~60 sound families, ~1,000 words) is an editorial selection, not an
+exhaustive phonetic lexicon — it is no substitute for a proper rhyme dictionary based on
+complete phonetic transcriptions (e.g. Lexique383, or the API of the open-source project
+[Remède](https://github.com/camarm-dev/remede)). Generating such a comprehensive lexicon requires a
+large data file (tens of MB) which I have not been able to embed directly here.
 
-Tu peux toutefois ajouter tes propres familles de rimes sans toucher au code : crée un fichier
-`dictionnaire-perso.json` dans le dossier du plugin (`.obsidian/plugins/carnet-du-poete/`),
-au format :
+However, you can add your own rhyme families without touching the code: create a file
+`personal-dictionary.json` in the plugin folder (`.obsidian/plugins/carnet-du-poete/`),
+in the following format:
 
 ```json
 {
-  "familles": [
+  ‘families’: [
     {
-      "son": "-onk [personnalisé]",
-      "exemple": "conque, jonque",
-      "terms": ["onque", "onk"],
-      "mots": ["conque", "jonque", "adonque"]
+      ‘son’: ‘-onk [custom]’,
+      ‘example’: ‘conque, jonque’,
+      ‘terms’: [“onque”, ‘onk’],
+      ‘words’: [‘conque’, “jonque”, ‘adonque’]
     }
   ]
 }
 ```
 
-- `terms` : les terminaisons orthographiques qui déclenchent cette famille (les plus longues
-  et spécifiques gagnent en cas de conflit).
-- `mots` : la liste de mots proposés comme rimes.
+- `terms`: the spelling endings that trigger this family (the longest
+  and most specific ones take precedence in the event of a conflict).
+- `words`: the list of words suggested as rhymes.
 
-Le fichier est rechargé à chaque démarrage d'Obsidian (ou en désactivant/réactivant le plugin).
-Si tu génères un jour un export JSON depuis Remède ou Dico-Rimes dans ce format, tu peux
-l'utiliser directement de cette façon pour remplacer/compléter le dictionnaire intégré.
+The file is reloaded every time Obsidian starts up (or when you disable and re-enable the plugin).
+If you ever generate a JSON export from Remède or Dico-Rimes in this format, you can
+use it directly in this way to replace or supplement the built-in dictionary.
 
-## Limites connues
+## Known limitations
 
-- Le comptage syllabique est une heuristique orthographique (comme la plupart des outils
-  gratuits en ligne), pas une transcription phonétique complète : les cas très irréguliers
-  (liaisons complexes, mots rares, latin/grec francisé) peuvent nécessiter un ajustement manuel.
-- La détection de diérèse/synérèse repose sur une liste de diphtongues "fixes" (toujours 1
-  syllabe) ; tout hiatus vocalique hors de cette liste est signalé comme "diérèse possible",
-  à toi d'arbitrer selon le mètre visé.
-- Le dictionnaire de rimes est curaté à la main : un mot rare peut ne pas être reconnu.
+- Syllable counting is a spelling heuristic (like most
+  free online tools), not a complete phonetic transcription: highly irregular cases
+  (complex liaisons, rare words, Latin/Greek words adapted to French) may require manual adjustment.
+- The detection of dieresis/syneresis is based on a list of ‘fixed’ diphthongs (always 1
+  syllable); any vowel hiatus not on this list is flagged as ‘possible dieresis’,
+  and it is up to you to decide based on the intended metre.
+- The rhyming dictionary is curated manually: a rare word may not be recognised.
