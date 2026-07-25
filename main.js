@@ -16,7 +16,7 @@ const DIPHTONGUES_FIXES = ['ai','ei','au','eau','eu','œu','oeu','ou','oi','oy',
 function estVoyelle(ch){ return !!ch && VOYELLES.includes(ch.toLowerCase()); }
 
 function nettoieMot(mot){
-  return (mot || '').toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüÿœ']/gi, '');
+  return (mot || '').toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
 }
 
 function trouveGroupesVoyelles(w){
@@ -230,7 +230,7 @@ const FAMILLES_BASE = [
 const FAMILLES = FAMILLES_BASE.slice();
 
 function normaliseMot(mot){
-  return (mot || '').toLowerCase().trim().replace(/[^a-zàâäéèêëîïôöùûüÿœ']/gi, '');
+  return (mot || '').toLowerCase().trim().replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
 }
 
 function trouveFamille(mot){
@@ -253,19 +253,41 @@ function estFeminine(mot){
 }
 
 /* =========================================================
-   DICTIONNAIRE PERSONNEL (optionnel)
-   Fichier JSON dans le dossier du plugin :
+   DICTIONNAIRE PERSONNEL (optionnel) — deux formats acceptés
+   Fichier dictionnaire-perso.json dans le dossier du plugin :
+
+   A) Familles "maison", en plus du dictionnaire intégré :
    {
      "familles": [
        { "son": "-onk [personnalisé]", "exemple": "...", "terms": ["onk"], "mots": ["..."] }
      ]
    }
+
+   B) Dictionnaire phonétique complet (ex. export type Remède/
+   Dico-Rimes) : un objet plat où chaque clé est un code de rime
+   phonétique et la valeur la liste des mots qui riment vraiment
+   (regroupement par prononciation, pas par orthographe) :
+   {
+     "ka": ["avocat", "cas", "syndicat", ...],
+     "sa": ["cassa", "dansa", "pensa", ...],
+     ...
+   }
+   Ce second format prend le pas sur le dictionnaire intégré dès
+   qu'un mot y est trouvé (recherche exacte, beaucoup plus fiable
+   que les familles orthographiques faites à la main).
    ========================================================= */
+
+let DICO_PHONETIQUE = null;        // Map: mot (minuscule) -> clé de rime
+let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
+
 async function chargeDictionnairePerso(plugin){
   // on repart toujours de la base pour ne jamais accumuler de doublons
   // si cette fonction est appelée plusieurs fois (rechargement manuel)
   FAMILLES.length = 0;
   FAMILLES.push(...FAMILLES_BASE);
+  DICO_PHONETIQUE = null;
+  DICO_PHONETIQUE_GROUPES = null;
+
   try {
     // manifest.dir n'est pas garanti sur toutes les versions/plateformes ;
     // on reconstruit le chemin à partir du dossier de config du coffre.
@@ -289,28 +311,131 @@ async function chargeDictionnairePerso(plugin){
       return;
     }
 
-    if (!data || !Array.isArray(data.familles)) {
-      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais la clé "familles" est absente ou invalide.');
+    if (!data || typeof data !== 'object') {
+      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son contenu n\'est pas un objet JSON valide.');
       return;
     }
 
-    let count = 0;
-    data.familles.forEach(f => {
-      if (f && f.son && Array.isArray(f.terms) && Array.isArray(f.mots)) {
-        FAMILLES.push(f);
-        count++;
+    // Format A : familles personnalisées
+    if (Array.isArray(data.familles)) {
+      let count = 0;
+      data.familles.forEach(f => {
+        if (f && f.son && Array.isArray(f.terms) && Array.isArray(f.mots)) {
+          FAMILLES.push(f);
+          count++;
+        }
+      });
+      if (count > 0) {
+        new Notice(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
+      } else {
+        new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
       }
+      return;
+    }
+
+    // Format B : dictionnaire phonétique complet (objet plat clé -> mots[])
+    const cles = Object.keys(data);
+    const clesValides = cles.filter(k => Array.isArray(data[k]));
+    if (clesValides.length === 0) {
+      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme dictionnaire phonétique (objet clé → liste de mots).');
+      return;
+    }
+
+    const index = new Map();
+    let totalMots = 0;
+    clesValides.forEach(cle => {
+      data[cle].forEach(mot => {
+        if (typeof mot === 'string' && mot.trim()) {
+          index.set(mot.trim().toLowerCase(), cle);
+          totalMots++;
+        }
+      });
     });
 
-    if (count > 0) {
-      new Notice(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
-    } else {
-      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
-    }
+    DICO_PHONETIQUE = index;
+    DICO_PHONETIQUE_GROUPES = data;
+
+    new Notice(`Carnet du Poète : dictionnaire de rimes complet chargé — ${clesValides.length} groupes phonétiques, ${totalMots} mots.`);
+    console.log(`[Carnet du Poète] dictionnaire phonétique chargé : ${clesValides.length} groupes, ${totalMots} mots.`);
   } catch (e) {
     console.error('[Carnet du Poète] erreur de chargement du dictionnaire personnel', e);
     new Notice('Carnet du Poète : erreur lors du chargement du dictionnaire personnel (voir la console : Ctrl/Cmd+Maj+I).');
   }
+}
+
+/* Recherche unifiée : dictionnaire phonétique complet en priorité
+   (correspondance exacte), puis repli sur les familles heuristiques
+   orthographiques si le mot n'y figure pas. */
+function chercheRimes(motSaisi){
+  const motLower = (motSaisi || '').trim().toLowerCase();
+  const motNorm = normaliseMot(motSaisi);
+
+  if (DICO_PHONETIQUE && DICO_PHONETIQUE.has(motLower)) {
+    const cle = DICO_PHONETIQUE.get(motLower);
+    const tousLesMots = (DICO_PHONETIQUE_GROUPES[cle] || []).filter(m => m.toLowerCase() !== motLower);
+    return { mode: 'exact', cle, mots: tousLesMots };
+  }
+
+  const famille = trouveFamille(motSaisi);
+  if (famille) {
+    const mots = famille.mots.filter(m => normaliseMot(m) !== motNorm);
+    return { mode: 'heuristique', son: famille.son, exemple: famille.exemple, mots };
+  }
+
+  return { mode: 'aucun', mots: [] };
+}
+
+/* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
+   Les groupes phonétiques exacts peuvent contenir plusieurs milliers
+   de mots (ex. toutes les conjugaisons en -erai) : on n'affiche que
+   les 100 premiers par défaut, avec un bouton pour dérouler le reste. */
+function renderResultatsRimes(container, motSaisi){
+  container.empty();
+  const saisie = (motSaisi || '').trim();
+  if (!saisie) return;
+
+  const resultat = chercheRimes(saisie);
+
+  if (resultat.mode === 'aucun') {
+    container.createEl('p', { cls: 'cp-vide', text: `Pas de rime trouvée pour « ${saisie} » dans les dictionnaires chargés.` });
+    return;
+  }
+
+  if (resultat.mode === 'exact') {
+    container.createDiv({ cls: 'cp-son-label', text: `Rimes exactes pour « ${saisie} » (dictionnaire phonétique complet)` });
+  } else {
+    container.createDiv({ cls: 'cp-son-label', text: `Son ${resultat.son} — comme dans « ${resultat.exemple} » (dictionnaire approché)` });
+  }
+
+  const masculins = resultat.mots.filter(m => !estFeminine(m));
+  const feminins = resultat.mots.filter(m => estFeminine(m));
+  const LIMITE = 100;
+
+  const buildGroupe = (titre, liste) => {
+    if (liste.length === 0) return;
+    const g = container.createDiv({ cls: 'cp-groupe' });
+    g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
+    const motsDiv = g.createDiv({ cls: 'cp-mots' });
+    const afficheListe = (sousListe) => {
+      sousListe.forEach(m => {
+        const r = compteSyllabesMot(m, false);
+        const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
+        badge.createEl('sup', { text: String(r.min) });
+      });
+    };
+    afficheListe(liste.slice(0, LIMITE));
+    if (liste.length > LIMITE) {
+      const reste = liste.length - LIMITE;
+      const btnPlus = g.createEl('button', { cls: 'cp-link-btn', text: `Afficher les ${reste} mots restants` });
+      btnPlus.addEventListener('click', () => {
+        afficheListe(liste.slice(LIMITE));
+        btnPlus.remove();
+      });
+    }
+  };
+
+  buildGroupe('Rimes masculines', masculins);
+  buildGroupe('Rimes féminines (finale en -e muet)', feminins);
 }
 
 /* =========================================================
@@ -437,38 +562,7 @@ class CarnetView extends ItemView {
     const btnChercher = rimeForm.createEl('button', { text: 'Chercher' });
     const resultatsDiv = panelRimes.createDiv({ cls: 'cp-resultats' });
 
-    const chercher = () => {
-      resultatsDiv.empty();
-      const saisie = motInput.value.trim();
-      if (!saisie) return;
-      const famille = trouveFamille(saisie);
-      const motNorm = normaliseMot(saisie);
-
-      if (!famille) {
-        resultatsDiv.createEl('p', { cls: 'cp-vide', text: `Pas de famille de rimes reconnue pour « ${saisie} » dans ce dictionnaire.` });
-        return;
-      }
-
-      const candidats = famille.mots.filter(m => normaliseMot(m) !== motNorm);
-      const masculins = candidats.filter(m => !estFeminine(m));
-      const feminins = candidats.filter(m => estFeminine(m));
-
-      resultatsDiv.createDiv({ cls: 'cp-son-label', text: `Son ${famille.son} — comme dans « ${famille.exemple} »` });
-
-      const buildGroupe = (titre, liste) => {
-        if (liste.length === 0) return;
-        const g = resultatsDiv.createDiv({ cls: 'cp-groupe' });
-        g.createDiv({ cls: 'cp-titre', text: titre });
-        const motsDiv = g.createDiv({ cls: 'cp-mots' });
-        liste.forEach(m => {
-          const r = compteSyllabesMot(m, false);
-          const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
-          badge.createEl('sup', { text: String(r.min) });
-        });
-      };
-      buildGroupe('Rimes masculines', masculins);
-      buildGroupe('Rimes féminines (finale en -e muet)', feminins);
-    };
+    const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value);
 
     btnChercher.addEventListener('click', chercher);
     motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
@@ -495,33 +589,8 @@ class RhymeModal extends Modal {
     const { contentEl } = this;
     contentEl.addClass('carnet-poete-view');
     contentEl.createEl('h3', { text: `Rimes pour « ${this.mot} »` });
-
-    const famille = trouveFamille(this.mot);
-    const motNorm = normaliseMot(this.mot);
-
-    if (!famille) {
-      contentEl.createEl('p', { cls: 'cp-vide', text: `Pas de famille de rimes reconnue pour « ${this.mot} » dans ce dictionnaire.` });
-      return;
-    }
-    const candidats = famille.mots.filter(m => normaliseMot(m) !== motNorm);
-    const masculins = candidats.filter(m => !estFeminine(m));
-    const feminins = candidats.filter(m => estFeminine(m));
-
-    contentEl.createDiv({ cls: 'cp-son-label', text: `Son ${famille.son} — comme dans « ${famille.exemple} »` });
-
-    const buildGroupe = (titre, liste) => {
-      if (liste.length === 0) return;
-      const g = contentEl.createDiv({ cls: 'cp-groupe' });
-      g.createDiv({ cls: 'cp-titre', text: titre });
-      const motsDiv = g.createDiv({ cls: 'cp-mots' });
-      liste.forEach(m => {
-        const r = compteSyllabesMot(m, false);
-        const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
-        badge.createEl('sup', { text: String(r.min) });
-      });
-    };
-    buildGroupe('Rimes masculines', masculins);
-    buildGroupe('Rimes féminines (finale en -e muet)', feminins);
+    const resultatsDiv = contentEl.createDiv({ cls: 'cp-resultats' });
+    renderResultatsRimes(resultatsDiv, this.mot);
   }
   onClose(){ this.contentEl.empty(); }
 }
