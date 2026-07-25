@@ -1,0 +1,10 @@
+{
+  "id": "carnet-du-poete",
+  "name": "Carnet du Poète",
+  "version": "1.1.0",
+  "minAppVersion": "0.15.0",
+  "description": "Compteur de syllabes (règle du e caduc + détection des diérèses possibles) et dictionnaire de rimes pour la poésie française.",
+  "author": "Toi",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
