@@ -1,4 +1,4 @@
-# Le Carnet du Poete
+# Carnet du Poete
 
 Syllable counter (French versification) and rhyming dictionary, directly within Obsidian.
 
