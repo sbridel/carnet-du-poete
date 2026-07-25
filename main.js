@@ -20,10 +20,31 @@ function nettoieMot(mot){
 }
 
 function trouveGroupesVoyelles(w){
-  const regex = new RegExp('[' + VOYELLES + ']+', 'g');
+  // Cas particulier du français : un "y" entre deux voyelles (ra-yon,
+  // cra-yon, vo-yage, essa-yer...) se comporte comme un double "i" et
+  // sépare deux syllabes au lieu de fusionner avec elles. Un "y" qui
+  // n'est PAS entre deux voyelles (yeux, pays, cycle...) reste une
+  // voyelle normale.
   const groupes = [];
-  let m;
-  while ((m = regex.exec(w))) groupes.push(m[0]);
+  let courant = '';
+  for (let i = 0; i < w.length; i++){
+    const ch = w[i];
+    if (ch === 'y') {
+      const avantVoyelle = i > 0 && estVoyelle(w[i - 1]);
+      const apresVoyelle = i < w.length - 1 && estVoyelle(w[i + 1]);
+      if (avantVoyelle && apresVoyelle) {
+        if (courant) { groupes.push(courant); courant = ''; }
+        continue; // le y intervocalique agit comme une consonne, il n'entre dans aucun groupe
+      }
+    }
+    if (estVoyelle(ch)) {
+      courant += ch;
+    } else if (courant) {
+      groupes.push(courant);
+      courant = '';
+    }
+  }
+  if (courant) groupes.push(courant);
   return groupes;
 }
 
@@ -74,7 +95,10 @@ function compteSyllabesMot(motBrut, finalEPrononce){
 
 function analyseLigne(ligne){
   // le trait d'union sépare deux mots phonétiques distincts (ex. "vois-tu", "dit-il")
-  const mots = ligne.trim().split(/[\s\-]+/).filter(Boolean);
+  // on écarte aussi les tokens de pure ponctuation isolés par une espace
+  // (ex. l'espace avant ";" ou "!" en typographie française), qui ne sont
+  // pas de vrais "mots suivants" et fausseraient la règle du e caduc.
+  const mots = ligne.trim().split(/[\s\-]+/).filter(m => nettoieMot(m) !== '');
   let total = 0, totalMax = 0, hasHiatus = false;
   const details = [];
   mots.forEach((motBrut, i) => {
@@ -233,6 +257,301 @@ function normaliseMot(mot){
   return (mot || '').toLowerCase().trim().replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
 }
 
+/* =========================================================
+   CHAMPS LEXICAUX — inspiration de vocabulaire
+   Contrairement aux rimes (question de son), il s'agit ici de
+   proximité de sens : on tape un mot courant ("forêt") et on
+   reçoit un vocabulaire plus rare, littéraire ou désuet autour
+   du même thème ("canopée", "futaie", "orée"...), avec une courte
+   définition pour ne pas se tromper de sens.
+   ========================================================= */
+const CHAMPS_LEXICAUX_BASE = [
+  { theme: "Forêt & arbres", motsClefs: ["forêt","bois","arbre","arbres","forestier"],
+    mots: [
+      { mot:"canopée", note:"voûte formée par les cimes des arbres" },
+      { mot:"sylve", note:"forêt (littéraire, poétique)" },
+      { mot:"futaie", note:"forêt de grands arbres menés à maturité" },
+      { mot:"frondaison", note:"ensemble du feuillage d'un arbre" },
+      { mot:"ramure", note:"ensemble des branches" },
+      { mot:"orée", note:"lisière, bordure d'un bois" },
+      { mot:"bocage", note:"paysage de prés entourés de haies et d'arbres" },
+      { mot:"taillis", note:"jeunes arbres qu'on coupe régulièrement" },
+      { mot:"sous-bois", note:"végétation basse sous les arbres" },
+      { mot:"bosquet", note:"petit groupe d'arbres" },
+      { mot:"essart", note:"terrain défriché par le feu (vieilli)" },
+      { mot:"hallier", note:"buisson touffu et enchevêtré" },
+      { mot:"ramée", note:"branchage feuillu (littéraire)" },
+      { mot:"gaulis", note:"jeune taillis de perches" } ] },
+
+  { theme: "Mer & eau", motsClefs: ["mer","eau","océan","vague","vagues","onde"],
+    mots: [
+      { mot:"abysse", note:"fond marin insondable" },
+      { mot:"écume", note:"mousse blanche des vagues" },
+      { mot:"ressac", note:"retour violent des vagues sur le rivage" },
+      { mot:"embruns", note:"gouttelettes d'eau de mer soulevées par le vent" },
+      { mot:"houle", note:"mouvement ondulatoire de la mer sans déferler" },
+      { mot:"onde", note:"mot littéraire pour « eau, vague »" },
+      { mot:"nef", note:"navire (vieilli, poétique)" },
+      { mot:"estran", note:"partie du rivage découverte à marée basse" },
+      { mot:"grève", note:"rivage de sable ou de galets (vieilli)" },
+      { mot:"lame", note:"vague isolée" },
+      { mot:"flot", note:"masse d'eau en mouvement (souvent au pluriel, poétique)" },
+      { mot:"écueil", note:"rocher à fleur d'eau, dangereux" } ] },
+
+  { theme: "Nuit & obscurité", motsClefs: ["nuit","obscurité","noir","sombre"],
+    mots: [
+      { mot:"ténèbres", note:"obscurité profonde et menaçante" },
+      { mot:"pénombre", note:"demi-jour, lumière faible" },
+      { mot:"crépuscule", note:"lumière incertaine du soir (ou de l'aube)" },
+      { mot:"noirceur", note:"qualité de ce qui est noir, obscur" },
+      { mot:"obombrer", note:"couvrir d'ombre (verbe vieilli, littéraire)" },
+      { mot:"veille", note:"état de qui reste éveillé la nuit" },
+      { mot:"brune", note:"tombée de la nuit (vieilli, « à la brune »)" } ] },
+
+  { theme: "Lumière & soleil", motsClefs: ["lumière","soleil","clarté","éclat"],
+    mots: [
+      { mot:"rai", note:"mince rayon de lumière (littéraire)" },
+      { mot:"lueur", note:"faible lumière" },
+      { mot:"clarté", note:"lumière qui rend les choses visibles" },
+      { mot:"embrasement", note:"fait de s'enflammer, grande lumière rougeoyante" },
+      { mot:"fulgurance", note:"éclat soudain et intense" },
+      { mot:"resplendir", note:"briller avec éclat (verbe)" },
+      { mot:"aurore", note:"lumière du levant avant le soleil" },
+      { mot:"éclaircie", note:"moment de lumière entre deux nuages" } ] },
+
+  { theme: "Vent", motsClefs: ["vent","brise","tempête"],
+    mots: [
+      { mot:"zéphyr", note:"vent doux et léger (mythologique, poétique)" },
+      { mot:"bise", note:"vent froid et sec du nord" },
+      { mot:"aquilon", note:"vent du nord, violent (poétique, antique)" },
+      { mot:"autan", note:"vent du sud-est (Occitanie)" },
+      { mot:"bourrasque", note:"coup de vent violent et bref" },
+      { mot:"tourbillon", note:"mouvement d'air en spirale" } ] },
+
+  { theme: "Feu", motsClefs: ["feu","flamme","flammes","incendie"],
+    mots: [
+      { mot:"brasier", note:"masse de bois ou de charbons ardents" },
+      { mot:"âtre", note:"foyer de la cheminée (vieilli, poétique)" },
+      { mot:"tison", note:"reste de bois brûlé, encore incandescent" },
+      { mot:"flammèche", note:"petite flamme qui s'échappe d'un brasier" },
+      { mot:"fournaise", note:"lieu extrêmement chaud, four immense" },
+      { mot:"ardeur", note:"chaleur intense (souvent figuré, passion)" } ] },
+
+  { theme: "Temps qui passe", motsClefs: ["temps","éphémère","passager","fugitif"],
+    mots: [
+      { mot:"éphémère", note:"qui ne dure qu'un jour, très bref" },
+      { mot:"fugace", note:"qui disparaît vite" },
+      { mot:"caduc", note:"qui tombe, qui n'a plus cours" },
+      { mot:"suranné", note:"vieilli, passé de mode" },
+      { mot:"révolu", note:"entièrement écoulé, terminé" },
+      { mot:"vétuste", note:"dégradé, affaibli par le temps" } ] },
+
+  { theme: "Mort", motsClefs: ["mort","mourir","décès","tombe"],
+    mots: [
+      { mot:"trépas", note:"la mort (littéraire)" },
+      { mot:"linceul", note:"drap qui enveloppe un corps mort" },
+      { mot:"glas", note:"sonnerie de cloche annonçant une mort" },
+      { mot:"sépulcre", note:"tombeau (littéraire, biblique)" },
+      { mot:"faucheuse", note:"personnification de la mort armée d'une faux" },
+      { mot:"dépouille", note:"corps du défunt" },
+      { mot:"funeste", note:"qui apporte le malheur, la mort" },
+      { mot:"outre-tombe", note:"qui est au-delà de la mort" } ] },
+
+  { theme: "Amour", motsClefs: ["amour","aimer","amoureux","aimé"],
+    mots: [
+      { mot:"émoi", note:"trouble, agitation causé par une émotion" },
+      { mot:"flamme", note:"passion amoureuse (littéraire, « déclarer sa flamme »)" },
+      { mot:"transport", note:"élan violent d'un sentiment (vieilli)" },
+      { mot:"idylle", note:"amour naissant, tendre et simple" },
+      { mot:"épris", note:"qui éprouve un amour vif (adjectif)" },
+      { mot:"soupirant", note:"homme amoureux qui courtise (vieilli)" } ] },
+
+  { theme: "Tristesse & mélancolie", motsClefs: ["tristesse","triste","mélancolie","chagrin"],
+    mots: [
+      { mot:"spleen", note:"mélancolie profonde et vague (Baudelaire)" },
+      { mot:"langueur", note:"faiblesse mêlée de tristesse douce" },
+      { mot:"affliction", note:"grande douleur morale" },
+      { mot:"désolation", note:"tristesse profonde, désespoir" },
+      { mot:"accablement", note:"épuisement moral sous le poids d'un malheur" },
+      { mot:"morosité", note:"tendance à la tristesse, à la maussaderie" } ] },
+
+  { theme: "Joie", motsClefs: ["joie","joyeux","bonheur","content"],
+    mots: [
+      { mot:"allégresse", note:"joie vive et communicative" },
+      { mot:"liesse", note:"joie collective, en public" },
+      { mot:"jubilation", note:"joie exubérante" },
+      { mot:"félicité", note:"bonheur parfait et calme (littéraire)" },
+      { mot:"exultation", note:"joie débordante" } ] },
+
+  { theme: "Peur", motsClefs: ["peur","effrayé","effrayant","angoisse"],
+    mots: [
+      { mot:"effroi", note:"peur violente et soudaine" },
+      { mot:"épouvante", note:"peur extrême" },
+      { mot:"frayeur", note:"peur vive mais brève" },
+      { mot:"transir", note:"glacer de froid ou de peur (verbe)" } ] },
+
+  { theme: "Colère", motsClefs: ["colère","fâché","furieux"],
+    mots: [
+      { mot:"courroux", note:"colère violente (littéraire)" },
+      { mot:"ire", note:"colère (très vieilli, médiéval)" },
+      { mot:"fureur", note:"colère extrême, violente" } ] },
+
+  { theme: "Solitude & silence", motsClefs: ["solitude","seul","silence"],
+    mots: [
+      { mot:"esseulement", note:"état d'être seul, abandonné" },
+      { mot:"claustration", note:"fait d'être enfermé, isolé" },
+      { mot:"mutisme", note:"silence volontaire, fait de ne pas parler" },
+      { mot:"taciturnité", note:"caractère de qui parle peu" },
+      { mot:"susurrement", note:"murmure très doux" } ] },
+
+  { theme: "Ciel & étoiles", motsClefs: ["ciel","étoile","étoiles","astre"],
+    mots: [
+      { mot:"firmament", note:"la voûte céleste (littéraire)" },
+      { mot:"éther", note:"air pur des hautes régions du ciel (mythologique)" },
+      { mot:"empyrée", note:"partie la plus élevée du ciel, séjour des dieux" },
+      { mot:"zénith", note:"point le plus haut, au sommet" },
+      { mot:"astre", note:"corps céleste (étoile, planète)" } ] },
+
+  { theme: "Lune", motsClefs: ["lune","clair de lune"],
+    mots: [
+      { mot:"astre des nuits", note:"périphrase poétique désignant la lune" },
+      { mot:"croissant", note:"forme de la lune à certaines phases" } ] },
+
+  { theme: "Fleurs & jardin", motsClefs: ["fleur","fleurs","jardin","parfum"],
+    mots: [
+      { mot:"corolle", note:"ensemble des pétales d'une fleur" },
+      { mot:"calice", note:"enveloppe extérieure d'une fleur, sous les pétales" },
+      { mot:"effluve", note:"émanation, odeur subtile qui se dégage" },
+      { mot:"fragrance", note:"odeur agréable et délicate" },
+      { mot:"parterre", note:"partie d'un jardin où sont plantées des fleurs" } ] },
+
+  { theme: "Oiseaux", motsClefs: ["oiseau","oiseaux","chant"],
+    mots: [
+      { mot:"ramage", note:"chant des oiseaux dans les arbres (littéraire)" },
+      { mot:"pépiement", note:"petits cris des oiseaux" },
+      { mot:"envergure", note:"distance entre les extrémités des ailes déployées" } ] },
+
+  { theme: "Voix & parole", motsClefs: ["voix","parole","parler"],
+    mots: [
+      { mot:"susurrement", note:"murmure très doux" },
+      { mot:"verbe", note:"la parole elle-même (registre soutenu, « le verbe haut »)" },
+      { mot:"éloquence", note:"art de bien parler, de toucher par la parole" } ] },
+
+  { theme: "Regard & yeux", motsClefs: ["yeux","regard","œil"],
+    mots: [
+      { mot:"prunelle", note:"la pupille de l'œil (littéraire)" },
+      { mot:"chatoyant", note:"qui change de couleur selon la lumière" } ] },
+
+  { theme: "Mains", motsClefs: ["main","mains"],
+    mots: [
+      { mot:"paume", note:"intérieur de la main" } ] },
+
+  { theme: "Chemin & voyage", motsClefs: ["chemin","voyage","route"],
+    mots: [
+      { mot:"sente", note:"petit chemin étroit (vieilli, poétique)" },
+      { mot:"errance", note:"fait d'errer sans but précis" },
+      { mot:"pérégrination", note:"long voyage, souvent avec détours" },
+      { mot:"vagabondage", note:"fait d'errer sans domicile ni but" } ] },
+
+  { theme: "Rêve & sommeil", motsClefs: ["rêve","sommeil","dormir"],
+    mots: [
+      { mot:"songe", note:"rêve (littéraire, « faire un songe »)" },
+      { mot:"torpeur", note:"engourdissement, somnolence profonde" },
+      { mot:"chimère", note:"illusion, rêve irréalisable" },
+      { mot:"assoupissement", note:"fait de s'endormir à moitié" } ] },
+
+  { theme: "Destin", motsClefs: ["destin","sort","destinée"],
+    mots: [
+      { mot:"fatum", note:"le destin inéluctable (mot latin utilisé en littérature)" },
+      { mot:"augure", note:"signe qui annonce l'avenir" },
+      { mot:"présage", note:"signe annonciateur" } ] },
+
+  { theme: "Âme & esprit", motsClefs: ["âme","esprit"],
+    mots: [
+      { mot:"tréfonds", note:"partie la plus profonde et cachée (d'un sentiment, de l'âme)" },
+      { mot:"for intérieur", note:"la conscience la plus intime" } ] },
+
+  { theme: "Larmes", motsClefs: ["larme","larmes","pleurer"],
+    mots: [
+      { mot:"sanglot", note:"pleur bruyant, entrecoupé de hoquets" },
+      { mot:"pleur", note:"larme (littéraire, souvent au pluriel « des pleurs »)" } ] },
+
+  { theme: "Sang & blessure", motsClefs: ["sang","blessure","rouge"],
+    mots: [
+      { mot:"vermeil", note:"rouge vif, couleur du sang (littéraire)" },
+      { mot:"pourpre", note:"rouge très vif, couleur royale" },
+      { mot:"stigmate", note:"marque laissée par une blessure" },
+      { mot:"meurtrissure", note:"marque laissée par un coup" } ] },
+
+  { theme: "Guerre & chevalerie (médiéval)", motsClefs: ["guerre","combat","épée","chevalier"],
+    mots: [
+      { mot:"glaive", note:"épée (littéraire, biblique)" },
+      { mot:"heaume", note:"casque du chevalier médiéval couvrant tout le visage" },
+      { mot:"destrier", note:"cheval de bataille du chevalier" },
+      { mot:"joute", note:"combat singulier à cheval (tournoi médiéval)" },
+      { mot:"preux", note:"brave, vaillant (« preux chevalier »)" },
+      { mot:"oriflamme", note:"bannière, étendard" },
+      { mot:"estoc", note:"pointe de l'épée (« frapper d'estoc et de taille »)" } ] },
+
+  { theme: "Château & Moyen Âge", motsClefs: ["château","moyen-âge","moyen age","seigneur"],
+    mots: [
+      { mot:"donjon", note:"tour principale d'un château fort" },
+      { mot:"créneau", note:"ouverture dans un rempart pour tirer à l'abri" },
+      { mot:"douve", note:"fossé rempli d'eau autour d'un château" },
+      { mot:"poterne", note:"petite porte dérobée dans une fortification" },
+      { mot:"écuyer", note:"jeune noble au service d'un chevalier" },
+      { mot:"vassal", note:"celui qui doit fidélité à un seigneur" },
+      { mot:"suzerain", note:"seigneur dont dépendent des vassaux" },
+      { mot:"trouvère", note:"poète-musicien médiéval du nord de la France" },
+      { mot:"ménestrel", note:"musicien-poète ambulant du Moyen Âge" },
+      { mot:"damoiselle", note:"jeune fille noble non mariée" } ] },
+
+  { theme: "Vocabulaire désuet & archaïque", motsClefs: ["vieux","désuet","archaïque","ancien"],
+    mots: [
+      { mot:"jadis", note:"autrefois, il y a longtemps" },
+      { mot:"naguère", note:"il y a peu de temps (souvent confondu avec « jadis »)" },
+      { mot:"céans", note:"ici, dans cette maison (« le maître de céans »)" },
+      { mot:"ouïr", note:"entendre (verbe archaïque)" },
+      { mot:"moult", note:"beaucoup (très archaïque, médiéval)" },
+      { mot:"icelui, icelle", note:"celui-ci, celle-ci (archaïque, juridique)" },
+      { mot:"derechef", note:"de nouveau, une seconde fois" },
+      { mot:"adonc", note:"alors, donc (très archaïque)" },
+      { mot:"quérir", note:"chercher, aller chercher (« aller quérir »)" },
+      { mot:"forban", note:"pirate, hors-la-loi" },
+      { mot:"gent, gente", note:"gracieux, gentil (« la gent dame »)" } ] },
+
+  { theme: "Automne", motsClefs: ["automne","feuilles mortes"],
+    mots: [
+      { mot:"effeuillaison", note:"chute des feuilles" },
+      { mot:"glaner", note:"ramasser ce qui reste après la récolte (aussi figuré)" } ] },
+
+  { theme: "Hiver", motsClefs: ["hiver","froid","neige","gel"],
+    mots: [
+      { mot:"frimas", note:"brouillard givrant, froid rigoureux (souvent « les frimas de l'hiver »)" },
+      { mot:"givre", note:"fine couche de glace qui couvre les objets par temps froid" } ] },
+
+  { theme: "Printemps", motsClefs: ["printemps","renaissance"],
+    mots: [
+      { mot:"éclosion", note:"fait de s'ouvrir, de naître (aussi figuré)" },
+      { mot:"renouveau", note:"retour de la vie, du printemps (aussi figuré)" },
+      { mot:"sève", note:"liquide nourricier des plantes (aussi figuré, « la sève de la jeunesse »)" } ] },
+
+  { theme: "Montagne", motsClefs: ["montagne","sommet","pic"],
+    mots: [
+      { mot:"cime", note:"sommet d'une montagne ou d'un arbre" },
+      { mot:"escarpement", note:"pente raide et abrupte" },
+      { mot:"contrefort", note:"chaîne secondaire au pied d'une montagne" } ] },
+
+  { theme: "Poésie & écriture", motsClefs: ["poésie","poème","écrire","plume"],
+    mots: [
+      { mot:"muse", note:"source d'inspiration (mythologique)" },
+      { mot:"élégie", note:"poème mélancolique, souvent sur la perte" },
+      { mot:"ode", note:"poème lyrique célébrant quelque chose" },
+      { mot:"calame", note:"roseau taillé servant à écrire dans l'Antiquité" },
+      { mot:"parchemin", note:"peau préparée pour écrire (médiéval, antique)" } ] }
+];
+const CHAMPS_LEXICAUX = CHAMPS_LEXICAUX_BASE.slice();
+
 function trouveFamille(mot){
   const w = normaliseMot(mot);
   let meilleure = null, longueurMax = 0;
@@ -246,10 +565,55 @@ function trouveFamille(mot){
   return meilleure;
 }
 
+/* Recherche d'inspiration : on cherche le(s) thème(s) dont un des
+   mots-clés correspond exactement au mot saisi ; à défaut, on tente
+   une correspondance partielle (le mot-clé contient la saisie ou
+   l'inverse), utile pour les pluriels ou variantes non listées. */
+function sansAccents(s){
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Normalisation "souple" pour la recherche d'inspiration : ignore les
+// accents et un éventuel -s final de pluriel simple.
+function normaliseSouple(mot){
+  let s = sansAccents(normaliseMot(mot));
+  if (s.endsWith('s') && !s.endsWith('ss') && s.length > 3) s = s.slice(0, -1);
+  return s;
+}
+
+function chercheInspiration(motSaisi){
+  const w = normaliseMot(motSaisi);
+  const wSouple = normaliseSouple(motSaisi);
+  if (!w) return [];
+
+  const exacts = CHAMPS_LEXICAUX.filter(champ =>
+    champ.motsClefs.some(k => normaliseMot(k) === w || normaliseSouple(k) === wSouple)
+  );
+  if (exacts.length > 0) return exacts;
+
+  const partiels = CHAMPS_LEXICAUX.filter(champ =>
+    champ.motsClefs.some(k => {
+      const kn = normaliseSouple(k);
+      return kn.length > 3 && (kn.includes(wSouple) || wSouple.includes(kn));
+    })
+  );
+  return partiels;
+}
+
 function estFeminine(mot){
   let w = normaliseMot(mot);
   if (w.endsWith('s') && !w.endsWith('ss')) w = w.slice(0, -1);
   return /[^aeiouyàâäéèêëîïôöùûüÿœ]e$/.test(w);
+}
+
+/* Genre de la rime d'un vers : féminine si le dernier mot se termine par
+   un e muet (ou -es/-ent qui s'y ramène), masculine sinon. C'est le
+   dernier mot du vers qui compte, pas forcément le dernier "détail"
+   analysé (la ponctuation pure est déjà filtrée par analyseLigne). */
+function genreDuVers(details){
+  if (!details || details.length === 0) return null;
+  const dernier = details[details.length - 1].mot;
+  return estFeminine(dernier) ? 'F' : 'M';
 }
 
 /* =========================================================
@@ -322,6 +686,8 @@ async function chargeDictionnairePerso(plugin, opts){
   // si cette fonction est appelée plusieurs fois (rechargement manuel)
   FAMILLES.length = 0;
   FAMILLES.push(...FAMILLES_BASE);
+  CHAMPS_LEXICAUX.length = 0;
+  CHAMPS_LEXICAUX.push(...CHAMPS_LEXICAUX_BASE);
   DICO_PHONETIQUE = null;
   DICO_PHONETIQUE_GROUPES = null;
 
@@ -349,6 +715,21 @@ async function chargeDictionnairePerso(plugin, opts){
       return;
     }
 
+    // Champs lexicaux personnalisés (indépendant du format familles/phonétique
+    // ci-dessous : peut cohabiter avec l'un ou l'autre dans le même fichier)
+    let champsCount = 0;
+    if (Array.isArray(data.champsLexicaux)) {
+      data.champsLexicaux.forEach(c => {
+        if (c && c.theme && Array.isArray(c.motsClefs) && Array.isArray(c.mots)) {
+          CHAMPS_LEXICAUX.push(c);
+          champsCount++;
+        }
+      });
+      if (champsCount > 0) {
+        new Notice(`Carnet du Poète : ${champsCount} champ(s) lexical(aux) personnalisé(s) chargé(s).`);
+      }
+    }
+
     // Format A : familles personnalisées
     if (Array.isArray(data.familles)) {
       let count = 0;
@@ -360,17 +741,21 @@ async function chargeDictionnairePerso(plugin, opts){
       });
       if (count > 0) {
         new Notice(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
-      } else {
+      } else if (champsCount === 0) {
         new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
       }
       return;
     }
 
     // Format B : dictionnaire phonétique complet (objet plat clé -> mots[])
-    const cles = Object.keys(data);
+    // (on exclut les clés déjà traitées ci-dessus pour ne pas les confondre
+    // avec des groupes de rimes)
+    const cles = Object.keys(data).filter(k => k !== 'familles' && k !== 'champsLexicaux');
     const clesValides = cles.filter(k => Array.isArray(data[k]));
     if (clesValides.length === 0) {
-      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme dictionnaire phonétique (objet clé → liste de mots).');
+      if (champsCount === 0) {
+        new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme champs lexicaux, ni comme dictionnaire phonétique (objet clé → liste de mots).');
+      }
       return;
     }
 
@@ -471,6 +856,35 @@ function renderResultatsRimes(container, motSaisi){
   buildGroupe('Rimes féminines (finale en -e muet)', feminins);
 }
 
+/* Rendu partagé des résultats d'inspiration (panneau + fenêtre modale). */
+function renderResultatsInspiration(container, motSaisi){
+  container.empty();
+  const saisie = (motSaisi || '').trim();
+  if (!saisie) return;
+
+  const themes = chercheInspiration(saisie);
+  if (themes.length === 0) {
+    container.createEl('p', {
+      cls: 'cp-vide',
+      text: `Pas de champ lexical reconnu pour « ${saisie} » — essaie un mot plus général (ex. « forêt », « mer », « nuit », « amour »…) ou ajoute ton propre champ lexical via dictionnaire-perso.json.`
+    });
+    return;
+  }
+
+  themes.forEach(champ => {
+    const bloc = container.createDiv({ cls: 'cp-groupe' });
+    bloc.createDiv({ cls: 'cp-son-label', text: champ.theme });
+    const liste = bloc.createDiv({ cls: 'cp-inspi-liste' });
+    champ.mots.forEach(entree => {
+      const ligne = liste.createDiv({ cls: 'cp-inspi-mot' });
+      ligne.createSpan({ cls: 'cp-inspi-terme', text: entree.mot });
+      if (entree.note) {
+        ligne.createSpan({ cls: 'cp-inspi-note', text: entree.note });
+      }
+    });
+  });
+}
+
 /* =========================================================
    VUE PRINCIPALE
    ========================================================= */
@@ -494,24 +908,30 @@ class CarnetView extends ItemView {
     const tabBar = container.createDiv({ cls: 'cp-tabs' });
     const tabSyl = tabBar.createEl('button', { text: 'Syllabes', cls: 'cp-tab active' });
     const tabRimes = tabBar.createEl('button', { text: 'Rimes', cls: 'cp-tab' });
+    const tabInspi = tabBar.createEl('button', { text: 'Inspiration', cls: 'cp-tab' });
 
     const panelSyl = container.createDiv({ cls: 'cp-panel active' });
     const panelRimes = container.createDiv({ cls: 'cp-panel' });
+    const panelInspi = container.createDiv({ cls: 'cp-panel' });
 
     const switchTab = (which) => {
       tabSyl.toggleClass('active', which === 'syl');
       tabRimes.toggleClass('active', which === 'rimes');
+      tabInspi.toggleClass('active', which === 'inspi');
       panelSyl.toggleClass('active', which === 'syl');
       panelRimes.toggleClass('active', which === 'rimes');
+      panelInspi.toggleClass('active', which === 'inspi');
     };
     tabSyl.addEventListener('click', () => switchTab('syl'));
     tabRimes.addEventListener('click', () => switchTab('rimes'));
+    tabInspi.addEventListener('click', () => switchTab('inspi'));
 
     this.buildPanelSyllabes(panelSyl);
     this.buildPanelRimes(panelRimes);
+    this.buildPanelInspiration(panelInspi);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
-    footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèses possibles, affichées entre parenthèses). Dictionnaire curaté, non exhaustif — vous pouvez ajouter vos propres familles de rimes via un fichier dictionnaire-perso.json dans le dossier du plugin.');
+    footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèses possibles, affichées entre parenthèses). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, ou champs lexicaux).');
   }
 
   buildPanelSyllabes(panelSyl){
@@ -543,6 +963,16 @@ class CarnetView extends ItemView {
         const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
         ligneEl.createSpan({ cls: 'cp-texte', text: ligne });
         const badges = ligneEl.createDiv({ cls: 'cp-badges' });
+        const genre = genreDuVers(r.details);
+        if (genre) {
+          const badgeGenre = badges.createSpan({
+            cls: genre === 'F' ? 'cp-genre cp-genre-f' : 'cp-genre cp-genre-m',
+            text: genre
+          });
+          badgeGenre.setAttr('title', genre === 'F'
+            ? 'Rime féminine : le vers se termine par un e muet'
+            : 'Rime masculine : le vers ne se termine pas par un e muet');
+        }
         if (METRES[r.total]) {
           badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
         }
@@ -606,6 +1036,26 @@ class CarnetView extends ItemView {
     };
   }
 
+  buildPanelInspiration(panelInspi){
+    const intro = panelInspi.createEl('p', { cls: 'cp-inspi-intro' });
+    intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème.');
+
+    const form = panelInspi.createDiv({ cls: 'cp-rime-form' });
+    const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un thème… (ex. forêt, mer, nuit, amour, moyen-âge)' } });
+    const btnChercher = form.createEl('button', { text: 'Chercher' });
+    const resultatsDiv = panelInspi.createDiv({ cls: 'cp-resultats' });
+
+    const chercher = () => renderResultatsInspiration(resultatsDiv, motInput.value);
+
+    btnChercher.addEventListener('click', chercher);
+    motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+
+    this._prefillInspiInput = (mot) => {
+      motInput.value = mot;
+      chercher();
+    };
+  }
+
   async onClose(){}
 }
 
@@ -624,6 +1074,25 @@ class RhymeModal extends Modal {
     contentEl.createEl('h3', { text: `Rimes pour « ${this.mot} »` });
     const resultatsDiv = contentEl.createDiv({ cls: 'cp-resultats' });
     renderResultatsRimes(resultatsDiv, this.mot);
+  }
+  onClose(){ this.contentEl.empty(); }
+}
+
+/* =========================================================
+   MODALE D'INSPIRATION (depuis une sélection)
+   ========================================================= */
+
+class InspirationModal extends Modal {
+  constructor(app, mot){
+    super(app);
+    this.mot = mot;
+  }
+  onOpen(){
+    const { contentEl } = this;
+    contentEl.addClass('carnet-poete-view');
+    contentEl.createEl('h3', { text: `Inspiration autour de « ${this.mot} »` });
+    const resultatsDiv = contentEl.createDiv({ cls: 'cp-resultats' });
+    renderResultatsInspiration(resultatsDiv, this.mot);
   }
   onClose(){ this.contentEl.empty(); }
 }
@@ -655,6 +1124,9 @@ const CARNET_CSS = `
 .cp-badges{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-left:auto; }
 .cp-compte{ display:inline-block; color: #fff; background: var(--text-accent); font-weight: 700; min-width: 18px; text-align:center; padding: 2px 9px; border-radius: 10px; }
 .cp-metre{ font-family: var(--font-interface); font-size: 0.68em; color: var(--text-muted); background: var(--background-modifier-hover); padding: 2px 8px; border-radius: 10px; white-space:nowrap; }
+.cp-genre{ display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; font-size:0.66em; font-weight:700; cursor:help; flex-shrink:0; }
+.cp-genre-f{ background: var(--text-accent); color:#fff; }
+.cp-genre-m{ background: var(--text-muted); color:#fff; }
 .cp-total-bar{ display:flex; flex-wrap:wrap; justify-content: space-between; gap:8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.82em; color: var(--text-muted); }
 .cp-total-bar strong{ color: var(--text-normal); }
 .cp-rime-form{ display:flex; gap:6px; margin-bottom: 16px; }
@@ -666,6 +1138,12 @@ const CARNET_CSS = `
 .cp-mot{ display:inline-block; font-family: var(--font-monospace); font-size: 0.84em; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); border-left: 3px solid var(--text-accent); padding: 4px 8px; border-radius: 3px; color: var(--text-normal); }
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
+.cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
+.cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }
+.cp-inspi-mot{ display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; padding:5px 0; border-bottom:1px dashed var(--background-modifier-border); }
+.cp-inspi-mot:last-child{ border-bottom:none; }
+.cp-inspi-terme{ font-family: var(--font-text); font-weight:600; color: var(--text-accent); white-space:nowrap; }
+.cp-inspi-note{ font-size:0.82em; color: var(--text-muted); font-style:italic; }
 .cp-footer{ margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--background-modifier-border); font-size: 0.72em; color: var(--text-faint); line-height: 1.6; }
 .cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
 `;
@@ -710,7 +1188,9 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
           const r = analyseLigne(l);
           total += r.total;
           const suffixe = (r.hasHiatus && r.totalMax !== r.total) ? ` (ou ${r.totalMax} avec diérèse)` : '';
-          return `${r.total}${suffixe} — ${l}`;
+          const genre = genreDuVers(r.details);
+          const genreTxt = genre ? ` [${genre}]` : '';
+          return `${r.total}${suffixe}${genreTxt} — ${l}`;
         }).join('\n');
         new Notice(`${total} syllabes au total\n${detail}`, 9000);
       }
@@ -723,6 +1203,16 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
         const mot = (editor.getSelection() || '').trim();
         if (!mot) { new Notice('Sélectionne un mot d’abord.'); return; }
         new RhymeModal(this.app, mot).open();
+      }
+    });
+
+    this.addCommand({
+      id: 'chercher-inspiration-selection',
+      name: 'Chercher de l\'inspiration (vocabulaire) pour le mot sélectionné',
+      editorCallback: (editor) => {
+        const mot = (editor.getSelection() || '').trim();
+        if (!mot) { new Notice('Sélectionne un mot d’abord.'); return; }
+        new InspirationModal(this.app, mot).open();
       }
     });
   }

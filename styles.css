@@ -88,6 +88,9 @@
   border-radius: 10px;
   white-space:nowrap;
 }
+.cp-genre{ display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; font-size:0.66em; font-weight:700; cursor:help; flex-shrink:0; }
+.cp-genre-f{ background: var(--text-accent); color:#fff; }
+.cp-genre-m{ background: var(--text-muted); color:#fff; }
 .cp-total-bar{
   display:flex;
   justify-content: space-between;
@@ -130,6 +133,12 @@
 }
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
+.cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
+.cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }
+.cp-inspi-mot{ display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; padding:5px 0; border-bottom:1px dashed var(--background-modifier-border); }
+.cp-inspi-mot:last-child{ border-bottom:none; }
+.cp-inspi-terme{ font-family: var(--font-text); font-weight:600; color: var(--text-accent); white-space:nowrap; }
+.cp-inspi-note{ font-size:0.82em; color: var(--text-muted); font-style:italic; }
 .cp-footer{
   margin-top: 20px;
   padding-top: 10px;
