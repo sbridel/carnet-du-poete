@@ -13,7 +13,9 @@ side panel, no internet connection required for the core features.
   (octosyllable, alexandrine, etc.) and the **rhyme's gender** (a small F/M badge — feminine if
   the line ends on a silent *e*, masculine otherwise) are detected automatically. When a word
   contains an ambiguous hiatus (e.g. *nation*, *poésie*, *paupière*), a second line underneath
-  shows the full breakdown **with diaeresis** — you decide which reading fits your verse.
+  shows the full breakdown **with diaeresis** — you decide which reading fits your verse. This
+  variant can be toggled on/off with the "Variante diérèse" checkbox if you'd rather keep the
+  view lighter.
 - **Rhymes** — type a word and get masculine/feminine rhyme suggestions with their syllable
   count, drawn from roughly sixty built-in sound families. If you supply a complete phonetic
   rhyme dictionary (see below), exact matches from it take priority over the built-in
@@ -21,7 +23,9 @@ side panel, no internet connection required for the core features.
 - **Inspiration** — type a common word (*forest*, *sea*, *night*, *love*, *medieval*...) and get
   rarer, more literary or archaic vocabulary on the same theme (e.g. *forest* → canopy-related
   words such as *canopée*, *sylve*, *futaie*, *orée*), each with a short gloss. About thirty
-  themes are built in, including one dedicated to old/archaic French vocabulary.
+  themes are built in, including one dedicated to old/archaic French vocabulary. You can
+  optionally tick Wiktionnaire and/or CRISCO to pull in related words fetched live as extra
+  inspiration candidates.
 - **Synonyms** — type a word to see synonyms and antonyms. A small built-in dictionary answers
   instantly offline; you can additionally enable live lookups from **Wiktionnaire** and/or
   **CRISCO** (Université de Caen's synonym dictionary), toggled independently with checkboxes,
@@ -190,6 +194,13 @@ may temporarily return no results — the other source(s) and the local dictiona
 
 ## Changelog
 
+- **2.1.0** — Fixed a typographic apostrophe (’) being stripped from words (e.g. "l'ombre"
+  becoming "lombre"); fixed the diaeresis variant line sometimes appearing visually attached to
+  the following verse instead of its own; added a toggle to show/hide the diaeresis variant;
+  Inspiration tab can now optionally pull in live results from Wiktionnaire/CRISCO as bonus
+  vocabulary; expanded the Guide with metre names, caesura, enjambment/rejet, stanza naming,
+  more poem forms (triolet, virelai, tanka, calligramme, free/blank verse), and a note on
+  eye-rhymes vs ear-rhymes.
 - **2.0.0** — Synonyms tab can now query Wiktionnaire and/or CRISCO live (opt-in, selectable),
   with a one-click save into `dictionnaire-perso.json`; new `synonymes` custom-dictionary format
   usable independently or alongside rhyme families/phonetic dictionaries/vocabulary themes;
@@ -203,11 +214,11 @@ may temporarily return no results — the other source(s) and the local dictiona
   previously misclassified as masculine); new Synonyms and Guide tabs.
 - **1.7.0** — New Inspiration tab (thematic vocabulary), including a theme dedicated to
   archaic/medieval French, extensible via `champsLexicaux`.
-- **1.1.6** — Rhyme gender badge (F/M) added to every line in the Syllables tab.
-- **1.1.5** — Fixed intervocalic "y" (*rayon*, *crayon*, *voyage*...), which was wrongly merged
+- **1.6.0** — Rhyme gender badge (F/M) added to every line in the Syllables tab.
+- **1.5.0** — Fixed intervocalic "y" (*rayon*, *crayon*, *voyage*...), which was wrongly merged
   with neighbouring vowels instead of separating two syllables; fixed punctuation preceded by a
   French typographic space (e.g. before ";") being wrongly treated as a following word.
-- **1.1.3* — "ç" was no longer incorrectly stripped from analysed text (was breaking words like
+- **1.3.0** — "ç" was no longer incorrectly stripped from analysed text (was breaking words like
   *leçon*, *français*, *commença*).
-- **1.1.2* — Nasal vowels (*temps*, *enfant*, *m'attends* at the end of a line) were no longer
+- **1.2.0** — Nasal vowels (*temps*, *enfant*, *m'attends* at the end of a line) were no longer
   wrongly counted as a droppable silent *e*.

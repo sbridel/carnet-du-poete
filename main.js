@@ -16,7 +16,10 @@ const DIPHTONGUES_FIXES = ['ai','ei','au','eau','eu','œu','oeu','ou','oi','oy',
 function estVoyelle(ch){ return !!ch && VOYELLES.includes(ch.toLowerCase()); }
 
 function nettoieMot(mot){
-  return (mot || '').toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
+  // normalise l'apostrophe typographique (’) et les guillemets simples
+  // courbes vers l'apostrophe droite, sinon "l'ombre" perdait son
+  // apostrophe et devenait "lombre"
+  return (mot || '').toLowerCase().replace(/[’‘‛]/g, "'").replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
 }
 
 function trouveGroupesAvecPositions(w){
@@ -197,8 +200,8 @@ function indicesHiatus(motBrut){
    nettoieMot a retirée, autour du découpage syllabique, pour l'affichage. */
 function segmenteMotPourAffichage(motBrut, syllabes){
   if (!syllabes || syllabes.length === 0) return motBrut;
-  const avantMatch = motBrut.match(/^[^a-zàâäéèêëîïôöùûüÿœç']*/i);
-  const apresMatch = motBrut.match(/[^a-zàâäéèêëîïôöùûüÿœç']*$/i);
+  const avantMatch = motBrut.match(/^[^a-zàâäéèêëîïôöùûüÿœç'’‘‛]*/i);
+  const apresMatch = motBrut.match(/[^a-zàâäéèêëîïôöùûüÿœç'’‘‛]*$/i);
   const avant = avantMatch ? avantMatch[0] : '';
   const apres = apresMatch ? apresMatch[0] : '';
   const copie = syllabes.slice();
@@ -372,7 +375,7 @@ const FAMILLES_BASE = [
 const FAMILLES = FAMILLES_BASE.slice();
 
 function normaliseMot(mot){
-  return (mot || '').toLowerCase().trim().replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
+  return (mot || '').toLowerCase().trim().replace(/[’‘‛]/g, "'").replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
 }
 
 /* =========================================================
@@ -1280,7 +1283,7 @@ function renderResultatsRimes(container, motSaisi){
 }
 
 /* Rendu partagé des résultats d'inspiration (panneau + fenêtre modale). */
-function renderResultatsInspiration(container, motSaisi){
+function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives){
   container.empty();
   const saisie = (motSaisi || '').trim();
   if (!saisie) return;
@@ -1291,19 +1294,40 @@ function renderResultatsInspiration(container, motSaisi){
       cls: 'cp-vide',
       text: `Pas de champ lexical reconnu pour « ${saisie} » — essaie un mot plus général (ex. « forêt », « mer », « nuit », « amour »…) ou ajoute ton propre champ lexical via dictionnaire-perso.json.`
     });
-    return;
+  } else {
+    themes.forEach(champ => {
+      const bloc = container.createDiv({ cls: 'cp-groupe' });
+      bloc.createDiv({ cls: 'cp-son-label', text: champ.theme });
+      const liste = bloc.createDiv({ cls: 'cp-inspi-liste' });
+      champ.mots.forEach(entree => {
+        const ligne = liste.createDiv({ cls: 'cp-inspi-mot' });
+        ligne.createSpan({ cls: 'cp-inspi-terme', text: entree.mot });
+        if (entree.note) {
+          ligne.createSpan({ cls: 'cp-inspi-note', text: entree.note });
+        }
+      });
+    });
   }
 
-  themes.forEach(champ => {
-    const bloc = container.createDiv({ cls: 'cp-groupe' });
-    bloc.createDiv({ cls: 'cp-son-label', text: champ.theme });
-    const liste = bloc.createDiv({ cls: 'cp-inspi-liste' });
-    champ.mots.forEach(entree => {
-      const ligne = liste.createDiv({ cls: 'cp-inspi-mot' });
-      ligne.createSpan({ cls: 'cp-inspi-terme', text: entree.mot });
-      if (entree.note) {
-        ligne.createSpan({ cls: 'cp-inspi-note', text: entree.note });
+  // --- bonus : mots proches trouvés en ligne (à piocher comme inspiration) ---
+  const liste = (sourcesActives || []).map(id => SOURCES_EN_LIGNE[id]).filter(Boolean);
+  liste.forEach(source => {
+    const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
+    bloc.createDiv({ cls: 'cp-son-label', text: `Mots proches via ${source.nom} (en ligne)` });
+    const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+
+    source.chercher(saisie).then(resultat => {
+      statut.remove();
+      const mots = [...(resultat.synonymes || []), ...(resultat.antonymes || [])];
+      if (!resultat || !resultat.trouve || mots.length === 0) {
+        bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
+        return;
       }
+      const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
+      mots.forEach(m => { motsDiv.createSpan({ cls: 'cp-mot cp-mot-syno', text: m }); });
+    }).catch(err => {
+      console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
+      statut.setText(`Recherche impossible sur ${source.nom} (voir la console).`);
     });
   });
 }
@@ -1432,11 +1456,26 @@ class CarnetView extends ItemView {
       attr: { placeholder: 'Écris ou colle tes vers ici, un vers par ligne…' }
     });
     const toolbar = panelSyl.createDiv({ cls: 'cp-toolbar' });
+    const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-source-toggle' });
+    const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
+    toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
     const saveState = toolbar.createEl('span', { cls: 'cp-save-state' });
     const btnClear = toolbar.createEl('button', { text: 'Effacer le brouillon', cls: 'cp-link-btn' });
     const analyseDiv = panelSyl.createDiv({ cls: 'cp-analyse' });
     const totalBar = panelSyl.createDiv({ cls: 'cp-total-bar' });
     totalBar.style.display = 'none';
+
+    (async () => {
+      const data = await this.plugin.loadData();
+      toggleDierese.checked = !data || data.afficheDierese !== false; // activé par défaut
+      renderAnalyse();
+    })();
+    toggleDierese.addEventListener('change', async () => {
+      const data = (await this.plugin.loadData()) || {};
+      data.afficheDierese = toggleDierese.checked;
+      await this.plugin.saveData(data);
+      renderAnalyse();
+    });
 
     const renderAnalyse = () => {
       analyseDiv.empty();
@@ -1472,8 +1511,8 @@ class CarnetView extends ItemView {
         }
         badges.createSpan({ cls: 'cp-compte', text: String(r.total) });
 
-        if (r.hasHiatus && r.totalMax !== r.total) {
-          const ligneAlt = analyseDiv.createDiv({ cls: 'cp-ligne-alt' });
+        if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
+          const ligneAlt = ligneEl.createDiv({ cls: 'cp-ligne-alt' });
           const texteAlt = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabesDierese || d.syllabes)).join(' ');
           ligneAlt.createSpan({ cls: 'cp-texte-alt', text: texteAlt });
           const badgesAlt = ligneAlt.createDiv({ cls: 'cp-badges' });
@@ -1540,12 +1579,37 @@ class CarnetView extends ItemView {
     const intro = panelInspi.createEl('p', { cls: 'cp-inspi-intro' });
     intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème.');
 
+    const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
+    sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
+    const cases = {};
+    SOURCES_EN_LIGNE_ORDRE.forEach(id => {
+      const source = SOURCES_EN_LIGNE[id];
+      const label = sourcesDiv.createEl('label', { cls: 'cp-source-toggle' });
+      const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
+      label.createSpan({ text: ' ' + source.nom });
+      cases[id] = case_;
+    });
+
     const form = panelInspi.createDiv({ cls: 'cp-rime-form' });
     const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un thème… (ex. forêt, mer, nuit, amour, moyen-âge)' } });
     const btnChercher = form.createEl('button', { text: 'Chercher' });
     const resultatsDiv = panelInspi.createDiv({ cls: 'cp-resultats' });
 
-    const chercher = () => renderResultatsInspiration(resultatsDiv, motInput.value);
+    const sourcesActives = () => SOURCES_EN_LIGNE_ORDRE.filter(id => cases[id].checked);
+
+    const sauvePreference = async () => {
+      const data = (await this.plugin.loadData()) || {};
+      data.sourcesEnLigneInspiration = sourcesActives();
+      await this.plugin.saveData(data);
+    };
+    (async () => {
+      const data = await this.plugin.loadData();
+      const prefs = (data && Array.isArray(data.sourcesEnLigneInspiration)) ? data.sourcesEnLigneInspiration : [];
+      SOURCES_EN_LIGNE_ORDRE.forEach(id => { cases[id].checked = prefs.includes(id); });
+    })();
+    Object.values(cases).forEach(c => c.addEventListener('change', sauvePreference));
+
+    const chercher = () => renderResultatsInspiration(resultatsDiv, motInput.value, this.plugin, sourcesActives());
 
     btnChercher.addEventListener('click', chercher);
     motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
@@ -1663,6 +1727,47 @@ class CarnetView extends ItemView {
       { titre:'Rime féminine', texte:'le vers se termine par un e muet (ex. « montagne », « chêne »).' },
       { titre:'Rime masculine', texte:'le vers ne se termine pas par un e muet (ex. « amour », « instant »).' },
       { titre:'Alternance', texte:'la poésie classique française alterne généralement rimes masculines et féminines d\'une strophe à l\'autre (c\'est la pastille F/M affichée dans l\'onglet Syllabes).' }
+    ]);
+
+    section('Le vers : mètre, césure, coupe');
+    para('Nom du mètre selon le nombre de syllabes du vers :');
+    liste([
+      '4 : tétrasyllabe', '5 : pentasyllabe', '6 : hexasyllabe', '7 : heptasyllabe',
+      '8 : octosyllabe', '9 : ennéasyllabe', '10 : décasyllabe', '11 : hendécasyllabe',
+      '12 : alexandrin (le plus utilisé dans la poésie classique française)'
+    ]);
+    liste([
+      { titre:'La césure', texte:'une pause obligatoire à l\'intérieur du vers. Dans l\'alexandrin classique, elle tombe au milieu (6/6) ; on parle de « trimètre » quand elle est remplacée par deux coupes plus légères créant trois groupes (souvent 4/4/4, fréquent chez Hugo et les romantiques).' },
+      { titre:'La coupe', texte:'une pause plus légère et facultative ailleurs dans le vers, qui structure son rythme intérieur.' }
+    ]);
+
+    section('Construction du vers : enjambement, rejet, contre-rejet');
+    liste([
+      { titre:'Enjambement', texte:'une phrase ou un groupe de mots déborde du vers sur le suivant, sans pause syntaxique à la rime.' },
+      { titre:'Rejet', texte:'un enjambement où un élément court est repoussé seul en tout début du vers suivant, le mettant en valeur.' },
+      { titre:'Contre-rejet', texte:'l\'inverse : un élément court annonce, en toute fin de vers, la phrase qui se développera au vers suivant.' }
+    ]);
+
+    section('La strophe : la nommer par son nombre de vers');
+    liste([
+      '2 vers : distique', '3 vers : tercet', '4 vers : quatrain', '5 vers : quintil',
+      '6 vers : sizain', '7 vers : septain', '8 vers : huitain', '10 vers : dizain'
+    ]);
+
+    section('D\'autres formes à explorer');
+    liste([
+      { titre:'Triolet', texte:'8 vers sur 2 rimes, avec reprise des 1er, 4e et 7e vers comme refrain.' },
+      { titre:'Virelai', texte:'forme médiévale à refrain, sur deux rimes qui s\'échangent de strophe en strophe.' },
+      { titre:'Tanka', texte:'poème japonais de 31 syllabes en 5 vers (5-7-5-7-7), qui prolonge le haïku d\'une réflexion personnelle.' },
+      { titre:'Calligramme', texte:'poème dont la disposition graphique sur la page dessine une forme en lien avec le sujet (Apollinaire).' },
+      { titre:'Vers libres', texte:'vers sans mètre fixe ni rimes obligatoires, qui s\'appuient sur le rythme et la respiration plutôt que sur des règles strictes (Rimbaud, Laforgue, et la majeure partie de la poésie depuis le XXe siècle).' },
+      { titre:'Vers blancs', texte:'vers de mètre régulier mais sans rime.' }
+    ]);
+
+    section('Deux nuances utiles sur les rimes');
+    liste([
+      { titre:'Rime pour l\'œil vs rime pour l\'oreille', texte:'une rime « pour l\'œil » se ressemble à l\'écrit mais pas à l\'oral (ex. « femme » / « lame » ne riment pas vraiment à l\'oreille) ; une bonne rime classique doit fonctionner à l\'oral, pas seulement visuellement.' },
+      { titre:'Rime normande ou approximative', texte:'certains poètes jouent volontairement avec des rimes approchantes (assonances) plutôt que des rimes strictes, notamment en poésie moderne et en chanson.' }
     ]);
   }
 
