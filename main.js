@@ -1778,7 +1778,13 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
         bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur RimesSolides pour « ${saisie} ».` });
         return;
       }
-      const motsFiltres = appliqueFiltres(r.mots);
+      // RimesSolides accepte des rimes plus "souples" que la règle classique
+      // française (ex. "ombre"/"montre" : même voyelle nasale, mais "b" et
+      // "t" diffèrent juste avant le "r" final — une assonance, pas une
+      // vraie rime) : on applique le même filtre de cohérence vocalique
+      // que pour le dictionnaire phonétique local.
+      const motsCoherents = r.mots.filter(m => memeRime(saisie, m));
+      const motsFiltres = appliqueFiltres(motsCoherents);
       const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
       motsFiltres.slice(0, 150).forEach(m => {
         const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });

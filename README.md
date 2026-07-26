@@ -245,6 +245,12 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.5.5** — RimesSolides results now go through the same vowel-consistency filter as the local
+  phonetic dictionary. RimesSolides accepts a looser definition of "rime" than classical French
+  poetry (e.g. it lists "montre", "rompre", "fondre" as rhyming with "ombre" — same nasal vowel,
+  but a different consonant right before the final "r", which is an assonance, not a true rhyme).
+  The plugin now applies its own stricter standard consistently, regardless of what a given
+  source considers acceptable.
 - **2.5.4** — All four online sources (Wiktionnaire, CRISCO, CNRTL, RimesSolides) now send a
   standard browser User-Agent header with their request; some sites treat unidentified/non-browser
   requests differently, which could silently return an empty or different page even though the
