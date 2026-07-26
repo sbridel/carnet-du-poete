@@ -314,12 +314,14 @@ function cleFinApprox(mot){
   let cle = w.slice(groupes[idxAncre].debut);
 
   // Normalise quelques graphies nasales équivalentes en début de clé
-  // (démente/envoûtante doivent matcher malgré "en" vs "an")
+  // (démente/envoûtante doivent matcher malgré "en" vs "an" ; ombre/
+  // nombre doivent matcher malgré "om" vs futur "on")
   cle = cle
     .replace(/^ein(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
     .replace(/^ain(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
     .replace(/^yn(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
-    .replace(/^en(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'an');
+    .replace(/^en(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'an')
+    .replace(/^om(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'on');
 
   return cle || null;
 }
@@ -365,19 +367,42 @@ function coeurVocalique(cle){
   return coeur;
 }
 
-function memeRime(motA, motB){
+// Bascule globale "mode assonance" — équivalent, pour les rimes, du
+// toggle diérèse pour les syllabes. Désactivée par défaut (mode strict).
+let MODE_ASSONANCE = false;
+
+/* Classe la relation entre deux mots en fin de vers :
+   - 'rime'      : terminaison réellement identique (voyelle + tout ce qui suit)
+   - 'assonance' : même voyelle porteuse, mais terminaison différente
+                   ensuite (ex. "ombre"/"montre" : même "on" nasal, mais
+                   "b" ≠ "t" juste avant le "r" final)
+   - null        : aucun rapport identifiable (ex. "sombre"/"ténèbres") */
+function classifieRime(motA, motB){
   const finA = cleFinApprox(motA), finB = cleFinApprox(motB);
-  if (finA && finB && finA === finB) return true;
+  if (finA && finB && finA === finB) return 'rime';
+
+  const coeurA = coeurVocalique(finA), coeurB = coeurVocalique(finB);
+  const coeurCompatible = !!(coeurA && coeurB && coeurA === coeurB);
+
   const richeA = cleRicheMot(motA), richeB = cleRicheMot(motB);
   if (richeA && richeB && richeA === richeB) {
-    const coeurA = coeurVocalique(finA), coeurB = coeurVocalique(finB);
-    // si le noyau vocalique approché des deux mots est identifiable et
-    // clairement différent, le dictionnaire phonétique se contredit avec
-    // l'orthographe de façon trop flagrante pour qu'on lui fasse confiance
-    if (!coeurA || !coeurB || coeurA === coeurB) return true;
-    return false;
+    // le dictionnaire phonétique dit qu'ils sont dans le même groupe : on ne
+    // fait confiance que si rien à l'écrit ne le contredit franchement
+    if (!coeurA || !coeurB || coeurCompatible) return 'rime';
+    return null;
   }
-  return false;
+
+  if (coeurCompatible) return 'assonance';
+  return null;
+}
+
+/* Vrai si les deux mots sont acceptés comme "rimant ensemble" selon le
+   mode courant : rimes strictes uniquement, ou rimes + assonances si le
+   mode assonance est activé. Utilisé partout où une simple réponse
+   oui/non suffit (schéma de rimes, filtrage des sources en ligne). */
+function memeRime(motA, motB){
+  const classe = classifieRime(motA, motB);
+  return MODE_ASSONANCE ? classe !== null : classe === 'rime';
 }
 
 const PALETTE_RIMES = ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#d68910', '#16a085', '#c2185b', '#5d4037', '#455a64', '#7f8c8d'];
@@ -1611,8 +1636,11 @@ async function chargeDictionnairePerso(plugin, opts){
       });
     });
 
+    const groupesPhonetiquesUniquement = {};
+    clesValides.forEach(cle => { groupesPhonetiquesUniquement[cle] = data[cle]; });
+
     DICO_PHONETIQUE = index;
-    DICO_PHONETIQUE_GROUPES = data;
+    DICO_PHONETIQUE_GROUPES = groupesPhonetiquesUniquement;
 
     new Notice(`Carnet du Poète : dictionnaire de rimes complet chargé — ${clesValides.length} groupes phonétiques, ${totalMots} mots.`);
     console.log(`[Carnet du Poète] dictionnaire phonétique chargé : ${clesValides.length} groupes, ${totalMots} mots.`);
@@ -1642,6 +1670,27 @@ function classeRime(motA, motB){
   return 'pauvre';
 }
 
+/* Cherche des assonances pour un mot dans TOUT le dictionnaire phonétique
+   (pas seulement le groupe auquel le mot appartient) : deux mots peuvent
+   avoir la même voyelle porteuse sans partager la même clé externe
+   (ex. "ombre" est dans un groupe, "montre" dans un autre). Coûteux
+   (parcourt tout le dictionnaire) donc appelé seulement à la demande
+   explicite (recherche + mode assonance activé), jamais en continu. */
+function chercheAssonancesDansDico(motSaisi, dejaConnus){
+  if (!DICO_PHONETIQUE_GROUPES) return [];
+  const exclus = new Set([normaliseMot(motSaisi), ...dejaConnus.map(normaliseMot)]);
+  const trouves = new Set();
+  for (const cle in DICO_PHONETIQUE_GROUPES) {
+    const mots = DICO_PHONETIQUE_GROUPES[cle];
+    if (!Array.isArray(mots)) continue;
+    for (const m of mots) {
+      if (exclus.has(normaliseMot(m)) || trouves.has(m)) continue;
+      if (classifieRime(motSaisi, m) === 'assonance') trouves.add(m);
+    }
+  }
+  return [...trouves];
+}
+
 function chercheRimes(motSaisi){
   const motLower = (motSaisi || '').trim().toLowerCase();
   const motNorm = normaliseMot(motSaisi);
@@ -1655,6 +1704,10 @@ function chercheRimes(motSaisi){
       // clé "finit en -bre" sans distinguer la voyelle) — on ne garde que
       // les mots dont la voyelle de fin est réellement compatible.
       .filter(m => memeRime(motSaisi, m));
+    if (MODE_ASSONANCE) {
+      const assonances = chercheAssonancesDansDico(motSaisi, tousLesMots);
+      return { mode: 'exact', cle, mots: [...tousLesMots, ...assonances] };
+    }
     return { mode: 'exact', cle, mots: tousLesMots };
   }
 
@@ -1720,17 +1773,20 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     }
 
     const filtres_ = appliqueFiltres(resultat.mots);
-    const masculins = filtres_.filter(m => !estFeminine(m));
-    const feminins = filtres_.filter(m => estFeminine(m));
+    const motsRime = filtres_.filter(m => classifieRime(saisie, m) === 'rime');
+    const motsAssonance = MODE_ASSONANCE ? filtres_.filter(m => classifieRime(saisie, m) === 'assonance') : [];
+    const masculins = motsRime.filter(m => !estFeminine(m));
+    const feminins = motsRime.filter(m => estFeminine(m));
     const LIMITE = 100;
 
     if (filtres_.length === 0) {
       container.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
     }
 
-    const buildGroupe = (titre, liste) => {
+    const buildGroupe = (titre, liste, conteneur) => {
+      conteneur = conteneur || container;
       if (liste.length === 0) return;
-      const g = container.createDiv({ cls: 'cp-groupe' });
+      const g = conteneur.createDiv({ cls: 'cp-groupe' });
       g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
 
       const compte = { pauvre: 0, suffisante: 0, riche: 0 };
@@ -1765,6 +1821,31 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
 
     buildGroupe('Rimes masculines', masculins);
     buildGroupe('Rimes féminines (finale en -e muet)', feminins);
+
+    if (motsAssonance.length > 0) {
+      const blocAsso = container.createDiv({ cls: 'cp-groupe cp-bloc-assonance' });
+      blocAsso.createDiv({
+        cls: 'cp-son-label cp-label-assonance',
+        text: `Assonances (même voyelle, terminaison différente) (${motsAssonance.length})`
+      });
+      const motsDiv = blocAsso.createDiv({ cls: 'cp-mots' });
+      const afficheAssonances = (sousListe) => {
+        sousListe.forEach(m => {
+          const r = compteSyllabesMot(m, false);
+          const badge = motsDiv.createSpan({ cls: 'cp-mot cp-mot-assonance', text: m });
+          badge.createEl('sup', { text: String(r.min) });
+        });
+      };
+      afficheAssonances(motsAssonance.slice(0, LIMITE));
+      if (motsAssonance.length > LIMITE) {
+        const reste = motsAssonance.length - LIMITE;
+        const btnPlusAsso = blocAsso.createEl('button', { cls: 'cp-link-btn', text: `Afficher les ${reste} mots restants` });
+        btnPlusAsso.addEventListener('click', () => {
+          afficheAssonances(motsAssonance.slice(LIMITE));
+          btnPlusAsso.remove();
+        });
+      }
+    }
   }
 
   // --- source en ligne complémentaire (RimesSolides) ---
@@ -1782,17 +1863,29 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
       // française (ex. "ombre"/"montre" : même voyelle nasale, mais "b" et
       // "t" diffèrent juste avant le "r" final — une assonance, pas une
       // vraie rime) : on applique le même filtre de cohérence vocalique
-      // que pour le dictionnaire phonétique local.
+      // que pour le dictionnaire phonétique local, et on sépare les deux.
       const motsCoherents = r.mots.filter(m => memeRime(saisie, m));
       const motsFiltres = appliqueFiltres(motsCoherents);
+      const motsRimeSolides = motsFiltres.filter(m => classifieRime(saisie, m) === 'rime');
+      const motsAssoSolides = MODE_ASSONANCE ? motsFiltres.filter(m => classifieRime(saisie, m) === 'assonance') : [];
+
       const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
-      motsFiltres.slice(0, 150).forEach(m => {
+      motsRimeSolides.slice(0, 150).forEach(m => {
         const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
         const rr = compteSyllabesMot(m, false);
         badge.createEl('sup', { text: String(rr.min) });
         badgeQualite(badge, m, saisie);
       });
-      if (motsFiltres.length === 0) {
+      if (motsAssoSolides.length > 0) {
+        bloc.createDiv({ cls: 'cp-titre cp-label-assonance', text: `Assonances (${motsAssoSolides.length})` });
+        const motsDivAsso = bloc.createDiv({ cls: 'cp-mots' });
+        motsAssoSolides.slice(0, 150).forEach(m => {
+          const badge = motsDivAsso.createSpan({ cls: 'cp-mot cp-mot-assonance', text: m });
+          const rr = compteSyllabesMot(m, false);
+          badge.createEl('sup', { text: String(rr.min) });
+        });
+      }
+      if (motsRimeSolides.length === 0 && motsAssoSolides.length === 0) {
         bloc.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
       }
     }).catch(err => {
@@ -2181,7 +2274,26 @@ class CarnetView extends ItemView {
     const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
     caseRimesSolides.createSpan({ text: ' RimesSolides' });
 
+    const modeDiv = panelRimes.createDiv({ cls: 'cp-sources' });
+    const modeLabel = modeDiv.createEl('label', { cls: 'cp-source-toggle' });
+    const inputModeAssonance = modeLabel.createEl('input', { attr: { type: 'checkbox' } });
+    modeLabel.createSpan({ text: ' Mode assonance (accepte les rimes approchées)' });
+    inputModeAssonance.setAttr('title', 'Rime stricte par défaut : les résultats doivent réellement rimer. Coche pour aussi accepter les assonances (même voyelle, terminaison différente — ex. « ombre »/« montre »), affichées à part.');
+
     const resultatsDiv = panelRimes.createDiv({ cls: 'cp-resultats' });
+
+    (async () => {
+      const data = await this.plugin.loadData();
+      inputModeAssonance.checked = !!(data && data.modeAssonance);
+      MODE_ASSONANCE = inputModeAssonance.checked;
+    })();
+    inputModeAssonance.addEventListener('change', async () => {
+      MODE_ASSONANCE = inputModeAssonance.checked;
+      const data = (await this.plugin.loadData()) || {};
+      data.modeAssonance = inputModeAssonance.checked;
+      await this.plugin.saveData(data);
+      chercher();
+    });
 
     const lireFiltres = () => ({
       lettre: lettreInput.value.trim(),
@@ -2611,6 +2723,9 @@ const CARNET_CSS = `
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
 .cp-mot-syno{ border-left-color: var(--text-accent); }
 .cp-mot-anto{ border-left-color: var(--text-muted); opacity: 0.85; }
+.cp-mot-assonance{ border-left-style: dashed; border-left-color: var(--text-faint); opacity: 0.8; }
+.cp-label-assonance{ color: var(--text-faint); font-style: italic; }
+.cp-bloc-assonance{ border-top: 1px dashed var(--background-modifier-border); padding-top: 10px; margin-top: 6px; }
 .cp-guide-titre{ font-family: var(--font-text); font-style: italic; font-weight: 500; font-size: 1.05em; margin: 22px 0 8px; color: var(--text-accent); }
 .cp-guide-titre:first-child{ margin-top: 0; }
 .cp-guide-p{ font-size: 0.86em; color: var(--text-muted); line-height: 1.6; margin: 0 0 8px; }
@@ -2637,6 +2752,9 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
   async onload(){
     this.injectStyles();
     await chargeDictionnairePerso(this);
+
+    const data = await this.loadData();
+    MODE_ASSONANCE = !!(data && data.modeAssonance);
 
     this.registerView(VIEW_TYPE, (leaf) => new CarnetView(leaf, this));
 

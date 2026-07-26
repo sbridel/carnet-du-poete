@@ -36,7 +36,12 @@ side panel, no internet connection required for the core features.
   the candidate shares with your word). Each group shows a colour-coded quality summary
   (counts per quality) and every word chip carries a matching coloured border and badge, for a
   quick visual read of the list. You can also tick **RimesSolides** to pull in additional live
-  results from [rimessolides.com](https://www.rimessolides.com).
+  results from [rimessolides.com](https://www.rimessolides.com). A global **"Mode assonance"**
+  toggle (off by default — strict rhymes only) additionally surfaces words that share the same
+  vowel but differ in what follows it (e.g. *ombre*/*montre* — same nasal vowel, but "b" vs "t"
+  right before the final "r"), shown in a clearly separate, dashed-border section so they're
+  never mixed in with true rhymes. This mode also loosens the rhyme-scheme detection and
+  colour-coding in the Syllables tab, since both features share the same underlying check.
 - **Inspiration** — type a common word (*forest*, *sea*, *night*, *love*, *medieval*...) and get
   rarer, more literary or archaic vocabulary on the same theme (e.g. *forest* → canopy-related
   words such as *canopée*, *sylve*, *futaie*, *orée*), each with a short gloss. About thirty
@@ -245,6 +250,14 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.6.0** — New global "Mode assonance" toggle in the Rhymes tab (like the diaeresis toggle,
+  off by default): when enabled, assonances (same vowel, different ending) are shown in their
+  own clearly separate section instead of being excluded entirely, for both the local phonetic
+  dictionary (now searched across all its groups, not just the query word's own group) and
+  RimesSolides. The same toggle also loosens the Syllables tab's rhyme-scheme detection and
+  colour-coding. Also fixed a latent bug this surfaced: the local phonetic dictionary's internal
+  word-list storage still included the `motsRares`/`champsLexicaux`/`synonymes` custom-dictionary
+  sections, which could crash a full-dictionary scan.
 - **2.5.5** — RimesSolides results now go through the same vowel-consistency filter as the local
   phonetic dictionary. RimesSolides accepts a looser definition of "rime" than classical French
   poetry (e.g. it lists "montre", "rompre", "fondre" as rhyming with "ombre" — same nasal vowel,

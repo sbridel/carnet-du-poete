@@ -202,3 +202,7 @@
 .cp-synthese-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; }
 
 .cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }
+
+.cp-mot-assonance{ border-left-style: dashed; border-left-color: var(--text-faint); opacity: 0.8; }
+.cp-label-assonance{ color: var(--text-faint); font-style: italic; }
+.cp-bloc-assonance{ border-top: 1px dashed var(--background-modifier-border); padding-top: 10px; margin-top: 6px; }
