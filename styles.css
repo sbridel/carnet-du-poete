@@ -47,9 +47,10 @@
 }
 .cp-toolbar{
   display:flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items:center;
-  gap: 12px;
+  gap: 8px 12px;
   margin-top: 6px;
 }
 .cp-save-state{

@@ -244,6 +244,8 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.3.3** — Fixed the Syllables tab toolbar (diaeresis/colour toggles, export, clear) overflowing
+  off-screen on narrow mobile widths instead of wrapping onto a new line.
 - **2.3.2** — Markdown export from the Syllables tab now includes a rhyme quality column
   (pauvre/suffisante/riche), computed relative to the first line of each rhyme group; the
   colour-coded rhyme badge's tooltip also shows it.

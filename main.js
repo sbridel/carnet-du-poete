@@ -2431,7 +2431,7 @@ const CARNET_CSS = `
 .cp-panel{ display:none; }
 .cp-panel.active{ display:block; }
 .cp-textarea{ width: 100%; min-height: 160px; resize: vertical; font-family: var(--font-monospace); font-size: 0.92em; line-height: 1.8; padding: 10px 12px; border-radius: 4px; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); color: var(--text-normal); }
-.cp-toolbar{ display:flex; justify-content: flex-end; align-items:center; gap: 12px; margin-top: 6px; }
+.cp-toolbar{ display:flex; flex-wrap: wrap; justify-content: flex-end; align-items:center; gap: 8px 12px; margin-top: 6px; }
 .cp-save-state{ font-size: 0.75em; color: var(--text-faint); font-style: italic; }
 .cp-link-btn{ background:none; border:none; box-shadow:none; color: var(--text-muted); text-decoration: underline; font-size: 0.78em; cursor:pointer; padding:0; }
 .cp-link-btn:hover{ color: var(--text-accent); }
