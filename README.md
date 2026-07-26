@@ -245,6 +245,11 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.5.2** — The rhyme-scheme/colour-coding matcher no longer blindly trusts a match from the
+  optional phonetic dictionary when it clearly contradicts the spelling-based vowel check (e.g.
+  a dictionary that groups "sombre" and "ténèbres" together purely because both end in "-bre",
+  ignoring the very different preceding vowel — not a real rhyme, at best an assonance). The
+  phonetic dictionary is still trusted when nothing contradicts it.
 - **2.5.1** — Fixed the rhyme-scheme/colour-coding fallback key wrongly matching words that only
   share their last two letters regardless of the preceding vowel sound (e.g. "sombre" and
   "ténèbres" were flagged as rhyming — an assonance at best, sharing only the "-bre" ending, not

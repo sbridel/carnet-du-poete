@@ -342,11 +342,31 @@ function cleRicheMot(mot){
    sécurité : évite qu'un mot présent dans le dictionnaire phonétique et
    son partenaire absent de ce même dictionnaire se retrouvent, à tort,
    dans deux groupes différents). */
+/* Extrait le "noyau vocalique" en tête d'une clé de cleFinApprox (les
+   lettres voyelles avant la première consonne) — sert de garde-fou pour
+   ne pas faire confiance aveuglément à un dictionnaire phonétique externe
+   qui regrouperait à tort des mots par leur seule terminaison consonantique
+   (ex. un dictionnaire qui mettrait "sombre" et "ténèbres" ensemble juste
+   parce qu'ils finissent tous les deux en "-bre", alors que "o" et "è" ne
+   riment pas). */
+function coeurVocalique(cle){
+  if (!cle) return '';
+  const m = cle.match(new RegExp('^[' + VOYELLES + ']+'));
+  return m ? m[0] : '';
+}
+
 function memeRime(motA, motB){
   const finA = cleFinApprox(motA), finB = cleFinApprox(motB);
   if (finA && finB && finA === finB) return true;
   const richeA = cleRicheMot(motA), richeB = cleRicheMot(motB);
-  if (richeA && richeB && richeA === richeB) return true;
+  if (richeA && richeB && richeA === richeB) {
+    const coeurA = coeurVocalique(finA), coeurB = coeurVocalique(finB);
+    // si le noyau vocalique approché des deux mots est identifiable et
+    // clairement différent, le dictionnaire phonétique se contredit avec
+    // l'orthographe de façon trop flagrante pour qu'on lui fasse confiance
+    if (!coeurA || !coeurB || coeurA === coeurB) return true;
+    return false;
+  }
   return false;
 }
 
