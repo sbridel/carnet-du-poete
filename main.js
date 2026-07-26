@@ -297,7 +297,31 @@ function cleFinApprox(mot){
   if (!w) return null;
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
   w = w.replace(/[dtx]$/, '');
-  return w.slice(-2) || w || null;
+  if (!w) return null;
+
+  const groupes = trouveGroupesAvecPositions(w);
+  if (groupes.length === 0) return w;
+
+  // On ancre la clé sur la DERNIÈRE voyelle réellement prononcée, pas sur
+  // un nombre fixe de lettres : "sombre" et "ténèbres" se terminent tous
+  // les deux en "-bre" mais ne riment pas (voyelles différentes) — un
+  // simple découpage aux 2 dernières lettres les confondait à tort.
+  let idxAncre = groupes.length - 1;
+  const dernier = groupes[idxAncre];
+  if (dernier.texte === 'e' && dernier.fin === w.length && idxAncre > 0) {
+    idxAncre--; // e muet final : la vraie rime est portée par la voyelle d'avant
+  }
+  let cle = w.slice(groupes[idxAncre].debut);
+
+  // Normalise quelques graphies nasales équivalentes en début de clé
+  // (démente/envoûtante doivent matcher malgré "en" vs "an")
+  cle = cle
+    .replace(/^ein(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^ain(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^yn(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^en(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'an');
+
+  return cle || null;
 }
 
 /* Clé "riche" quand disponible : dictionnaire phonétique complet en

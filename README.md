@@ -245,6 +245,12 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.5.1** — Fixed the rhyme-scheme/colour-coding fallback key wrongly matching words that only
+  share their last two letters regardless of the preceding vowel sound (e.g. "sombre" and
+  "ténèbres" were flagged as rhyming — an assonance at best, sharing only the "-bre" ending, not
+  a real rhyme). The key is now anchored on the last actually-pronounced vowel instead of a fixed
+  number of trailing letters, with common nasal-vowel spelling equivalences (en/an, ain/ein/yn
+  → in) still normalised so genuine matches like "démente"/"envoûtante" keep working.
 - **2.5.0** — The "-gue" ambiguity (vague, guerre, digue... when the final e would normally
   elide) is no longer silently resolved one way or the other: it now surfaces through the same
   synérèse/diérèse variant mechanism as hiatus, so both readings are visible and you choose.
