@@ -200,3 +200,5 @@
 .cp-synthese-qualite{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px; font-size:0.78em; color: var(--text-muted); }
 .cp-synthese-item{ display:inline-flex; align-items:center; gap:5px; text-transform:capitalize; }
 .cp-synthese-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; }
+
+.cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }

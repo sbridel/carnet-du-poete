@@ -12,10 +12,11 @@ side panel, no internet connection required for the core features.
   it is neither at the end of a line nor followed by a word starting with a vowel). The metre
   (octosyllable, alexandrine, etc.) and the **rhyme's gender** (a small F/M badge — feminine if
   the line ends on a silent *e*, masculine otherwise) are detected automatically. When a word
-  contains an ambiguous hiatus (e.g. *nation*, *poésie*, *paupière*), a second line underneath
-  shows the full breakdown **with diaeresis** — you decide which reading fits your verse. This
-  variant can be toggled on/off with the "Variante diérèse" checkbox if you'd rather keep the
-  view lighter.
+  contains an ambiguous hiatus (e.g. *nation*, *poésie*, *paupière*), the main line is labelled
+  **synérèse** (the default reading, hiatus read as one syllable) and a second line underneath,
+  labelled **diérèse**, shows the full breakdown with that hiatus split into two syllables — you
+  decide which reading fits your verse. This second line can be toggled on/off with the
+  "Variante diérèse" checkbox if you'd rather keep the view lighter.
   - **Rhyme scheme detection** — the poem is split into stanzas (blank-line separated); each
     stanza's end-rhymes are grouped and labelled A/B/C..., and a 4-line stanza matching AABB,
     ABAB or ABBA is named accordingly, shown just below the syllable counts.
@@ -244,6 +245,18 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.4.1** — The main (synérèse) line is now explicitly labelled as such whenever a diaeresis
+  variant exists underneath, instead of only the diaeresis line being labelled — makes it clear
+  at a glance which reading is which.
+- **2.4.0** — Two significant syllable-counting fixes found by testing Lamartine's complete
+  "L'Isolement" against Scribblab (went from 3/14 to 11-12/14 exact matches on this poem): the
+  silent "u" in "qu" (que, qui, quoi, qu'il...) was wrongly counted as its own vowel, inflating
+  counts by one in any line containing an elision like "qu'une" or "jusqu'à"; and "les/ces/des/
+  mes/tes/ses" were sometimes wrongly treated as elidable like the schwa word "se", occasionally
+  dropping to 0 syllables when followed by a vowel-starting word — these determiners always keep
+  their closed "é" sound and are never elided. (A similar fix for the "gu" digraph, e.g. "vague",
+  was tried and reverted after it regressed a previously-validated case — treated as a genuine
+  ambiguity for now rather than force a guess.)
 - **2.3.3** — Fixed the Syllables tab toolbar (diaeresis/colour toggles, export, clear) overflowing
   off-screen on narrow mobile widths instead of wrapping onto a new line.
 - **2.3.2** — Markdown export from the Syllables tab now includes a rhyme quality column

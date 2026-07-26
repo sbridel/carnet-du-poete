@@ -28,6 +28,11 @@ function trouveGroupesAvecPositions(w){
   // sépare deux syllabes au lieu de fusionner avec elles. Un "y" qui
   // n'est PAS entre deux voyelles (yeux, pays, cycle...) reste une
   // voyelle normale.
+  // Autre cas particulier : le "u" du digraphe "qu" (que, qui, quoi...)
+  // ne forme jamais sa propre syllabe — il est muet ou une semi-consonne —
+  // donc on ne le compte pas comme une voyelle à cet endroit précis.
+  // (Le cas de "gu" (vague, guerre) est plus ambigu selon le contexte et
+  // n'est volontairement pas traité de la même façon ici.)
   const groupes = [];
   let debut = -1;
   for (let i = 0; i <= w.length; i++){
@@ -38,6 +43,8 @@ function trouveGroupesAvecPositions(w){
         const avantVoyelle = i > 0 && estVoyelle(w[i - 1]);
         const apresVoyelle = i < w.length - 1 && estVoyelle(w[i + 1]);
         estVoyelleIci = !(avantVoyelle && apresVoyelle);
+      } else if (ch === 'u' && i > 0 && w[i - 1] === 'q') {
+        estVoyelleIci = false;
       } else {
         estVoyelleIci = estVoyelle(ch);
       }
@@ -84,7 +91,8 @@ function estMuetFinal(w){
    que d'être coupés en deux (ex. "re-gret", pas "reg-ret"). */
 const CLUSTERS_LIQUIDES = new Set([
   'bl','cl','fl','gl','pl','br','cr','dr','fr','gr','pr','tr','vr',
-  'gn','ch','ph','th' // digraphes représentant un seul son, jamais coupés
+  'gn','ch','ph','th', // digraphes représentant un seul son, jamais coupés
+  'qu' // le u y est toujours muet, toujours avec la voyelle qui suit
 ]);
 function decoupeConsonnes(cluster){
   if (cluster.length === 0) return ['', ''];
@@ -104,6 +112,7 @@ function syllabifieMot(motBrut, finalEPrononce, diereseIndices){
   diereseIndices = diereseIndices || new Set();
   const w = nettoieMot(motBrut);
   if (!w) return [];
+  if (MOTS_ES_TOUJOURS_PLEIN.has(w)) return [w];
   const groupes = trouveGroupesAvecPositions(w);
   if (groupes.length === 0) return [w];
 
@@ -150,9 +159,16 @@ function syllabifieMot(motBrut, finalEPrononce, diereseIndices){
 // Retourne {min, max, hiatus} pour un mot isolé.
 // finalEPrononce: le e caduc final doit-il être compté (mot suivi d'une
 // consonne, pas en fin de vers) ?
+// Déterminants/pronoms qui se terminent en -es mais se prononcent avec un
+// é fermé plein, jamais un e muet élidable (contrairement à "se", "que"...)
+// — sans cette exception, "ses"/"mes" etc. étaient parfois comptés pour 0
+// syllabe, comme s'il s'agissait du e caduc du pronom réfléchi "se".
+const MOTS_ES_TOUJOURS_PLEIN = new Set(['les', 'ces', 'des', 'mes', 'tes', 'ses']);
+
 function compteSyllabesMot(motBrut, finalEPrononce){
   let w = nettoieMot(motBrut);
   if (!w) return { min: 0, max: 0, hiatus: false };
+  if (MOTS_ES_TOUJOURS_PLEIN.has(w)) return { min: 1, max: 1, hiatus: false };
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) {
     w = w.slice(0, -1);
   }
@@ -162,7 +178,12 @@ function compteSyllabesMot(motBrut, finalEPrononce){
   if (groupes.length > 0) {
     const dernier = groupes[groupes.length - 1];
     const idxDernier = w.lastIndexOf(dernier);
-    const precedeParConsonne = idxDernier > 0 && !estVoyelle(w[idxDernier - 1]);
+    // un groupe "e" isolé ne peut être atteint que s'il n'est pas fusionné
+    // avec une voyelle précédente (sinon le regroupement l'aurait inclus
+    // dans un groupe plus long) — donc dès qu'il y a quelque chose avant
+    // lui, ce quelque chose agit forcément comme une consonne ici (que ce
+    // soit une vraie consonne, ou un "u" muet de qu/gu).
+    const precedeParConsonne = idxDernier > 0;
     // le e n'est un "e caduc" muet que s'il est la toute dernière lettre du
     // mot (ex. "rose", "chante") — pas quand il est suivi de m/n formant une
     // voyelle nasale suivie d'une consonne (ex. "temps", "m'attend")
@@ -1951,6 +1972,10 @@ class CarnetView extends ItemView {
         if (METRES[r.total]) {
           badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
         }
+        if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
+          const badgeSynerese = badges.createSpan({ cls: 'cp-hiatus-badge cp-hiatus-badge-synerese', text: 'synérèse' });
+          badgeSynerese.setAttr('title', 'Lecture par défaut : les hiatus de ce vers sont lus en une seule syllabe.');
+        }
         badges.createSpan({ cls: 'cp-compte', text: String(r.total) });
 
         if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
@@ -1958,7 +1983,8 @@ class CarnetView extends ItemView {
           const texteAlt = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabesDierese || d.syllabes)).join(' ');
           ligneAlt.createSpan({ cls: 'cp-texte-alt', text: texteAlt });
           const badgesAlt = ligneAlt.createDiv({ cls: 'cp-badges' });
-          badgesAlt.createSpan({ cls: 'cp-hiatus-badge', text: 'avec diérèse' });
+          const badgeDierese = badgesAlt.createSpan({ cls: 'cp-hiatus-badge', text: 'diérèse' });
+          badgeDierese.setAttr('title', 'Les hiatus de ce vers sont lus en deux syllabes séparées.');
           badgesAlt.createSpan({ cls: 'cp-compte cp-compte-alt', text: String(r.totalMax) });
         }
       });
@@ -2503,6 +2529,7 @@ const CARNET_CSS = `
 .cp-inspi-note{ font-size:0.82em; color: var(--text-muted); font-style:italic; }
 .cp-footer{ margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--background-modifier-border); font-size: 0.72em; color: var(--text-faint); line-height: 1.6; }
 .cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
+.cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }
 `;
 
 /* =========================================================
