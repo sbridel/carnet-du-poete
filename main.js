@@ -28,11 +28,13 @@ function trouveGroupesAvecPositions(w){
   // sépare deux syllabes au lieu de fusionner avec elles. Un "y" qui
   // n'est PAS entre deux voyelles (yeux, pays, cycle...) reste une
   // voyelle normale.
-  // Autre cas particulier : le "u" du digraphe "qu" (que, qui, quoi...)
-  // ne forme jamais sa propre syllabe — il est muet ou une semi-consonne —
-  // donc on ne le compte pas comme une voyelle à cet endroit précis.
-  // (Le cas de "gu" (vague, guerre) est plus ambigu selon le contexte et
-  // n'est volontairement pas traité de la même façon ici.)
+  // Autre cas particulier : le "u" des digraphes "qu"/"gu" (que, qui,
+  // quoi, vague, guerre...) ne forme jamais sa propre syllabe — il est
+  // muet ou une semi-consonne — donc on ne le compte pas comme une
+  // voyelle à cet endroit précis. Pour "gu" spécifiquement, la lecture
+  // du "e" final qui en résulte (ex. "vague") reste ambiguë selon le
+  // contexte : elle est traitée comme une variante possible (voir
+  // compteSyllabesMot) plutôt que tranchée silencieusement.
   const groupes = [];
   let debut = -1;
   for (let i = 0; i <= w.length; i++){
@@ -43,7 +45,7 @@ function trouveGroupesAvecPositions(w){
         const avantVoyelle = i > 0 && estVoyelle(w[i - 1]);
         const apresVoyelle = i < w.length - 1 && estVoyelle(w[i + 1]);
         estVoyelleIci = !(avantVoyelle && apresVoyelle);
-      } else if (ch === 'u' && i > 0 && w[i - 1] === 'q') {
+      } else if (ch === 'u' && i > 0 && (w[i - 1] === 'q' || w[i - 1] === 'g')) {
         estVoyelleIci = false;
       } else {
         estVoyelleIci = estVoyelle(ch);
@@ -92,7 +94,7 @@ function estMuetFinal(w){
 const CLUSTERS_LIQUIDES = new Set([
   'bl','cl','fl','gl','pl','br','cr','dr','fr','gr','pr','tr','vr',
   'gn','ch','ph','th', // digraphes représentant un seul son, jamais coupés
-  'qu' // le u y est toujours muet, toujours avec la voyelle qui suit
+  'qu','gu' // le u y est toujours muet, toujours avec la voyelle qui suit
 ]);
 function decoupeConsonnes(cluster){
   if (cluster.length === 0) return ['', ''];
@@ -194,7 +196,15 @@ function compteSyllabesMot(motBrut, finalEPrononce){
   }
   compte = Math.max(compte, 0);
 
-  const hiatusCount = detecteHiatus(w, groupes);
+  let hiatusCount = detecteHiatus(w, groupes);
+  // Cas particulier ambigu : un mot en "-gue" (vague, guerre, digue...)
+  // dont le e final est élidé — certains lecteurs (et certains outils de
+  // référence, de façon incohérente) comptent malgré tout ce e comme une
+  // syllabe prononcée. On l'expose comme une variante possible plutôt que
+  // de trancher silencieusement dans un sens ou dans l'autre.
+  if (w.endsWith('gue') && compte < groupes.length) {
+    hiatusCount += 1;
+  }
   return { min: compte, max: compte + hiatusCount, hiatus: hiatusCount > 0 };
 }
 
@@ -246,9 +256,18 @@ function analyseLigne(ligne){
     const finalEPrononce = !estDernier && !suivantVoyelleOuH;
     const r = compteSyllabesMot(motBrut, finalEPrononce);
     const syllabes = syllabifieMot(motBrut, finalEPrononce, new Set());
-    const syllabesDierese = r.hiatus
-      ? syllabifieMot(motBrut, finalEPrononce, indicesHiatus(motBrut))
-      : null;
+    let syllabesDierese = null;
+    if (r.hiatus) {
+      const hIndices = indicesHiatus(motBrut);
+      if (hIndices.size > 0) {
+        syllabesDierese = syllabifieMot(motBrut, finalEPrononce, hIndices);
+      } else {
+        // l'écart min/max vient uniquement du cas ambigu "-gue" (vague,
+        // guerre...) : la variante restaure simplement le e final au lieu
+        // de scinder un groupe de voyelles.
+        syllabesDierese = syllabifieMot(motBrut, true, new Set());
+      }
+    }
     total += r.min; totalMax += r.max;
     if (r.hiatus) hasHiatus = true;
     details.push({ mot: motBrut, min: r.min, max: r.max, hiatus: r.hiatus, syllabes, syllabesDierese });

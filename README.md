@@ -245,6 +245,12 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.5.0** — The "-gue" ambiguity (vague, guerre, digue... when the final e would normally
+  elide) is no longer silently resolved one way or the other: it now surfaces through the same
+  synérèse/diérèse variant mechanism as hiatus, so both readings are visible and you choose.
+  This was prompted by spotting a genuine inconsistency in Scribblab itself on this exact
+  point (its own displayed breakdown didn't match its own displayed total for a "vague" line) —
+  rather than pick a side, the ambiguity is now made explicit.
 - **2.4.1** — The main (synérèse) line is now explicitly labelled as such whenever a diaeresis
   variant exists underneath, instead of only the diaeresis line being labelled — makes it clear
   at a glance which reading is which.
