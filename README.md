@@ -245,6 +245,12 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.5.4** — All four online sources (Wiktionnaire, CRISCO, CNRTL, RimesSolides) now send a
+  standard browser User-Agent header with their request; some sites treat unidentified/non-browser
+  requests differently, which could silently return an empty or different page even though the
+  same URL works fine when fetched normally. If RimesSolides still returns nothing for a word
+  that clearly has results on the site, check the developer console — it now logs the response
+  length and a preview of what was actually received, to make the real cause visible.
 - **2.5.3** — The vowel-consistency safety net (added in 2.5.2 for the Syllables tab's rhyme
   scheme/colours only) is now also applied to the **Rhymes tab's actual search results**, which
   is the more important fix: a phonetic dictionary group that wrongly mixes unrelated vowels

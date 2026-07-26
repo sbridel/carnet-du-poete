@@ -1136,9 +1136,17 @@ function extraitLiensDepuisSegment(html, motExclu){
   return [...new Set(mots)];
 }
 
+/* Certains sites bloquent ou traitent différemment les requêtes sans
+   en-tête User-Agent de navigateur (ce que requestUrl n'envoie pas par
+   défaut). On l'ajoute systématiquement pour toutes les sources en ligne. */
+const ENTETES_NAVIGATEUR = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept-Language': 'fr-FR,fr;q=0.9'
+};
+
 async function chercheSynonymesWiktionnaire(mot){
   const url = `https://fr.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(mot)}&format=json&prop=wikitext&origin=*`;
-  const reponse = await requestUrl({ url, throw: false });
+  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
   const data = reponse.json;
   if (!data || data.error || !data.parse) return { synonymes: [], antonymes: [], trouve: false };
@@ -1174,7 +1182,7 @@ async function chercheSynonymesWiktionnaire(mot){
 
 async function chercheSynonymesCrisco(mot){
   const url = `https://crisco4.unicaen.fr/des/synonymes/${encodeURIComponent(mot)}`;
-  const reponse = await requestUrl({ url, throw: false });
+  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
   const html = reponse.text || '';
 
@@ -1228,7 +1236,7 @@ function texteBrutDepuisHtml(html){
 
 async function chercheCnrtl(mot){
   const url = `https://www.cnrtl.fr/definition/${encodeURIComponent(mot)}`;
-  const reponse = await requestUrl({ url, throw: false });
+  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
   const html = reponse.text || '';
   if (/n['’]a pas été trouvé|La forme .* est introuvable/i.test(html)) {
@@ -1266,10 +1274,14 @@ async function chercheCnrtl(mot){
    ========================================================= */
 async function chercheRimesSolides(mot){
   const url = `https://www.rimessolides.com/rime.aspx?m=${encodeURIComponent(mot)}`;
-  const reponse = await requestUrl({ url, throw: false });
+  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
   const html = reponse.text || '';
-  if (!/rime\.aspx\?m=/i.test(html)) return { mots: [], trouve: false, url };
+  if (!/rime\.aspx\?m=/i.test(html)) {
+    console.warn('[Carnet du Poète] RimesSolides : page reçue sans résultat reconnaissable pour', JSON.stringify(mot),
+      '— longueur de la réponse :', html.length, '| début :', html.slice(0, 200));
+    return { mots: [], trouve: false, url };
+  }
 
   const regex = /<a\b[^>]*href="[^"]*rime\.aspx\?m=[^"]*"[^>]*>([^<]+)<\/a>/gi;
   const mots = [];
