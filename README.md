@@ -46,6 +46,10 @@ side panel, no internet connection required for the core features.
 - **Definitions** — look up a rare word before using it: fetches a definition excerpt and
   etymology from **CNRTL** (the *Trésor de la Langue Française informatisé*), with a link to
   the full entry. On-demand only — nothing is looked up automatically.
+- **Hasard** — one button, one rare or forgotten French word at random (*smaragdin*,
+  *coruscant*, *pétrichor*, *s'ennuiter*...), with a short gloss and quick links to look it up
+  in the Definitions or Rhymes tab. Extensible with your own words via `motsRares` in
+  `dictionnaire-perso.json`.
 - **Guide** — a quick reference: how French syllable counting works, metre names, caesura,
   enjambment, stanza names, a handful of classic poem forms (sonnet, rondeau, ballade,
   villanelle, pantoum, triolet, virelai, tanka, calligramme, ode, haiku, fable, acrostic, free
@@ -165,6 +169,16 @@ ignores accents and simple plurals).
 }
 ```
 
+**E) Custom words for the Hasard tab** (added to the built-in pool of rare/forgotten words):
+
+```json
+{
+  "motsRares": [
+    { "mot": "estival", "note": "qui appartient à l'été" }
+  ]
+}
+```
+
 ## Online sources
 
 Several tabs can query external sites live, directly from your device (the plugin uses
@@ -226,6 +240,11 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.3.0** — New Hasard tab (random rare/forgotten French word with a gloss and quick links to
+  Definitions/Rhymes); fixed rhyme-group matching so that a word found in the optional phonetic
+  dictionary while its true rhyme partner is missing from it no longer get sorted into different
+  groups (affected both the rhyme-scheme detector and colour-coding) — elided contractions
+  ("m'assieds") are now also stripped before matching.
 - **2.2.0** — New Definitions tab (CNRTL/TLFi definitions and etymology, on demand); Rhymes tab
   gained filters (first letter, syllable count, rhyme quality) and an optional RimesSolides
   online source; automatic rhyme-scheme detection per stanza (AABB/ABAB/ABBA when applicable)

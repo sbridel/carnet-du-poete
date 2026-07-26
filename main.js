@@ -239,15 +239,51 @@ function analyseLigne(ligne){
    dictionnaire phonétique complet en priorité (le plus fiable), sinon la
    famille de rime approchée, sinon un simple repli sur les 3 dernières
    lettres (mieux que rien pour les mots absents des deux dictionnaires). */
-function cleDeRimeMot(mot){
-  const norm = normaliseMot(mot);
-  if (!norm) return null;
-  if (typeof DICO_PHONETIQUE !== 'undefined' && DICO_PHONETIQUE && DICO_PHONETIQUE.has(norm)) {
-    return 'PH:' + DICO_PHONETIQUE.get(norm);
+/* Contractions élidées ("m'", "l'", "qu'"...) à retirer avant toute
+   comparaison de rime : la rime porte sur le mot lui-même, pas sur la
+   consonne d'élision qui le précède (ex. "m'assieds" doit rimer comme
+   "assieds", pas rester bloqué par son "m'"). */
+function retireContraction(norm){
+  return (norm || '').replace(/^(jusqu|lorsqu|puisqu|quoiqu|qu|[ldjmtsnc])'/, '');
+}
+
+/* Clé approchée toujours disponible (orthographique) : contraction et
+   pluriel retirés, puis une éventuelle consonne finale muette fréquente
+   (d, t, x) retirée à son tour, avant de garder les 2 dernières lettres.
+   Sert de filet de sécurité quand la clé "riche" ci-dessous est absente
+   ou incohérente entre deux mots qui riment pourtant à l'oreille. */
+function cleFinApprox(mot){
+  let w = retireContraction(normaliseMot(mot));
+  if (!w) return null;
+  if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
+  w = w.replace(/[dtx]$/, '');
+  return w.slice(-2) || w || null;
+}
+
+/* Clé "riche" quand disponible : dictionnaire phonétique complet en
+   priorité, sinon famille de rime approchée. Peut être absente (null)
+   si le mot ne figure dans ni l'un ni l'autre. */
+function cleRicheMot(mot){
+  const w = retireContraction(normaliseMot(mot));
+  if (!w) return null;
+  if (typeof DICO_PHONETIQUE !== 'undefined' && DICO_PHONETIQUE && DICO_PHONETIQUE.has(w)) {
+    return 'PH:' + DICO_PHONETIQUE.get(w);
   }
-  const fam = trouveFamille(mot);
-  if (fam) return 'FAM:' + fam.son;
-  return 'FIN:' + norm.slice(-3);
+  const fam = trouveFamille(w);
+  return fam ? 'FAM:' + fam.son : null;
+}
+
+/* Deux mots sont considérés comme rimant ensemble si LEUR clé riche
+   concorde (le plus fiable), OU si leur clé approchée concorde (filet de
+   sécurité : évite qu'un mot présent dans le dictionnaire phonétique et
+   son partenaire absent de ce même dictionnaire se retrouvent, à tort,
+   dans deux groupes différents). */
+function memeRime(motA, motB){
+  const finA = cleFinApprox(motA), finB = cleFinApprox(motB);
+  if (finA && finB && finA === finB) return true;
+  const richeA = cleRicheMot(motA), richeB = cleRicheMot(motB);
+  if (richeA && richeB && richeA === richeB) return true;
+  return false;
 }
 
 const PALETTE_RIMES = ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#d68910', '#16a085', '#c2185b', '#5d4037', '#455a64', '#7f8c8d'];
@@ -255,17 +291,22 @@ const PALETTE_RIMES = ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#d68910', '#
 /* Attribue une lettre A, B, C... à chaque vers d'une strophe selon sa
    rime (par ordre d'apparition des sons distincts dans la strophe). */
 function calculeSchemaStrophe(derniersMots){
-  const lettreParCle = new Map();
+  const lettres = [];
+  const representants = []; // { mot, lettre }
   let prochaine = 0;
-  return derniersMots.map(mot => {
-    const cle = cleDeRimeMot(mot);
-    if (!cle) return null;
-    if (!lettreParCle.has(cle)) {
-      lettreParCle.set(cle, String.fromCharCode(65 + (prochaine % 26)));
+  derniersMots.forEach(mot => {
+    if (!mot || !normaliseMot(mot)) { lettres.push(null); return; }
+    const rep = representants.find(r => memeRime(r.mot, mot));
+    if (rep) {
+      lettres.push(rep.lettre);
+    } else {
+      const lettre = String.fromCharCode(65 + (prochaine % 26));
       prochaine++;
+      representants.push({ mot, lettre });
+      lettres.push(lettre);
     }
-    return lettreParCle.get(cle);
   });
+  return lettres;
 }
 
 function nomSchema(lettres){
@@ -876,6 +917,92 @@ const SYNONYMES_BASE = [
 ];
 const SYNONYMES = SYNONYMES_BASE.slice();
 
+/* =========================================================
+   MOTS RARES & OUBLIÉS — pour l'onglet "Hasard"
+   Une réserve de mots peu courants, littéraires, savants ou
+   désuets, à tirer au hasard pour la surprise et l'inspiration.
+   ========================================================= */
+const MOTS_RARES_BASE = [
+  { mot:"s'ennuiter", note:"se dit du jour qui tombe, qui devient nuit (verbe rare, poétique)" },
+  { mot:"smaragdin", note:"vert émeraude" },
+  { mot:"coruscant", note:"qui brille d'un éclat vif et scintillant" },
+  { mot:"pétrichor", note:"odeur caractéristique de la terre après la pluie" },
+  { mot:"acrimonie", note:"aigreur, âpreté dans le ton ou le comportement" },
+  { mot:"aubade", note:"musique donnée à l'aube sous les fenêtres de quelqu'un" },
+  { mot:"absidiole", note:"petite chapelle secondaire d'une église, autour du chœur" },
+  { mot:"brumasser", note:"bruiner très légèrement, faire une brume fine" },
+  { mot:"cénacle", note:"petit cercle fermé d'intellectuels ou d'artistes" },
+  { mot:"dulcifier", note:"adoucir (vieilli)" },
+  { mot:"élucubration", note:"réflexion compliquée et peu raisonnable" },
+  { mot:"entéléchie", note:"réalisation parfaite et achevée d'une potentialité (philosophie)" },
+  { mot:"fatidique", note:"qui semble marqué, fixé par le destin" },
+  { mot:"fuligineux", note:"qui a la couleur ou l'aspect de la suie, noirâtre" },
+  { mot:"gongoriser", note:"parler ou écrire de façon précieuse et ampoulée" },
+  { mot:"hiémal", note:"relatif à l'hiver (très rare, savant)" },
+  { mot:"ignivome", note:"qui vomit du feu (se dit d'un volcan)" },
+  { mot:"irisation", note:"jeu de couleurs changeantes comme celles de l'arc-en-ciel" },
+  { mot:"lambrequin", note:"bande d'étoffe ou de bois décorative retombante" },
+  { mot:"lancinant", note:"qui cause une douleur ou une pensée persistante et obsédante" },
+  { mot:"liminaire", note:"placé au tout début, qui sert d'introduction" },
+  { mot:"mordoré", note:"brun chaud aux reflets dorés" },
+  { mot:"musarder", note:"flâner sans but précis, perdre son temps agréablement" },
+  { mot:"nacré", note:"qui a l'éclat chatoyant de la nacre" },
+  { mot:"nébuleux", note:"couvert de nuages ; par extension, confus, obscur" },
+  { mot:"noctambule", note:"qui aime sortir, errer la nuit" },
+  { mot:"nyctalope", note:"qui voit bien dans l'obscurité" },
+  { mot:"opalin", note:"qui a la teinte laiteuse et changeante de l'opale" },
+  { mot:"oripeaux", note:"vieux vêtements usés mais encore voyants" },
+  { mot:"palimpseste", note:"manuscrit dont on a effacé le texte pour en écrire un autre" },
+  { mot:"persifler", note:"se moquer de quelqu'un avec une ironie légère" },
+  { mot:"ponant", note:"l'ouest, le couchant (poétique, vocabulaire marin)" },
+  { mot:"rutilant", note:"qui brille d'un éclat rouge ou doré très vif" },
+  { mot:"tarabiscoté", note:"excessivement orné, compliqué à l'excès" },
+  { mot:"vespéral", note:"qui a rapport au soir, qui se produit le soir" },
+  { mot:"cacophonie", note:"mélange discordant de sons ou de voix" },
+  { mot:"catoptrique", note:"relatif aux miroirs, aux images réfléchies" },
+  { mot:"chatoiement", note:"reflet changeant qui joue à la surface d'une étoffe, d'une pierre" },
+  { mot:"crépusculaire", note:"relatif au crépuscule, à la lumière incertaine du soir" },
+  { mot:"désopilant", note:"qui fait rire aux éclats" },
+  { mot:"diaphane", note:"si fin qu'il laisse passer la lumière, presque transparent" },
+  { mot:"ébouriffant", note:"qui surprend au point de décoiffer, extraordinaire" },
+  { mot:"écarlate", note:"rouge vif et éclatant" },
+  { mot:"effluve", note:"émanation légère, souvent odorante, qui se dégage de quelque chose" },
+  { mot:"élégiaque", note:"empreint d'une tristesse tendre et mélancolique" },
+  { mot:"éphélides", note:"terme savant pour désigner les taches de rousseur" },
+  { mot:"esquif", note:"petite embarcation légère (littéraire)" },
+  { mot:"forfaire", note:"manquer gravement à son devoir, à sa parole (vieilli)" },
+  { mot:"fugace", note:"qui disparaît très vite, éphémère" },
+  { mot:"funambule", note:"acrobate qui marche sur un fil ; par extension, qui prend des risques" },
+  { mot:"galimatias", note:"discours ou texte confus, embrouillé" },
+  { mot:"gouailleur", note:"qui se moque avec un air moqueur et populaire" },
+  { mot:"immarcescible", note:"qui ne peut se flétrir, impérissable (très littéraire)" },
+  { mot:"inextinguible", note:"qu'on ne peut éteindre ni apaiser" },
+  { mot:"languide", note:"qui exprime une langueur douce et alanguie" },
+  { mot:"lippée", note:"repas copieux et savoureux, pris avec plaisir" },
+  { mot:"loquace", note:"qui parle beaucoup et avec aisance" },
+  { mot:"lumignon", note:"petite lumière faible, bout de bougie qui brûle encore" },
+  { mot:"maussade", note:"qui manifeste de la mauvaise humeur, morose" },
+  { mot:"myriade", note:"quantité immense et innombrable" },
+  { mot:"nyctalopie", note:"faculté de bien voir la nuit (forme nominale de nyctalope)" },
+  { mot:"obombrer", note:"couvrir d'ombre, assombrir (vieilli, littéraire)" },
+  { mot:"pantois", note:"stupéfait au point d'en rester sans voix" },
+  { mot:"pérenne", note:"qui dure toujours, qui ne cesse pas" },
+  { mot:"pusillanime", note:"qui manque de courage, craintif à l'excès" },
+  { mot:"rocambolesque", note:"extraordinaire, invraisemblable comme une aventure de roman" },
+  { mot:"sibyllin", note:"dont le sens est obscur, énigmatique" },
+  { mot:"sinuosité", note:"suite de courbes, de détours" },
+  { mot:"stochastique", note:"qui relève du hasard, régi par le hasard (savant)" },
+  { mot:"tergiverser", note:"user de détours pour éviter de se prononcer" },
+  { mot:"vagissement", note:"cri faible et plaintif du nouveau-né" },
+  { mot:"volute", note:"forme enroulée en spirale, comme une fumée qui monte" }
+];
+const MOTS_RARES = MOTS_RARES_BASE.slice();
+
+function motAuHasard(){
+  if (MOTS_RARES.length === 0) return null;
+  return MOTS_RARES[Math.floor(Math.random() * MOTS_RARES.length)];
+}
+
 function chercheSynonymes(motSaisi){
   const w = normaliseMot(motSaisi);
   const wSouple = normaliseSouple(motSaisi);
@@ -1256,6 +1383,8 @@ async function chargeDictionnairePerso(plugin, opts){
   CHAMPS_LEXICAUX.push(...CHAMPS_LEXICAUX_BASE);
   SYNONYMES.length = 0;
   SYNONYMES.push(...SYNONYMES_BASE);
+  MOTS_RARES.length = 0;
+  MOTS_RARES.push(...MOTS_RARES_BASE);
   DICO_PHONETIQUE = null;
   DICO_PHONETIQUE_GROUPES = null;
 
@@ -1312,6 +1441,20 @@ async function chargeDictionnairePerso(plugin, opts){
       }
     }
 
+    // Mots rares personnalisés (idem, indépendant) — format : { "motsRares": [{"mot":"...", "note":"..."}] }
+    let raresCount = 0;
+    if (Array.isArray(data.motsRares)) {
+      data.motsRares.forEach(m => {
+        if (m && m.mot) {
+          MOTS_RARES.push({ mot: m.mot, note: m.note || '' });
+          raresCount++;
+        }
+      });
+      if (raresCount > 0) {
+        new Notice(`Carnet du Poète : ${raresCount} mot(s) rare(s) personnalisé(s) chargé(s).`);
+      }
+    }
+
     // Format A : familles personnalisées
     if (Array.isArray(data.familles)) {
       let count = 0;
@@ -1323,7 +1466,7 @@ async function chargeDictionnairePerso(plugin, opts){
       });
       if (count > 0) {
         new Notice(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
-      } else if (champsCount === 0 && synoCount === 0) {
+      } else if (champsCount === 0 && synoCount === 0 && raresCount === 0) {
         new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
       }
       return;
@@ -1332,10 +1475,10 @@ async function chargeDictionnairePerso(plugin, opts){
     // Format B : dictionnaire phonétique complet (objet plat clé -> mots[])
     // (on exclut les clés déjà traitées ci-dessus pour ne pas les confondre
     // avec des groupes de rimes)
-    const cles = Object.keys(data).filter(k => k !== 'familles' && k !== 'champsLexicaux' && k !== 'synonymes');
+    const cles = Object.keys(data).filter(k => k !== 'familles' && k !== 'champsLexicaux' && k !== 'synonymes' && k !== 'motsRares');
     const clesValides = cles.filter(k => Array.isArray(data[k]));
     if (clesValides.length === 0) {
-      if (champsCount === 0 && synoCount === 0) {
+      if (champsCount === 0 && synoCount === 0 && raresCount === 0) {
         new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme champs lexicaux, ni comme synonymes, ni comme dictionnaire phonétique (objet clé → liste de mots).');
       }
       return;
@@ -1650,6 +1793,7 @@ class CarnetView extends ItemView {
     const tabSyno = tabBar.createEl('button', { text: 'Synonymes', cls: 'cp-tab' });
     const tabGuide = tabBar.createEl('button', { text: 'Guide', cls: 'cp-tab' });
     const tabDefs = tabBar.createEl('button', { text: 'Définitions', cls: 'cp-tab' });
+    const tabHasard = tabBar.createEl('button', { text: 'Hasard', cls: 'cp-tab' });
 
     const panelSyl = container.createDiv({ cls: 'cp-panel active' });
     const panelRimes = container.createDiv({ cls: 'cp-panel' });
@@ -1657,6 +1801,7 @@ class CarnetView extends ItemView {
     const panelSyno = container.createDiv({ cls: 'cp-panel' });
     const panelGuide = container.createDiv({ cls: 'cp-panel' });
     const panelDefs = container.createDiv({ cls: 'cp-panel' });
+    const panelHasard = container.createDiv({ cls: 'cp-panel' });
 
     const switchTab = (which) => {
       tabSyl.toggleClass('active', which === 'syl');
@@ -1665,12 +1810,14 @@ class CarnetView extends ItemView {
       tabSyno.toggleClass('active', which === 'syno');
       tabGuide.toggleClass('active', which === 'guide');
       tabDefs.toggleClass('active', which === 'defs');
+      tabHasard.toggleClass('active', which === 'hasard');
       panelSyl.toggleClass('active', which === 'syl');
       panelRimes.toggleClass('active', which === 'rimes');
       panelInspi.toggleClass('active', which === 'inspi');
       panelSyno.toggleClass('active', which === 'syno');
       panelGuide.toggleClass('active', which === 'guide');
       panelDefs.toggleClass('active', which === 'defs');
+      panelHasard.toggleClass('active', which === 'hasard');
     };
     tabSyl.addEventListener('click', () => switchTab('syl'));
     tabRimes.addEventListener('click', () => switchTab('rimes'));
@@ -1678,6 +1825,8 @@ class CarnetView extends ItemView {
     tabSyno.addEventListener('click', () => switchTab('syno'));
     tabGuide.addEventListener('click', () => switchTab('guide'));
     tabDefs.addEventListener('click', () => switchTab('defs'));
+    tabHasard.addEventListener('click', () => switchTab('hasard'));
+    this._switchTab = switchTab;
 
     this.buildPanelSyllabes(panelSyl);
     this.buildPanelRimes(panelRimes);
@@ -1685,6 +1834,7 @@ class CarnetView extends ItemView {
     this.buildPanelSynonymes(panelSyno);
     this.buildPanelGuide(panelGuide);
     this.buildPanelDefinitions(panelDefs);
+    this.buildPanelHasard(panelHasard);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
     footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèse affichée en variante complète). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
@@ -2151,6 +2301,53 @@ class CarnetView extends ItemView {
     };
   }
 
+  buildPanelHasard(panelHasard){
+    const intro = panelHasard.createEl('p', { cls: 'cp-inspi-intro' });
+    intro.setText('Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.');
+
+    const btnTirer = panelHasard.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
+
+    const zone = panelHasard.createDiv({ cls: 'cp-hasard-zone' });
+    const motEl = zone.createEl('div', { cls: 'cp-hasard-mot' });
+    const noteEl = zone.createEl('p', { cls: 'cp-hasard-note' });
+    const actions = zone.createDiv({ cls: 'cp-hasard-actions' });
+    actions.style.display = 'none';
+
+    const btnDefs = actions.createEl('button', { cls: 'cp-link-btn', text: 'Voir sa définition (CNRTL) →' });
+    const btnRimes = actions.createEl('button', { cls: 'cp-link-btn', text: 'Chercher ses rimes →' });
+
+    let motCourant = null;
+
+    const tirer = () => {
+      const entree = motAuHasard();
+      if (!entree) {
+        motEl.setText('Aucun mot disponible.');
+        noteEl.setText('');
+        actions.style.display = 'none';
+        return;
+      }
+      motCourant = entree.mot;
+      motEl.setText(entree.mot);
+      noteEl.setText(entree.note || '');
+      actions.style.display = 'flex';
+    };
+
+    btnDefs.addEventListener('click', () => {
+      if (!motCourant) return;
+      if (this._switchTab) this._switchTab('defs');
+      if (this._prefillDefsInput) this._prefillDefsInput(motCourant);
+    });
+    btnRimes.addEventListener('click', () => {
+      if (!motCourant) return;
+      if (this._switchTab) this._switchTab('rimes');
+      if (this._prefillRimeInput) this._prefillRimeInput(motCourant);
+    });
+
+    btnTirer.addEventListener('click', tirer);
+
+    tirer();
+  }
+
   async onClose(){}
 }
 
@@ -2247,6 +2444,12 @@ const CARNET_CSS = `
 .cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-schema-rimes{ margin-top:8px; }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
+.cp-hasard-bouton{ display:block; width:100%; padding:12px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background: var(--text-accent); color:#fff; border:none; border-radius:4px; cursor:pointer; }
+.cp-hasard-bouton:hover{ opacity:0.9; }
+.cp-hasard-zone{ margin-top:22px; text-align:center; padding: 10px 0 4px; }
+.cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:600; font-size:1.7em; color: var(--text-normal); margin-bottom:10px; }
+.cp-hasard-note{ font-size:0.9em; color: var(--text-muted); max-width:44ch; margin:0 auto 16px; line-height:1.6; }
+.cp-hasard-actions{ display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
 .cp-rime-form input{ flex:1; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }
