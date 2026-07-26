@@ -352,7 +352,17 @@ function cleRicheMot(mot){
 function coeurVocalique(cle){
   if (!cle) return '';
   const m = cle.match(new RegExp('^[' + VOYELLES + ']+'));
-  return m ? m[0] : '';
+  if (!m) return '';
+  let coeur = m[0];
+  // si la voyelle est suivie d'un seul m/n lui-même suivi d'une consonne
+  // (ou de rien), ce m/n la nasalise et fait partie intégrante du son —
+  // "ombre" (nasal "om") ne doit jamais être confondu avec "octobre"
+  // (oral "o" suivi de "b"), même si les deux commencent par la lettre "o".
+  const suite = cle.slice(coeur.length);
+  if (/^[mn]/.test(suite) && !estVoyelle(suite[1])) {
+    coeur += suite[0];
+  }
+  return coeur;
 }
 
 function memeRime(motA, motB){
@@ -1626,7 +1636,13 @@ function chercheRimes(motSaisi){
 
   if (DICO_PHONETIQUE && DICO_PHONETIQUE.has(motLower)) {
     const cle = DICO_PHONETIQUE.get(motLower);
-    const tousLesMots = (DICO_PHONETIQUE_GROUPES[cle] || []).filter(m => m.toLowerCase() !== motLower);
+    const tousLesMots = (DICO_PHONETIQUE_GROUPES[cle] || [])
+      .filter(m => m.toLowerCase() !== motLower)
+      // un dictionnaire phonétique externe peut regrouper à tort des mots
+      // qui ne riment pas vraiment (ex. "sombre"/"ténèbres" sous une même
+      // clé "finit en -bre" sans distinguer la voyelle) — on ne garde que
+      // les mots dont la voyelle de fin est réellement compatible.
+      .filter(m => memeRime(motSaisi, m));
     return { mode: 'exact', cle, mots: tousLesMots };
   }
 

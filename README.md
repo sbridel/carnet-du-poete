@@ -245,6 +245,14 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.5.3** — The vowel-consistency safety net (added in 2.5.2 for the Syllables tab's rhyme
+  scheme/colours only) is now also applied to the **Rhymes tab's actual search results**, which
+  is the more important fix: a phonetic dictionary group that wrongly mixes unrelated vowels
+  (e.g. everything ending in "-bre") no longer surfaces bad matches in search results or their
+  quality badge. Also fixed the nasal/oral distinction itself: "ombre" (nasal) and "octobre"
+  (oral, despite both starting with the letter "o") were still being treated as compatible; the
+  consistency check now accounts for the nasalising m/n that follows a vowel, not just the
+  vowel letter itself.
 - **2.5.2** — The rhyme-scheme/colour-coding matcher no longer blindly trusts a match from the
   optional phonetic dictionary when it clearly contradicts the spelling-based vowel check (e.g.
   a dictionary that groups "sombre" and "ténèbres" together purely because both end in "-bre",
