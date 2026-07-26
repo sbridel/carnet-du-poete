@@ -189,9 +189,13 @@
 .cp-schema-rimes{ margin-top:8px; }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
 
-.cp-hasard-bouton{ display:block; width:100%; padding:12px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background: var(--text-accent); color:#fff; border:none; border-radius:4px; cursor:pointer; }
+.cp-hasard-bouton{ display:flex; align-items:center; justify-content:center; text-align:center; width:100%; padding:12px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background: var(--text-accent); color:#fff; border:none; border-radius:4px; cursor:pointer; }
 .cp-hasard-bouton:hover{ opacity:0.9; }
 .cp-hasard-zone{ margin-top:22px; text-align:center; padding: 10px 0 4px; }
 .cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:600; font-size:1.7em; color: var(--text-normal); margin-bottom:10px; }
 .cp-hasard-note{ font-size:0.9em; color: var(--text-muted); max-width:44ch; margin:0 auto 16px; line-height:1.6; }
 .cp-hasard-actions{ display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
+
+.cp-synthese-qualite{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px; font-size:0.78em; color: var(--text-muted); }
+.cp-synthese-item{ display:inline-flex; align-items:center; gap:5px; text-transform:capitalize; }
+.cp-synthese-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; }

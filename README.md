@@ -24,14 +24,18 @@ side panel, no internet connection required for the core features.
     view. (This applies to the rendered analysis, not the raw text box itself — colouring live
     text inside a plain editable text area isn't something a text `<textarea>` supports.)
   - **Markdown export** — the "📋 Exporter en Markdown" button copies a table (verse / syllable
-    count / rhyme gender / rhyme letter) to your clipboard, ready to paste into any note.
+    count / rhyme gender / rhyme letter / rhyme quality) to your clipboard, ready to paste into
+    any note. Rhyme quality is only filled in for the second (and later) line of each rhyme
+    group, relative to the first line that introduced it.
 - **Rhymes** — type a word and get masculine/feminine rhyme suggestions with their syllable
   count, drawn from roughly sixty built-in sound families. If you supply a complete phonetic
   rhyme dictionary (see below), exact matches from it take priority over the built-in
   approximation. Results can be narrowed down with filters (first letter, syllable count, and
   rhyme quality — *pauvre* / *suffisante* / *riche*, estimated from how many trailing letters
-  the candidate shares with your word). You can also tick **RimesSolides** to pull in
-  additional live results from [rimessolides.com](https://www.rimessolides.com).
+  the candidate shares with your word). Each group shows a colour-coded quality summary
+  (counts per quality) and every word chip carries a matching coloured border and badge, for a
+  quick visual read of the list. You can also tick **RimesSolides** to pull in additional live
+  results from [rimessolides.com](https://www.rimessolides.com).
 - **Inspiration** — type a common word (*forest*, *sea*, *night*, *love*, *medieval*...) and get
   rarer, more literary or archaic vocabulary on the same theme (e.g. *forest* → canopy-related
   words such as *canopée*, *sylve*, *futaie*, *orée*), each with a short gloss. About thirty
@@ -240,6 +244,12 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.3.2** — Markdown export from the Syllables tab now includes a rhyme quality column
+  (pauvre/suffisante/riche), computed relative to the first line of each rhyme group; the
+  colour-coded rhyme badge's tooltip also shows it.
+- **2.3.1** — Rhymes tab: each rhyme group now shows a colour-coded quality summary
+  (pauvre/suffisante/riche counts) and every word chip carries a matching coloured border and
+  badge; fixed the "🎲 Tire un mot au hasard" button not being centred.
 - **2.3.0** — New Hasard tab (random rare/forgotten French word with a gloss and quick links to
   Definitions/Rhymes); fixed rhyme-group matching so that a word found in the optional phonetic
   dictionary while its true rhyme partner is missing from it no longer get sorted into different

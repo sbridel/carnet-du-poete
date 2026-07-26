@@ -328,7 +328,8 @@ function analysePoeme(texteComplet){
     vide: !ligne.trim(),
     r: ligne.trim() ? analyseLigne(ligne) : null,
     lettre: null,
-    coulIdx: null
+    coulIdx: null,
+    qualite: null
   }));
 
   const strophes = [];
@@ -348,9 +349,18 @@ function analysePoeme(texteComplet){
       return det.length ? det[det.length - 1].mot : '';
     });
     const lettres = calculeSchemaStrophe(derniersMots);
+    const premierMotParLettre = new Map();
     indices.forEach((idx, k) => {
       lignes[idx].lettre = lettres[k];
       lignes[idx].coulIdx = lettres[k] ? (lettres[k].charCodeAt(0) - 65) % PALETTE_RIMES.length : null;
+      if (lettres[k]) {
+        const motActuel = derniersMots[k];
+        if (!premierMotParLettre.has(lettres[k])) {
+          premierMotParLettre.set(lettres[k], motActuel);
+        } else {
+          lignes[idx].qualite = classeRime(premierMotParLettre.get(lettres[k]), motActuel);
+        }
+      }
     });
     return { indices, lettres, nom: nomSchema(lettres) };
   });
@@ -1549,10 +1559,14 @@ function chercheRimes(motSaisi){
    Les groupes phonétiques exacts peuvent contenir plusieurs milliers
    de mots (ex. toutes les conjugaisons en -erai) : on n'affiche que
    les 100 premiers par défaut, avec un bouton pour dérouler le reste. */
-function badgeQualite(conteneur, mot, saisie){
+const COULEURS_QUALITE = { pauvre: '#7f8c8d', suffisante: '#2980b9', riche: '#c0392b' };
+
+function badgeQualite(badgeMot, mot, saisie){
   const q = classeRime(saisie, mot);
-  const b = conteneur.createEl('sup', { cls: 'cp-qualite cp-qualite-' + q, text: q[0].toUpperCase() });
+  badgeMot.style.borderLeftColor = COULEURS_QUALITE[q];
+  const b = badgeMot.createEl('sup', { cls: 'cp-qualite cp-qualite-' + q, text: q[0].toUpperCase() });
   b.setAttr('title', `Rime ${q} (approximatif, orthographique)`);
+  return q;
 }
 
 /* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
@@ -1606,6 +1620,17 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
       if (liste.length === 0) return;
       const g = container.createDiv({ cls: 'cp-groupe' });
       g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
+
+      const compte = { pauvre: 0, suffisante: 0, riche: 0 };
+      liste.forEach(m => { compte[classeRime(saisie, m)]++; });
+      const synthese = g.createDiv({ cls: 'cp-synthese-qualite' });
+      ['riche', 'suffisante', 'pauvre'].forEach(q => {
+        if (compte[q] === 0) return;
+        const item = synthese.createSpan({ cls: 'cp-synthese-item' });
+        item.createSpan({ cls: 'cp-synthese-pastille', attr: { style: `background:${COULEURS_QUALITE[q]}` } });
+        item.createSpan({ text: `${q} : ${compte[q]}` });
+      });
+
       const motsDiv = g.createDiv({ cls: 'cp-mots' });
       const afficheListe = (sousListe) => {
         sousListe.forEach(m => {
@@ -1910,7 +1935,8 @@ class CarnetView extends ItemView {
           const badgeRime = badges.createSpan({ cls: 'cp-rime-lettre', text: ligneInfo.lettre });
           badgeRime.style.color = PALETTE_RIMES[ligneInfo.coulIdx];
           badgeRime.style.borderColor = PALETTE_RIMES[ligneInfo.coulIdx];
-          badgeRime.setAttr('title', `Groupe de rime ${ligneInfo.lettre}`);
+          const titreQualite = ligneInfo.qualite ? ` (rime ${ligneInfo.qualite})` : '';
+          badgeRime.setAttr('title', `Groupe de rime ${ligneInfo.lettre}${titreQualite}`);
         }
         const genre = genreDuVers(r.details);
         if (genre) {
@@ -1960,11 +1986,11 @@ class CarnetView extends ItemView {
       const poeme = analysePoeme(textarea.value);
       const lignesUtiles = poeme.lignes.filter(l => !l.vide);
       if (lignesUtiles.length === 0) { new Notice('Rien à exporter.'); return; }
-      let md = '| Vers | Syllabes | Genre | Rime |\n| --- | --- | --- | --- |\n';
+      let md = '| Vers | Syllabes | Genre | Rime | Qualité |\n| --- | --- | --- | --- | --- |\n';
       lignesUtiles.forEach(l => {
         const genre = genreDuVers(l.r.details) || '';
         const texteEchappe = l.texte.replace(/\|/g, '\\|');
-        md += `| ${texteEchappe} | ${l.r.total} | ${genre} | ${l.lettre || ''} |\n`;
+        md += `| ${texteEchappe} | ${l.r.total} | ${genre} | ${l.lettre || ''} | ${l.qualite || ''} |\n`;
       });
       navigator.clipboard.writeText(md).then(() => {
         new Notice('Analyse copiée en Markdown — colle-la où tu veux.');
@@ -2441,10 +2467,13 @@ const CARNET_CSS = `
 .cp-qualite-pauvre{ color: var(--text-faint); }
 .cp-qualite-suffisante{ color: var(--text-muted); }
 .cp-qualite-riche{ color: var(--text-accent); }
+.cp-synthese-qualite{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px; font-size:0.78em; color: var(--text-muted); }
+.cp-synthese-item{ display:inline-flex; align-items:center; gap:5px; text-transform:capitalize; }
+.cp-synthese-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; }
 .cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-schema-rimes{ margin-top:8px; }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
-.cp-hasard-bouton{ display:block; width:100%; padding:12px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background: var(--text-accent); color:#fff; border:none; border-radius:4px; cursor:pointer; }
+.cp-hasard-bouton{ display:flex; align-items:center; justify-content:center; text-align:center; width:100%; padding:12px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background: var(--text-accent); color:#fff; border:none; border-radius:4px; cursor:pointer; }
 .cp-hasard-bouton:hover{ opacity:0.9; }
 .cp-hasard-zone{ margin-top:22px; text-align:center; padding: 10px 0 4px; }
 .cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:600; font-size:1.7em; color: var(--text-normal); margin-bottom:10px; }
