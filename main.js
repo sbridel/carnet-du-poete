@@ -235,6 +235,88 @@ function analyseLigne(ligne){
   return { total, totalMax, hasHiatus, details };
 }
 
+/* Clé de rime d'un mot, utilisée pour regrouper les vers d'une strophe :
+   dictionnaire phonétique complet en priorité (le plus fiable), sinon la
+   famille de rime approchée, sinon un simple repli sur les 3 dernières
+   lettres (mieux que rien pour les mots absents des deux dictionnaires). */
+function cleDeRimeMot(mot){
+  const norm = normaliseMot(mot);
+  if (!norm) return null;
+  if (typeof DICO_PHONETIQUE !== 'undefined' && DICO_PHONETIQUE && DICO_PHONETIQUE.has(norm)) {
+    return 'PH:' + DICO_PHONETIQUE.get(norm);
+  }
+  const fam = trouveFamille(mot);
+  if (fam) return 'FAM:' + fam.son;
+  return 'FIN:' + norm.slice(-3);
+}
+
+const PALETTE_RIMES = ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#d68910', '#16a085', '#c2185b', '#5d4037', '#455a64', '#7f8c8d'];
+
+/* Attribue une lettre A, B, C... à chaque vers d'une strophe selon sa
+   rime (par ordre d'apparition des sons distincts dans la strophe). */
+function calculeSchemaStrophe(derniersMots){
+  const lettreParCle = new Map();
+  let prochaine = 0;
+  return derniersMots.map(mot => {
+    const cle = cleDeRimeMot(mot);
+    if (!cle) return null;
+    if (!lettreParCle.has(cle)) {
+      lettreParCle.set(cle, String.fromCharCode(65 + (prochaine % 26)));
+      prochaine++;
+    }
+    return lettreParCle.get(cle);
+  });
+}
+
+function nomSchema(lettres){
+  if (!lettres || lettres.length !== 4 || lettres.some(l => !l)) return null;
+  const [a, b, c, d] = lettres;
+  if (a === b && c === d && a !== c) return 'rimes plates (AABB)';
+  if (a === c && b === d && a !== b) return 'rimes croisées (ABAB)';
+  if (a === d && b === c && a !== b) return 'rimes embrassées (ABBA)';
+  return null;
+}
+
+/* Analyse un poème entier : découpage en strophes (séparées par une ligne
+   vide), analyseLigne pour chaque vers, et schéma de rimes par strophe.
+   Réutilisé à la fois par l'affichage et par l'export Markdown. */
+function analysePoeme(texteComplet){
+  const lignesBrutes = texteComplet.split('\n');
+  const lignes = lignesBrutes.map(ligne => ({
+    texte: ligne,
+    vide: !ligne.trim(),
+    r: ligne.trim() ? analyseLigne(ligne) : null,
+    lettre: null,
+    coulIdx: null
+  }));
+
+  const strophes = [];
+  let indicesCourants = [];
+  lignes.forEach((l, i) => {
+    if (l.vide) {
+      if (indicesCourants.length > 0) { strophes.push(indicesCourants); indicesCourants = []; }
+    } else {
+      indicesCourants.push(i);
+    }
+  });
+  if (indicesCourants.length > 0) strophes.push(indicesCourants);
+
+  const schemaStrophes = strophes.map(indices => {
+    const derniersMots = indices.map(i => {
+      const det = lignes[i].r.details;
+      return det.length ? det[det.length - 1].mot : '';
+    });
+    const lettres = calculeSchemaStrophe(derniersMots);
+    indices.forEach((idx, k) => {
+      lignes[idx].lettre = lettres[k];
+      lignes[idx].coulIdx = lettres[k] ? (lettres[k].charCodeAt(0) - 65) % PALETTE_RIMES.length : null;
+    });
+    return { indices, lettres, nom: nomSchema(lettres) };
+  });
+
+  return { lignes, strophes: schemaStrophes };
+}
+
 const METRES = {
   4:'tétrasyllabe', 5:'pentasyllabe', 6:'hexasyllabe', 7:'heptasyllabe',
   8:'octosyllabe', 9:'ennéasyllabe', 10:'décasyllabe', 11:'hendécasyllabe', 12:'alexandrin'
@@ -675,10 +757,11 @@ const CHAMPS_LEXICAUX = CHAMPS_LEXICAUX_BASE.slice();
 
 function trouveFamille(mot){
   const w = normaliseMot(mot);
+  const wSansS = (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) ? w.slice(0, -1) : null;
   let meilleure = null, longueurMax = 0;
   FAMILLES.forEach(fam => {
     fam.terms.forEach(t => {
-      if (w.endsWith(t) && t.length > longueurMax) {
+      if ((w.endsWith(t) || (wSansS && wSansS.endsWith(t))) && t.length > longueurMax) {
         meilleure = fam; longueurMax = t.length;
       }
     });
@@ -893,6 +976,79 @@ const SOURCES_EN_LIGNE = {
   crisco: { id: 'crisco', nom: 'CRISCO', chercher: chercheSynonymesCrisco }
 };
 const SOURCES_EN_LIGNE_ORDRE = ['wiktionnaire', 'crisco'];
+
+/* =========================================================
+   CNRTL (Trésor de la Langue Française informatisé)
+   Définitions riches + étymologie, à la demande uniquement
+   (onglet "Définitions" dédié, pas de recherche automatique).
+   ========================================================= */
+function texteBrutDepuisHtml(html){
+  return (html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n')
+    .trim();
+}
+
+async function chercheCnrtl(mot){
+  const url = `https://www.cnrtl.fr/definition/${encodeURIComponent(mot)}`;
+  const reponse = await requestUrl({ url, throw: false });
+  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
+  const html = reponse.text || '';
+  if (/n['’]a pas été trouvé|La forme .* est introuvable/i.test(html)) {
+    return { trouve: false, url };
+  }
+
+  const texte = texteBrutDepuisHtml(html);
+  const motMaj = mot.toUpperCase();
+
+  let debutArticle = texte.indexOf(motMaj + ',');
+  if (debutArticle === -1) debutArticle = texte.indexOf(motMaj + ' ');
+  const etymIdx = texte.indexOf('Étymol. et Hist.');
+
+  let definition = '';
+  if (debutArticle !== -1) {
+    const finDef = etymIdx !== -1 ? etymIdx : debutArticle + 1000;
+    definition = texte.slice(debutArticle, Math.min(finDef, debutArticle + 1000)).trim();
+  }
+
+  let etymologie = '';
+  if (etymIdx !== -1) {
+    const freqIdx = texte.indexOf('Fréq. abs.', etymIdx);
+    const bbgIdx = texte.indexOf('Bbg.', etymIdx);
+    let finEtym = etymIdx + 900;
+    if (freqIdx !== -1 && freqIdx < finEtym) finEtym = freqIdx;
+    else if (bbgIdx !== -1 && bbgIdx < finEtym) finEtym = bbgIdx;
+    etymologie = texte.slice(etymIdx, finEtym).trim();
+  }
+
+  return { trouve: !!(definition || etymologie), definition, etymologie, url };
+}
+
+/* =========================================================
+   RIMES SOLIDES (source de rimes en ligne complémentaire)
+   ========================================================= */
+async function chercheRimesSolides(mot){
+  const url = `https://www.rimessolides.com/rime.aspx?m=${encodeURIComponent(mot)}`;
+  const reponse = await requestUrl({ url, throw: false });
+  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
+  const html = reponse.text || '';
+  if (!/rime\.aspx\?m=/i.test(html)) return { mots: [], trouve: false, url };
+
+  const regex = /<a\b[^>]*href="[^"]*rime\.aspx\?m=[^"]*"[^>]*>([^<]+)<\/a>/gi;
+  const mots = [];
+  let m;
+  while ((m = regex.exec(html))) {
+    const texte = m[1].trim();
+    if (texte && normaliseMot(texte) !== normaliseMot(mot)) mots.push(texte);
+  }
+  return { mots: [...new Set(mots)], trouve: mots.length > 0, url };
+}
 
 function estFeminine(mot){
   let w = normaliseMot(mot);
@@ -1210,6 +1366,23 @@ async function chargeDictionnairePerso(plugin, opts){
 /* Recherche unifiée : dictionnaire phonétique complet en priorité
    (correspondance exacte), puis repli sur les familles heuristiques
    orthographiques si le mot n'y figure pas. */
+/* Estimation orthographique du nombre de "sons" partagés en fin de mot
+   (approximation : compare les lettres finales, pas une vraie transcription
+   phonétique). Sert à classer une rime en pauvre/suffisante/riche. */
+function estimeSonsCommuns(motA, motB){
+  let a = normaliseMot(motA); if (a.endsWith('s') && !a.endsWith('ss')) a = a.slice(0, -1);
+  let b = normaliseMot(motB); if (b.endsWith('s') && !b.endsWith('ss')) b = b.slice(0, -1);
+  let i = a.length - 1, j = b.length - 1, n = 0;
+  while (i >= 0 && j >= 0 && a[i] === b[j]) { n++; i--; j--; }
+  return n;
+}
+function classeRime(motA, motB){
+  const n = estimeSonsCommuns(motA, motB);
+  if (n >= 3) return 'riche';
+  if (n === 2) return 'suffisante';
+  return 'pauvre';
+}
+
 function chercheRimes(motSaisi){
   const motLower = (motSaisi || '').trim().toLowerCase();
   const motNorm = normaliseMot(motSaisi);
@@ -1233,53 +1406,114 @@ function chercheRimes(motSaisi){
    Les groupes phonétiques exacts peuvent contenir plusieurs milliers
    de mots (ex. toutes les conjugaisons en -erai) : on n'affiche que
    les 100 premiers par défaut, avec un bouton pour dérouler le reste. */
-function renderResultatsRimes(container, motSaisi){
+function badgeQualite(conteneur, mot, saisie){
+  const q = classeRime(saisie, mot);
+  const b = conteneur.createEl('sup', { cls: 'cp-qualite cp-qualite-' + q, text: q[0].toUpperCase() });
+  b.setAttr('title', `Rime ${q} (approximatif, orthographique)`);
+}
+
+/* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
+   filtres : { lettre, syllabes, qualites: Set } — tous optionnels. */
+function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActives){
   container.empty();
   const saisie = (motSaisi || '').trim();
   if (!saisie) return;
+  filtres = filtres || {};
 
   const resultat = chercheRimes(saisie);
 
-  if (resultat.mode === 'aucun') {
-    container.createEl('p', { cls: 'cp-vide', text: `Pas de rime trouvée pour « ${saisie} » dans les dictionnaires chargés.` });
-    return;
-  }
-
-  if (resultat.mode === 'exact') {
-    container.createDiv({ cls: 'cp-son-label', text: `Rimes exactes pour « ${saisie} » (dictionnaire phonétique complet)` });
-  } else {
-    container.createDiv({ cls: 'cp-son-label', text: `Son ${resultat.son} — comme dans « ${resultat.exemple} » (dictionnaire approché)` });
-  }
-
-  const masculins = resultat.mots.filter(m => !estFeminine(m));
-  const feminins = resultat.mots.filter(m => estFeminine(m));
-  const LIMITE = 100;
-
-  const buildGroupe = (titre, liste) => {
-    if (liste.length === 0) return;
-    const g = container.createDiv({ cls: 'cp-groupe' });
-    g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
-    const motsDiv = g.createDiv({ cls: 'cp-mots' });
-    const afficheListe = (sousListe) => {
-      sousListe.forEach(m => {
-        const r = compteSyllabesMot(m, false);
-        const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
-        badge.createEl('sup', { text: String(r.min) });
-      });
-    };
-    afficheListe(liste.slice(0, LIMITE));
-    if (liste.length > LIMITE) {
-      const reste = liste.length - LIMITE;
-      const btnPlus = g.createEl('button', { cls: 'cp-link-btn', text: `Afficher les ${reste} mots restants` });
-      btnPlus.addEventListener('click', () => {
-        afficheListe(liste.slice(LIMITE));
-        btnPlus.remove();
+  const appliqueFiltres = (liste) => {
+    let l = liste;
+    if (filtres.lettre) {
+      const lettre = normaliseMot(filtres.lettre)[0];
+      l = l.filter(m => normaliseMot(m).startsWith(lettre));
+    }
+    if (filtres.syllabes) {
+      const cible = filtres.syllabes === '5+' ? null : parseInt(filtres.syllabes, 10);
+      l = l.filter(m => {
+        const n = compteSyllabesMot(m, false).min;
+        return cible === null ? n >= 5 : n === cible;
       });
     }
+    if (filtres.qualites && filtres.qualites.size > 0 && filtres.qualites.size < 3) {
+      l = l.filter(m => filtres.qualites.has(classeRime(saisie, m)));
+    }
+    return l;
   };
 
-  buildGroupe('Rimes masculines', masculins);
-  buildGroupe('Rimes féminines (finale en -e muet)', feminins);
+  if (resultat.mode === 'aucun') {
+    container.createEl('p', { cls: 'cp-vide', text: `Pas de rime trouvée pour « ${saisie} » dans les dictionnaires chargés.` });
+  } else {
+    if (resultat.mode === 'exact') {
+      container.createDiv({ cls: 'cp-son-label', text: `Rimes exactes pour « ${saisie} » (dictionnaire phonétique complet)` });
+    } else {
+      container.createDiv({ cls: 'cp-son-label', text: `Son ${resultat.son} — comme dans « ${resultat.exemple} » (dictionnaire approché)` });
+    }
+
+    const filtres_ = appliqueFiltres(resultat.mots);
+    const masculins = filtres_.filter(m => !estFeminine(m));
+    const feminins = filtres_.filter(m => estFeminine(m));
+    const LIMITE = 100;
+
+    if (filtres_.length === 0) {
+      container.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
+    }
+
+    const buildGroupe = (titre, liste) => {
+      if (liste.length === 0) return;
+      const g = container.createDiv({ cls: 'cp-groupe' });
+      g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
+      const motsDiv = g.createDiv({ cls: 'cp-mots' });
+      const afficheListe = (sousListe) => {
+        sousListe.forEach(m => {
+          const r = compteSyllabesMot(m, false);
+          const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
+          badge.createEl('sup', { text: String(r.min) });
+          badgeQualite(badge, m, saisie);
+        });
+      };
+      afficheListe(liste.slice(0, LIMITE));
+      if (liste.length > LIMITE) {
+        const reste = liste.length - LIMITE;
+        const btnPlus = g.createEl('button', { cls: 'cp-link-btn', text: `Afficher les ${reste} mots restants` });
+        btnPlus.addEventListener('click', () => {
+          afficheListe(liste.slice(LIMITE));
+          btnPlus.remove();
+        });
+      }
+    };
+
+    buildGroupe('Rimes masculines', masculins);
+    buildGroupe('Rimes féminines (finale en -e muet)', feminins);
+  }
+
+  // --- source en ligne complémentaire (RimesSolides) ---
+  if ((sourcesActives || []).includes('rimessolides')) {
+    const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
+    bloc.createDiv({ cls: 'cp-son-label', text: `${saisie} — RimesSolides (en ligne)` });
+    const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+    chercheRimesSolides(saisie).then(r => {
+      statut.remove();
+      if (!r.trouve) {
+        bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur RimesSolides pour « ${saisie} ».` });
+        return;
+      }
+      const motsFiltres = appliqueFiltres(r.mots);
+      const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
+      motsFiltres.slice(0, 150).forEach(m => {
+        const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
+        const rr = compteSyllabesMot(m, false);
+        badge.createEl('sup', { text: String(rr.min) });
+        badgeQualite(badge, m, saisie);
+      });
+      if (motsFiltres.length === 0) {
+        bloc.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
+      }
+    }).catch(err => {
+      console.error('[Carnet du Poète] erreur RimesSolides', err);
+      statut.setText('Recherche impossible sur RimesSolides (voir la console).');
+    });
+  }
 }
 
 /* Rendu partagé des résultats d'inspiration (panneau + fenêtre modale). */
@@ -1415,12 +1649,14 @@ class CarnetView extends ItemView {
     const tabInspi = tabBar.createEl('button', { text: 'Inspiration', cls: 'cp-tab' });
     const tabSyno = tabBar.createEl('button', { text: 'Synonymes', cls: 'cp-tab' });
     const tabGuide = tabBar.createEl('button', { text: 'Guide', cls: 'cp-tab' });
+    const tabDefs = tabBar.createEl('button', { text: 'Définitions', cls: 'cp-tab' });
 
     const panelSyl = container.createDiv({ cls: 'cp-panel active' });
     const panelRimes = container.createDiv({ cls: 'cp-panel' });
     const panelInspi = container.createDiv({ cls: 'cp-panel' });
     const panelSyno = container.createDiv({ cls: 'cp-panel' });
     const panelGuide = container.createDiv({ cls: 'cp-panel' });
+    const panelDefs = container.createDiv({ cls: 'cp-panel' });
 
     const switchTab = (which) => {
       tabSyl.toggleClass('active', which === 'syl');
@@ -1428,23 +1664,27 @@ class CarnetView extends ItemView {
       tabInspi.toggleClass('active', which === 'inspi');
       tabSyno.toggleClass('active', which === 'syno');
       tabGuide.toggleClass('active', which === 'guide');
+      tabDefs.toggleClass('active', which === 'defs');
       panelSyl.toggleClass('active', which === 'syl');
       panelRimes.toggleClass('active', which === 'rimes');
       panelInspi.toggleClass('active', which === 'inspi');
       panelSyno.toggleClass('active', which === 'syno');
       panelGuide.toggleClass('active', which === 'guide');
+      panelDefs.toggleClass('active', which === 'defs');
     };
     tabSyl.addEventListener('click', () => switchTab('syl'));
     tabRimes.addEventListener('click', () => switchTab('rimes'));
     tabInspi.addEventListener('click', () => switchTab('inspi'));
     tabSyno.addEventListener('click', () => switchTab('syno'));
     tabGuide.addEventListener('click', () => switchTab('guide'));
+    tabDefs.addEventListener('click', () => switchTab('defs'));
 
     this.buildPanelSyllabes(panelSyl);
     this.buildPanelRimes(panelRimes);
     this.buildPanelInspiration(panelInspi);
     this.buildPanelSynonymes(panelSyno);
     this.buildPanelGuide(panelGuide);
+    this.buildPanelDefinitions(panelDefs);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
     footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèse affichée en variante complète). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
@@ -1459,15 +1699,21 @@ class CarnetView extends ItemView {
     const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-source-toggle' });
     const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
     toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
+    const toggleRimesLabel = toolbar.createEl('label', { cls: 'cp-source-toggle' });
+    const toggleRimes = toggleRimesLabel.createEl('input', { attr: { type: 'checkbox' } });
+    toggleRimesLabel.createSpan({ text: ' Couleurs de rimes' });
     const saveState = toolbar.createEl('span', { cls: 'cp-save-state' });
+    const btnExport = toolbar.createEl('button', { text: '📋 Exporter en Markdown', cls: 'cp-link-btn' });
     const btnClear = toolbar.createEl('button', { text: 'Effacer le brouillon', cls: 'cp-link-btn' });
     const analyseDiv = panelSyl.createDiv({ cls: 'cp-analyse' });
+    const schemaDiv = panelSyl.createDiv({ cls: 'cp-schema-rimes' });
     const totalBar = panelSyl.createDiv({ cls: 'cp-total-bar' });
     totalBar.style.display = 'none';
 
     (async () => {
       const data = await this.plugin.loadData();
       toggleDierese.checked = !data || data.afficheDierese !== false; // activé par défaut
+      toggleRimes.checked = !!(data && data.afficheCouleursRimes);
       renderAnalyse();
     })();
     toggleDierese.addEventListener('change', async () => {
@@ -1476,26 +1722,46 @@ class CarnetView extends ItemView {
       await this.plugin.saveData(data);
       renderAnalyse();
     });
+    toggleRimes.addEventListener('change', async () => {
+      const data = (await this.plugin.loadData()) || {};
+      data.afficheCouleursRimes = toggleRimes.checked;
+      await this.plugin.saveData(data);
+      renderAnalyse();
+    });
 
     const renderAnalyse = () => {
       analyseDiv.empty();
-      const lignes = textarea.value.split('\n');
-      const nonVides = lignes.filter(l => l.trim());
+      schemaDiv.empty();
+      const texteComplet = textarea.value;
+      const nonVides = texteComplet.split('\n').filter(l => l.trim());
       if (nonVides.length === 0) {
         totalBar.style.display = 'none';
         return;
       }
+
+      const poeme = analysePoeme(texteComplet);
       let total = 0, nb = 0;
-      lignes.forEach(ligne => {
-        if (!ligne.trim()) return;
+
+      poeme.lignes.forEach(ligneInfo => {
+        if (ligneInfo.vide) return;
+        const r = ligneInfo.r;
         nb++;
-        const r = analyseLigne(ligne);
         total += r.total;
         const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
         const ligneTop = ligneEl.createDiv({ cls: 'cp-ligne-top' });
         const texteStandard = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabes)).join(' ');
-        ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
+        const texteSpan = ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
+        if (toggleRimes.checked && ligneInfo.coulIdx !== null) {
+          texteSpan.style.borderLeft = `3px solid ${PALETTE_RIMES[ligneInfo.coulIdx]}`;
+          texteSpan.style.paddingLeft = '6px';
+        }
         const badges = ligneTop.createDiv({ cls: 'cp-badges' });
+        if (toggleRimes.checked && ligneInfo.lettre) {
+          const badgeRime = badges.createSpan({ cls: 'cp-rime-lettre', text: ligneInfo.lettre });
+          badgeRime.style.color = PALETTE_RIMES[ligneInfo.coulIdx];
+          badgeRime.style.borderColor = PALETTE_RIMES[ligneInfo.coulIdx];
+          badgeRime.setAttr('title', `Groupe de rime ${ligneInfo.lettre}`);
+        }
         const genre = genreDuVers(r.details);
         if (genre) {
           const badgeGenre = badges.createSpan({
@@ -1520,12 +1786,43 @@ class CarnetView extends ItemView {
           badgesAlt.createSpan({ cls: 'cp-compte cp-compte-alt', text: String(r.totalMax) });
         }
       });
+
+      // schéma de rimes par strophe (affiché seulement s'il y a plus d'une strophe
+      // ou qu'un nom de schéma classique a été reconnu — sinon peu d'intérêt)
+      const utile = poeme.strophes.some(s => s.nom) || poeme.strophes.length > 1;
+      if (utile) {
+        poeme.strophes.forEach((s, i) => {
+          const ligne = schemaDiv.createDiv({ cls: 'cp-schema-ligne' });
+          const prefixe = poeme.strophes.length > 1 ? `Strophe ${i + 1} : ` : 'Schéma : ';
+          ligne.createSpan({ text: prefixe + s.lettres.map(l => l || '?').join('') });
+          if (s.nom) ligne.createSpan({ cls: 'cp-metre', text: s.nom });
+        });
+      }
+
       totalBar.style.display = 'flex';
       totalBar.empty();
       totalBar.createSpan({ text: `${nb} vers` });
       totalBar.createEl('strong', { text: `${total} syllabes` });
       totalBar.createSpan({ text: `≈ ${(total / nb).toFixed(1)} / vers` });
     };
+
+    btnExport.addEventListener('click', () => {
+      const poeme = analysePoeme(textarea.value);
+      const lignesUtiles = poeme.lignes.filter(l => !l.vide);
+      if (lignesUtiles.length === 0) { new Notice('Rien à exporter.'); return; }
+      let md = '| Vers | Syllabes | Genre | Rime |\n| --- | --- | --- | --- |\n';
+      lignesUtiles.forEach(l => {
+        const genre = genreDuVers(l.r.details) || '';
+        const texteEchappe = l.texte.replace(/\|/g, '\\|');
+        md += `| ${texteEchappe} | ${l.r.total} | ${genre} | ${l.lettre || ''} |\n`;
+      });
+      navigator.clipboard.writeText(md).then(() => {
+        new Notice('Analyse copiée en Markdown — colle-la où tu veux.');
+      }).catch(() => {
+        new Notice('Impossible de copier automatiquement ; voir la console pour le Markdown généré.');
+        console.log(md);
+      });
+    });
 
     let saveTimeout = null;
     textarea.addEventListener('input', () => {
@@ -1562,12 +1859,46 @@ class CarnetView extends ItemView {
     const rimeForm = panelRimes.createDiv({ cls: 'cp-rime-form' });
     const motInput = rimeForm.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. lumière, chapeau, courage)' } });
     const btnChercher = rimeForm.createEl('button', { text: 'Chercher' });
+
+    const filtresDiv = panelRimes.createDiv({ cls: 'cp-filtres' });
+    const lettreInput = filtresDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
+    const syllabesSelect = filtresDiv.createEl('select', { cls: 'cp-filtre-syllabes' });
+    [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
+      .forEach(([val, label]) => syllabesSelect.createEl('option', { attr: { value: val }, text: label }));
+
+    const qualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres' });
+    const casesQualite = {};
+    [['pauvre','Pauvre'],['suffisante','Suffisante'],['riche','Riche']].forEach(([id, label]) => {
+      const lbl = qualiteDiv.createEl('label', { cls: 'cp-source-toggle' });
+      const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
+      c.checked = true;
+      lbl.createSpan({ text: ' ' + label });
+      casesQualite[id] = c;
+    });
+
+    const sourcesDiv = panelRimes.createDiv({ cls: 'cp-sources' });
+    sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
+    const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-source-toggle' });
+    const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
+    caseRimesSolides.createSpan({ text: ' RimesSolides' });
+
     const resultatsDiv = panelRimes.createDiv({ cls: 'cp-resultats' });
 
-    const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value);
+    const lireFiltres = () => ({
+      lettre: lettreInput.value.trim(),
+      syllabes: syllabesSelect.value,
+      qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
+    });
+    const sourcesActives = () => (inputRimesSolides.checked ? ['rimessolides'] : []);
+
+    const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value, lireFiltres(), this.plugin, sourcesActives());
 
     btnChercher.addEventListener('click', chercher);
     motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+    lettreInput.addEventListener('input', chercher);
+    syllabesSelect.addEventListener('change', chercher);
+    Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
+    inputRimesSolides.addEventListener('change', chercher);
 
     this._prefillRimeInput = (mot) => {
       motInput.value = mot;
@@ -1771,6 +2102,55 @@ class CarnetView extends ItemView {
     ]);
   }
 
+  buildPanelDefinitions(panelDefs){
+    const intro = panelDefs.createEl('p', { cls: 'cp-inspi-intro' });
+    intro.setText('Vérifie le sens exact et le registre d\'un mot rare avant de l\'utiliser — définitions et étymologie tirées du Trésor de la Langue Française informatisé (CNRTL), à la demande.');
+
+    const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
+    const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });
+    const btnChercher = form.createEl('button', { text: 'Chercher' });
+    const resultatsDiv = panelDefs.createDiv({ cls: 'cp-resultats' });
+
+    const chercher = async () => {
+      const saisie = motInput.value.trim();
+      resultatsDiv.empty();
+      if (!saisie) return;
+      resultatsDiv.createDiv({ cls: 'cp-son-label', text: `${saisie} — CNRTL / TLFi` });
+      const statut = resultatsDiv.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+      try {
+        const r = await chercheCnrtl(saisie);
+        statut.remove();
+        if (!r.trouve) {
+          resultatsDiv.createEl('p', { cls: 'cp-vide', text: `« ${saisie} » n'a pas été trouvé sur le CNRTL.` });
+          return;
+        }
+        if (r.definition) {
+          const blocDef = resultatsDiv.createDiv({ cls: 'cp-groupe' });
+          blocDef.createDiv({ cls: 'cp-titre', text: 'Définition' });
+          blocDef.createEl('p', { cls: 'cp-cnrtl-texte', text: r.definition });
+        }
+        if (r.etymologie) {
+          const blocEtym = resultatsDiv.createDiv({ cls: 'cp-groupe' });
+          blocEtym.createDiv({ cls: 'cp-titre', text: 'Étymologie' });
+          blocEtym.createEl('p', { cls: 'cp-cnrtl-texte', text: r.etymologie });
+        }
+        const lien = resultatsDiv.createEl('a', { text: 'Voir la fiche complète sur le CNRTL →', attr: { href: r.url, target: '_blank', rel: 'noopener' } });
+        lien.addClass('cp-cnrtl-lien');
+      } catch (err) {
+        console.error('[Carnet du Poète] erreur CNRTL', err);
+        statut.setText('Recherche impossible (pas de connexion, ou le site a changé — voir la console).');
+      }
+    };
+
+    btnChercher.addEventListener('click', chercher);
+    motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+
+    this._prefillDefsInput = (mot) => {
+      motInput.value = mot;
+      chercher();
+    };
+  }
+
   async onClose(){}
 }
 
@@ -1854,6 +2234,19 @@ const CARNET_CSS = `
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
+.cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: pre-wrap; }
+.cp-cnrtl-lien{ display:inline-block; margin-top:6px; font-size:0.8em; }
+.cp-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:10px; font-size:0.82em; }
+.cp-filtre-lettre{ width:56px; text-align:center; }
+.cp-filtre-syllabes{ font-size:0.9em; }
+.cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
+.cp-qualite{ margin-left:3px; font-weight:700; border-radius:3px; padding:0 3px; cursor:help; }
+.cp-qualite-pauvre{ color: var(--text-faint); }
+.cp-qualite-suffisante{ color: var(--text-muted); }
+.cp-qualite-riche{ color: var(--text-accent); }
+.cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
+.cp-schema-rimes{ margin-top:8px; }
+.cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
 .cp-rime-form input{ flex:1; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }

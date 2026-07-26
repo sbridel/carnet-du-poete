@@ -16,10 +16,22 @@ side panel, no internet connection required for the core features.
   shows the full breakdown **with diaeresis** — you decide which reading fits your verse. This
   variant can be toggled on/off with the "Variante diérèse" checkbox if you'd rather keep the
   view lighter.
+  - **Rhyme scheme detection** — the poem is split into stanzas (blank-line separated); each
+    stanza's end-rhymes are grouped and labelled A/B/C..., and a 4-line stanza matching AABB,
+    ABAB or ABBA is named accordingly, shown just below the syllable counts.
+  - **Rhyme colour-coding** — toggle "Couleurs de rimes" to give each line a coloured badge and
+    border matching its rhyme group, making rhyme pairs easy to spot at a glance in the analysis
+    view. (This applies to the rendered analysis, not the raw text box itself — colouring live
+    text inside a plain editable text area isn't something a text `<textarea>` supports.)
+  - **Markdown export** — the "📋 Exporter en Markdown" button copies a table (verse / syllable
+    count / rhyme gender / rhyme letter) to your clipboard, ready to paste into any note.
 - **Rhymes** — type a word and get masculine/feminine rhyme suggestions with their syllable
   count, drawn from roughly sixty built-in sound families. If you supply a complete phonetic
   rhyme dictionary (see below), exact matches from it take priority over the built-in
-  approximation.
+  approximation. Results can be narrowed down with filters (first letter, syllable count, and
+  rhyme quality — *pauvre* / *suffisante* / *riche*, estimated from how many trailing letters
+  the candidate shares with your word). You can also tick **RimesSolides** to pull in
+  additional live results from [rimessolides.com](https://www.rimessolides.com).
 - **Inspiration** — type a common word (*forest*, *sea*, *night*, *love*, *medieval*...) and get
   rarer, more literary or archaic vocabulary on the same theme (e.g. *forest* → canopy-related
   words such as *canopée*, *sylve*, *futaie*, *orée*), each with a short gloss. About thirty
@@ -30,10 +42,15 @@ side panel, no internet connection required for the core features.
   instantly offline; you can additionally enable live lookups from **Wiktionnaire** and/or
   **CRISCO** (Université de Caen's synonym dictionary), toggled independently with checkboxes,
   with a one-click button to save any online result into your personal dictionary for future
-  offline use. See [Online synonym sources](#online-synonym-sources) below.
-- **Guide** — a quick reference: how French syllable counting works, a handful of classic poem
-  forms (sonnet, rondeau, ballade, villanelle, pantoum, ode, haiku, fable, acrostic...), and the
-  basics of rhyme (rhyme schemes, rhyme quality, masculine/feminine alternation).
+  offline use. See [Online sources](#online-sources) below.
+- **Definitions** — look up a rare word before using it: fetches a definition excerpt and
+  etymology from **CNRTL** (the *Trésor de la Langue Française informatisé*), with a link to
+  the full entry. On-demand only — nothing is looked up automatically.
+- **Guide** — a quick reference: how French syllable counting works, metre names, caesura,
+  enjambment, stanza names, a handful of classic poem forms (sonnet, rondeau, ballade,
+  villanelle, pantoum, triolet, virelai, tanka, calligramme, ode, haiku, fable, acrostic, free
+  verse...), and the basics of rhyme (rhyme schemes, rhyme quality, masculine/feminine
+  alternation, eye-rhymes vs. ear-rhymes).
 - **Persistent draft** — your syllable-counter text is saved automatically between sessions.
 - **Commands** (Command palette, `Ctrl/Cmd+P`):
   - *Open the Carnet du Poete*
@@ -148,31 +165,41 @@ ignores accents and simple plurals).
 }
 ```
 
-## Online synonym sources
+## Online sources
 
-The Synonyms tab can query external sites live, directly from your device (the plugin uses
+Several tabs can query external sites live, directly from your device (the plugin uses
 Obsidian's `requestUrl` API, which works the same way on desktop and mobile, without running
-into browser CORS restrictions). Two sources are built in:
+into browser CORS restrictions). Four sources are built in:
 
 - **Wiktionnaire** (`fr.wiktionary.org`) — the French Wiktionary's own API, parsed for its
-  "Synonymes"/"Antonymes" sections.
+  "Synonymes"/"Antonymes" sections. Used in the Synonyms and Inspiration tabs.
 - **CRISCO** (`crisco4.unicaen.fr`) — Université de Caen's *Dictionnaire Électronique des
-  Synonymes*, an academic resource with tens of thousands of curated entries.
+  Synonymes*, an academic resource with tens of thousands of curated entries. Used in the
+  Synonyms and Inspiration tabs.
+- **RimesSolides** (`rimessolides.com`) — a French rhyming dictionary with IPA transcriptions.
+  Used in the Rhymes tab.
+- **CNRTL** (`cnrtl.fr`) — the *Trésor de la Langue Française informatisé*, used in the
+  Definitions tab. Unlike the other three, this one has no opt-in checkbox: it is only ever
+  queried when you explicitly search in the Definitions tab.
 
-Both are opt-in via checkboxes above the search box (your choice is remembered). Neither is
-queried unless you tick its box and press *Search* — nothing is sent anywhere by default. When
-a source returns results, a **"💾 Save to my personal dictionary"** button lets you write them
-into `dictionnaire-perso.json` in one click (creating the file at the root of your vault if none
-exists yet), so the word becomes available offline from then on.
+The Wiktionnaire/CRISCO/RimesSolides checkboxes are opt-in (your choice is remembered per tab).
+Nothing is queried unless you tick a box and press *Search* — nothing is sent anywhere by
+default. In the Synonyms and Inspiration tabs, when a source returns results, a **"💾 Save to my
+personal dictionary"** button lets you write them into `dictionnaire-perso.json` in one click
+(creating the file at the root of your vault if none exists yet), so the word becomes available
+offline from then on.
 
-Adding a third source later is a small, self-contained change: it needs a function that takes a
-word and returns `{ synonymes: [...], antonymes: [...], trouve: true|false }`, registered in the
-`SOURCES_EN_LIGNE` table near the top of `main.js`. Open an issue or ask if you'd like a specific
-source added.
+Adding another source to the Synonyms/Inspiration tabs is a small, self-contained change: it
+needs a function that takes a word and returns `{ synonymes: [...], antonymes: [...], trouve:
+true|false }`, registered in the `SOURCES_EN_LIGNE` table near the top of `main.js`. Open an
+issue or ask if you'd like a specific source added.
 
 *Fair use note:* these are third-party sites without a public API contract; the plugin fetches
 their normal pages and extracts the relevant section. If a site changes its layout, that source
-may temporarily return no results — the other source(s) and the local dictionary are unaffected.
+may temporarily return no results — the other source(s) and the local dictionaries are
+unaffected. CNRTL has announced a full portal redesign for 1 September 2026
+([details](https://www.portail-lexical.fr/)); if the URL structure changes after that date, the
+Definitions tab may need an update.
 
 ## Known limitations
 
@@ -189,11 +216,23 @@ may temporarily return no results — the other source(s) and the local dictiona
 - The built-in rhyme, vocabulary and synonym dictionaries are hand-curated, not exhaustive; a
   rare word may not be recognised. The optional complete phonetic rhyme dictionary (format B
   above) largely closes that gap for rhymes specifically.
-- The online synonym sources depend on third-party websites staying reachable and structurally
+- Rhyme quality (*pauvre* / *suffisante* / *riche*) is estimated by comparing trailing letters,
+  not real phonetic transcription — a reasonable approximation for most common spelling
+  patterns, but not infallible (silent letters can throw it off occasionally).
+- The online sources depend on third-party websites staying reachable and structurally
   unchanged; treat them as a bonus on top of, not a replacement for, the offline dictionaries.
+- Rhyme-pair colour-coding applies to the rendered analysis below the text box, not to the raw
+  text box itself, which a plain HTML `<textarea>` cannot style character-by-character.
 
 ## Changelog
 
+- **2.2.0** — New Definitions tab (CNRTL/TLFi definitions and etymology, on demand); Rhymes tab
+  gained filters (first letter, syllable count, rhyme quality) and an optional RimesSolides
+  online source; automatic rhyme-scheme detection per stanza (AABB/ABAB/ABBA when applicable)
+  with optional colour-coded rhyme badges in the Syllables tab; Markdown export of the analysis
+  (verse / syllables / gender / rhyme letter) to the clipboard; fixed `trouveFamille` not
+  matching plural words against singular-form rhyme family endings (e.g. "décombres" against
+  the "-ombre" family).
 - **2.1.0** — Fixed a typographic apostrophe (’) being stripped from words (e.g. "l'ombre"
   becoming "lombre"); fixed the diaeresis variant line sometimes appearing visually attached to
   the following verse instead of its own; added a toggle to show/hide the diaeresis variant;

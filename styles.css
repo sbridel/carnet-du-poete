@@ -172,3 +172,19 @@
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
+
+.cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: pre-wrap; }
+.cp-cnrtl-lien{ display:inline-block; margin-top:6px; font-size:0.8em; }
+
+.cp-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:10px; font-size:0.82em; }
+.cp-filtre-lettre{ width:56px; text-align:center; }
+.cp-filtre-syllabes{ font-size:0.9em; }
+.cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
+.cp-qualite{ margin-left:3px; font-weight:700; border-radius:3px; padding:0 3px; cursor:help; }
+.cp-qualite-pauvre{ color: var(--text-faint); }
+.cp-qualite-suffisante{ color: var(--text-muted); }
+.cp-qualite-riche{ color: var(--text-accent); }
+
+.cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
+.cp-schema-rimes{ margin-top:8px; }
+.cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
