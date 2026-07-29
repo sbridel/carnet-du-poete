@@ -4,7 +4,7 @@
   "version": "2.6.1",
   "minAppVersion": "0.15.0",
   "description": "Syllable counter, rhyming dictionary, thematic vocabulary and synonyms for French poetry.",
-  "author": "Toi",
+  "author": "Sébastien Wallachia",
   "authorUrl": "",
   "isDesktopOnly": false
 }
