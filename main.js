@@ -1136,7 +1136,15 @@ function chercheSynonymes(motSaisi){
   const w = normaliseMot(motSaisi);
   const wSouple = normaliseSouple(motSaisi);
   if (!w) return null;
-  return SYNONYMES.find(e => normaliseMot(e.mot) === w || normaliseSouple(e.mot) === wSouple) || null;
+  const correspondances = SYNONYMES.filter(e => normaliseMot(e.mot) === w || normaliseSouple(e.mot) === wSouple);
+  if (correspondances.length === 0) return null;
+  if (correspondances.length === 1) return correspondances[0];
+  // plusieurs entrées pour le même mot (ex. une intégrée + une ajoutée via
+  // dictionnaire-perso.json) : on les fusionne au lieu de ne garder que la
+  // première, sinon les ajouts personnels restent invisibles à tort.
+  const synonymes = [...new Set(correspondances.flatMap(e => e.synonymes || []))];
+  const antonymes = [...new Set(correspondances.flatMap(e => e.antonymes || []))];
+  return { mot: correspondances[0].mot, synonymes, antonymes };
 }
 
 /* =========================================================
@@ -1259,6 +1267,25 @@ function texteBrutDepuisHtml(html){
     .trim();
 }
 
+/* Le CNRTL affiche depuis peu (annonce de refonte du portail au 1er
+   septembre 2026) un bandeau d'annonce suivi d'un menu de navigation qui
+   peut se retrouver capturé AVANT la vraie définition selon la page. On le
+   retire s'il est présent, en se basant sur des repères de texte stables
+   plutôt que sur une position fixe (le bandeau disparaîtra peut-être un
+   jour, mais ce nettoyage restera inoffensif s'il n'y a rien à retirer). */
+function retireBoilerplateCnrtl(texte){
+  const debutBandeau = texte.indexOf('Chers usagers du portail lexical');
+  if (debutBandeau === -1) return texte;
+  const reperesFin = ['Police de caractères', 'Concordance Aide', 'DMF ('];
+  let finBandeau = -1, repereTrouve = '';
+  reperesFin.forEach(rep => {
+    const idx = texte.indexOf(rep, debutBandeau);
+    if (idx !== -1 && idx > finBandeau) { finBandeau = idx; repereTrouve = rep; }
+  });
+  if (finBandeau === -1) return texte; // rien de fiable trouvé, on ne touche à rien
+  return texte.slice(0, debutBandeau) + texte.slice(finBandeau + repereTrouve.length);
+}
+
 async function chercheCnrtl(mot){
   const url = `https://www.cnrtl.fr/definition/${encodeURIComponent(mot)}`;
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
@@ -1268,9 +1295,15 @@ async function chercheCnrtl(mot){
     return { trouve: false, url };
   }
 
-  const texte = texteBrutDepuisHtml(html);
+  let texte = texteBrutDepuisHtml(html);
+  texte = retireBoilerplateCnrtl(texte);
   const motMaj = mot.toUpperCase();
 
+  // Le vrai début de l'article se reconnaît à "MOT," suivi d'une catégorie
+  // grammaticale (ex. "OMBRE, subst. fém.") — motif précis et fiable. On ne
+  // se rabat sur "MOT " (sans virgule) qu'en dernier recours, car ce motif
+  // plus large peut aussi matcher un simple titre de page ("OMBRE :
+  // Définition de OMBRE") plutôt que le vrai contenu.
   let debutArticle = texte.indexOf(motMaj + ',');
   if (debutArticle === -1) debutArticle = texte.indexOf(motMaj + ' ');
   const etymIdx = texte.indexOf('Étymol. et Hist.');
@@ -2090,6 +2123,7 @@ class CarnetView extends ItemView {
     toggleRimesLabel.createSpan({ text: ' Couleurs de rimes' });
     const saveState = toolbar.createEl('span', { cls: 'cp-save-state' });
     const btnExport = toolbar.createEl('button', { text: '📋 Exporter en Markdown', cls: 'cp-link-btn' });
+    const btnCopierBrouillon = toolbar.createEl('button', { text: '📄 Copier le brouillon', cls: 'cp-link-btn' });
     const btnClear = toolbar.createEl('button', { text: 'Effacer le brouillon', cls: 'cp-link-btn' });
     const analyseDiv = panelSyl.createDiv({ cls: 'cp-analyse' });
     const schemaDiv = panelSyl.createDiv({ cls: 'cp-schema-rimes' });
@@ -2213,6 +2247,16 @@ class CarnetView extends ItemView {
       }).catch(() => {
         new Notice('Impossible de copier automatiquement ; voir la console pour le Markdown généré.');
         console.log(md);
+      });
+    });
+
+    btnCopierBrouillon.addEventListener('click', () => {
+      if (!textarea.value.trim()) { new Notice('Le brouillon est vide.'); return; }
+      navigator.clipboard.writeText(textarea.value).then(() => {
+        new Notice('Brouillon copié dans le presse-papier.');
+      }).catch(() => {
+        new Notice('Impossible de copier automatiquement (voir la console).');
+        console.log(textarea.value);
       });
     });
 

@@ -27,7 +27,8 @@ side panel, no internet connection required for the core features.
   - **Markdown export** — the "📋 Exporter en Markdown" button copies a table (verse / syllable
     count / rhyme gender / rhyme letter / rhyme quality) to your clipboard, ready to paste into
     any note. Rhyme quality is only filled in for the second (and later) line of each rhyme
-    group, relative to the first line that introduced it.
+    group, relative to the first line that introduced it. A separate "📄 Copier le brouillon"
+    button copies the raw draft text as-is, without the table formatting.
 - **Rhymes** — type a word and get masculine/feminine rhyme suggestions with their syllable
   count, drawn from roughly sixty built-in sound families. If you supply a complete phonetic
   rhyme dictionary (see below), exact matches from it take priority over the built-in
@@ -250,6 +251,13 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.6.1** — Fixed the Synonyms tab silently ignoring personal entries saved for a word that
+  already exists in the built-in dictionary (only the first match was ever returned; entries are
+  now merged, so nothing you save is hidden). Fixed the CNRTL/TLFi definitions occasionally
+  getting polluted by the site's own announcement banner and navigation menu instead of the real
+  definition, and made the article-start detection more precise to avoid matching a page title
+  instead of the actual entry. Added a "📄 Copier le brouillon" button to copy the raw draft text
+  to the clipboard.
 - **2.6.0** — New global "Mode assonance" toggle in the Rhymes tab (like the diaeresis toggle,
   off by default): when enabled, assonances (same vowel, different ending) are shown in their
   own clearly separate section instead of being excluded entirely, for both the local phonetic
