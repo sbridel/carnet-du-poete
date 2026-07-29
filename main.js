@@ -1299,12 +1299,15 @@ async function chercheCnrtl(mot){
   texte = retireBoilerplateCnrtl(texte);
   const motMaj = mot.toUpperCase();
 
-  // Le vrai début de l'article se reconnaît à "MOT," suivi d'une catégorie
-  // grammaticale (ex. "OMBRE, subst. fém.") — motif précis et fiable. On ne
-  // se rabat sur "MOT " (sans virgule) qu'en dernier recours, car ce motif
-  // plus large peut aussi matcher un simple titre de page ("OMBRE :
-  // Définition de OMBRE") plutôt que le vrai contenu.
-  let debutArticle = texte.indexOf(motMaj + ',');
+  // Le vrai début de l'article se reconnaît à "MOT," (ou "MOT1,", "MOT2,"
+  // pour les homographes numérotés par le TLFi, ex. "ombre" = OMBRE1 le
+  // phénomène optique / OMBRE2 le poisson) suivi d'une catégorie
+  // grammaticale. On ne se rabat sur "MOT " (sans virgule) qu'en dernier
+  // recours, car ce motif plus large peut aussi matcher un simple titre de
+  // page ("OMBRE : Définition de OMBRE") plutôt que le vrai contenu.
+  const regexDebut = new RegExp(motMaj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d{0,2}\\s*,');
+  const matchDebut = regexDebut.exec(texte);
+  let debutArticle = matchDebut ? matchDebut.index : -1;
   if (debutArticle === -1) debutArticle = texte.indexOf(motMaj + ' ');
   const etymIdx = texte.indexOf('Étymol. et Hist.');
 

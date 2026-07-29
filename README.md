@@ -251,6 +251,11 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.6.2** — Fixed another CNRTL pollution case: words with numbered homographs in the TLFi
+  (e.g. "ombre" is listed as OMBRE1/OMBRE2) weren't matched by the exact "MOT," pattern, falling
+  through to a looser match that could grab the site's own display-options panel (font/colour
+  legend) instead of the real entry. The article-start detection now accounts for an optional
+  homograph number.
 - **2.6.1** — Fixed the Synonyms tab silently ignoring personal entries saved for a word that
   already exists in the built-in dictionary (only the first match was ever returned; entries are
   now merged, so nothing you save is hidden). Fixed the CNRTL/TLFi definitions occasionally
