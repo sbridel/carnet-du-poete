@@ -122749,6 +122749,47 @@
           "note": "prière et sonnerie de cloches à heures fixes"
         }
       ]
+    },
+    {
+      "theme": "Nuit & obscurité",
+      "motsClefs": [
+        "nuit",
+        "obscurité"
+      ],
+      "mots": [
+        {
+          "mot": "ténèbres",
+          "note": ""
+        },
+        {
+          "mot": "obscur",
+          "note": ""
+        },
+        {
+          "mot": "effroyable",
+          "note": "qui remplit de terreur"
+        },
+        {
+          "mot": "foncé",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "theme": "Noir",
+      "motsClefs": [
+        "noir"
+      ],
+      "mots": [
+        {
+          "mot": "obscur",
+          "note": ""
+        },
+        {
+          "mot": "lugubre",
+          "note": ""
+        }
+      ]
     }
   ],
   "synonymes": [
@@ -122952,6 +122993,36 @@
         "lignée"
       ],
       "antonymes": []
+    },
+    {
+      "mot": "triste",
+      "synonymes": [
+        "abattu",
+        "accablé",
+        "chagrin",
+        "chagriné",
+        "déçu",
+        "désappointé",
+        "désenchanté",
+        "luctueux",
+        "malheureux",
+        "mélancolique",
+        "neurasthénique"
+      ],
+      "antonymes": [
+        "béat",
+        "comblé",
+        "content",
+        "enchanté",
+        "épanoui",
+        "gai",
+        "heureux",
+        "bienheureux",
+        "joyeux",
+        "ravi",
+        "réjoui",
+        "satisfait"
+      ]
     }
   ],
   "motsRares": [
@@ -122993,7 +123064,11 @@
     },
     {
       "mot": "acore",
-      "note": "plante aquatique aux feuilles odorantes"
+      "note": "plante aquatique aux feuilles odorantes",
+      "tags": [
+        "plante",
+        "like"
+      ]
     },
     {
       "mot": "acolyte",
@@ -123181,7 +123256,10 @@
     },
     {
       "mot": "angoisse",
-      "note": "oppression profonde du cœur face au vide ou à l'inconnu"
+      "note": "oppression profonde du cœur face au vide ou à l'inconnu",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "anicroche",
@@ -123189,7 +123267,10 @@
     },
     {
       "mot": "annihiler",
-      "note": "réduire à néant, détruire entièrement la puissance d'une chose"
+      "note": "réduire à néant, détruire entièrement la puissance d'une chose",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "anodisation",
@@ -123237,7 +123318,10 @@
     },
     {
       "mot": "âpreté",
-      "note": "rugosité sévère, dureté du climat ou du caractère"
+      "note": "rugosité sévère, dureté du climat ou du caractère",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "aquilin",
@@ -123273,7 +123357,12 @@
     },
     {
       "mot": "argousin",
-      "note": "ancien terme péjoratif désignant un agent de police"
+      "note": "ancien terme péjoratif désignant un agent de police",
+      "tags": [
+        "like",
+        "ancien",
+        "péjoratif"
+      ]
     },
     {
       "mot": "aride",
@@ -123313,7 +123402,10 @@
     },
     {
       "mot": "asphyxie",
-      "note": "suspension de la respiration, étouffement progressif"
+      "note": "suspension de la respiration, étouffement progressif",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "asservir",
@@ -123497,7 +123589,10 @@
     },
     {
       "mot": "bastion",
-      "note": "ouvrage fortifié s'avançant hors d'une enceinte"
+      "note": "ouvrage fortifié s'avançant hors d'une enceinte",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "bâtisseur",
@@ -123609,7 +123704,10 @@
     },
     {
       "mot": "blason",
-      "note": "ensemble des pièces armoriales peintes sur un écu"
+      "note": "ensemble des pièces armoriales peintes sur un écu",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "blasé",
@@ -123937,7 +124035,10 @@
     },
     {
       "mot": "caverne",
-      "note": "cavité profonde et sombre creusée sous la terre"
+      "note": "cavité profonde et sombre creusée sous la terre",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "célébrité",
@@ -123945,7 +124046,10 @@
     },
     {
       "mot": "céleste",
-      "note": "qui appartient au ciel, pur et divin"
+      "note": "qui appartient au ciel, pur et divin",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "cellule",
@@ -123953,7 +124057,10 @@
     },
     {
       "mot": "cénobite",
-      "note": "moine vivant en communauté dans un monastère"
+      "note": "moine vivant en communauté dans un monastère",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "cénotaphe",
@@ -123961,7 +124068,10 @@
     },
     {
       "mot": "centon",
-      "note": "œuvre littéraire composée de fragments empruntés à d'autres"
+      "note": "œuvre littéraire composée de fragments empruntés à d'autres",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "cep",
@@ -124129,7 +124239,10 @@
     },
     {
       "mot": "clamasser",
-      "note": "pousser de grands cris rauques et désordonnés"
+      "note": "pousser de grands cris rauques et désordonnés",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "clameur",
@@ -124181,7 +124294,10 @@
     },
     {
       "mot": "clopin-clopant",
-      "note": "en boitant légèrement, d'une démarche pénible"
+      "note": "en boitant légèrement, d'une démarche pénible",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "cloaque",
@@ -124265,7 +124381,10 @@
     },
     {
       "mot": "coloncel",
-      "note": "petit capitaine aux ordres d'un chef de guerre"
+      "note": "petit capitaine aux ordres d'un chef de guerre",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "colosse",
@@ -124421,7 +124540,10 @@
     },
     {
       "mot": "consternation",
-      "note": "abattement soudain causé par une affreuse nouvelle"
+      "note": "abattement soudain causé par une affreuse nouvelle",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "contemplation",
@@ -124629,7 +124751,10 @@
     },
     {
       "mot": "cuirasse",
-      "note": "pièce d'armure forgée protégeant la poitrine et le dos"
+      "note": "pièce d'armure forgée protégeant la poitrine et le dos",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "cul-de-basse-fosse",
@@ -124641,7 +124766,10 @@
     },
     {
       "mot": "cupidité",
-      "note": "désir immodéré et avide d'amasser des richesses"
+      "note": "désir immodéré et avide d'amasser des richesses",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "cupule",
@@ -124673,7 +124801,10 @@
     },
     {
       "mot": "dague",
-      "note": "court poignard à lame stérile et aiguisée"
+      "note": "court poignard à lame stérile et aiguisée",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "daim",
@@ -124689,7 +124820,10 @@
     },
     {
       "mot": "dandysme",
-      "note": "élégance recherchée et froideur hautaine du comportement"
+      "note": "élégance recherchée et froideur hautaine du comportement",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "débonnaire",
@@ -124697,7 +124831,10 @@
     },
     {
       "mot": "décadence",
-      "note": "déclin progressif amenant la ruine d'un empire ou d'un art"
+      "note": "déclin progressif amenant la ruine d'un empire ou d'un art",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "décantation",
@@ -124769,7 +124906,10 @@
     },
     {
       "mot": "désespérance",
-      "note": "état d'un désespoir profond et prolongé"
+      "note": "état d'un désespoir profond et prolongé",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "désolation",
@@ -124877,7 +125017,10 @@
     },
     {
       "mot": "écarlate",
-      "note": "d'un rouge vif et très éclatant"
+      "note": "d'un rouge vif et très éclatant",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "écritoire",
@@ -124893,7 +125036,10 @@
     },
     {
       "mot": "effroi",
-      "note": "terreur grande et soudaine qui glace le sang"
+      "note": "terreur grande et soudaine qui glace le sang",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "effusion",
@@ -124925,7 +125071,10 @@
     },
     {
       "mot": "émérite",
-      "note": "qui s'est distingué par une longue expérience honorée"
+      "note": "qui s'est distingué par une longue expérience honorée",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "émail",
@@ -125009,7 +125158,10 @@
     },
     {
       "mot": "éphémère",
-      "note": "qui ne dure qu'un jour ou un instant très court"
+      "note": "qui ne dure qu'un jour ou un instant très court",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "épigramme",
@@ -125045,7 +125197,10 @@
     },
     {
       "mot": "érémitique",
-      "note": "relatif à la vie solitaire du désert propre aux hermites"
+      "note": "relatif à la vie solitaire du désert propre aux hermites",
+      "tags": [
+        "solitaire"
+      ]
     },
     {
       "mot": "éréthisme",
@@ -125053,11 +125208,17 @@
     },
     {
       "mot": "ergoter",
-      "note": "disputer avec de la subtilité sur de très petites choses"
+      "note": "disputer avec de la subtilité sur de très petites choses",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "érudition",
-      "note": "savoir vaste et approfondi puisé dans les livres anciens"
+      "note": "savoir vaste et approfondi puisé dans les livres anciens",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "ésotérisme",
@@ -125177,7 +125338,10 @@
     },
     {
       "mot": "exutoire",
-      "note": "moyen de se libérer d'une émotion trop lourde"
+      "note": "moyen de se libérer d'une émotion trop lourde",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "fable",
@@ -125289,7 +125453,10 @@
     },
     {
       "mot": "fragment",
-      "note": "morceau détaché d'un tout brisé"
+      "note": "morceau détaché d'un tout brisé",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "frenesie",
@@ -125433,7 +125600,10 @@
     },
     {
       "mot": "globe",
-      "note": "corps parfaitement rond, ou sphère de la terre"
+      "note": "corps parfaitement rond, ou sphère de la terre",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "gloriole",
@@ -125477,7 +125647,10 @@
     },
     {
       "mot": "goutte",
-      "note": "petite masse sphérique d'un liquide qui tombe"
+      "note": "petite masse sphérique d'un liquide qui tombe",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "grâce",
@@ -125529,7 +125702,10 @@
     },
     {
       "mot": "hameau",
-      "note": "petit groupe de maisons champêtres séparé du village"
+      "note": "petit groupe de maisons champêtres séparé du village",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "harangue",
@@ -125633,7 +125809,10 @@
     },
     {
       "mot": "hospitalité",
-      "note": "accueil généreux réservé aux voyageurs sous son toit"
+      "note": "accueil généreux réservé aux voyageurs sous son toit",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "hostie",
@@ -125657,7 +125836,10 @@
     },
     {
       "mot": "humilité",
-      "note": "sentiment de sa propre faiblesse, absence d'orgueil"
+      "note": "sentiment de sa propre faiblesse, absence d'orgueil",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "hybride",
@@ -125701,7 +125883,10 @@
     },
     {
       "mot": "icône",
-      "note": "image sacrée peinte sur bois dans le culte d'Orient"
+      "note": "image sacrée peinte sur bois dans le culte d'Orient",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "iconoclasme",
@@ -125737,7 +125922,10 @@
     },
     {
       "mot": "immemorial",
-      "note": "si ancien qu'il sort de la mémoire des hommes"
+      "note": "si ancien qu'il sort de la mémoire des hommes",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "immolation",
@@ -125841,7 +126029,10 @@
     },
     {
       "mot": "infernal",
-      "note": "qui appartient au séjour des morts ou au diable"
+      "note": "qui appartient au séjour des morts ou au diable",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "inflorescence",
@@ -125881,7 +126072,10 @@
     },
     {
       "mot": "intaille",
-      "note": "pierre fine gravée en creux servant de cachet"
+      "note": "pierre fine gravée en creux servant de cachet",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "intercesseur",
@@ -125933,7 +126127,10 @@
     },
     {
       "mot": "ivoire",
-      "note": "matière dure, blanche et précieuse des défenses d'éléphant"
+      "note": "matière dure, blanche et précieuse des défenses d'éléphant",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "ivresse",
@@ -125973,7 +126170,10 @@
     },
     {
       "mot": "jubilation",
-      "note": "joie éclatante et bruyante manifestée au dehors"
+      "note": "joie éclatante et bruyante manifestée au dehors",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "jugement",
@@ -125997,7 +126197,10 @@
     },
     {
       "mot": "kyste",
-      "note": "poche fermée contenant une substance liquide ou molle"
+      "note": "poche fermée contenant une substance liquide ou molle",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "labyrinthe",
@@ -126021,7 +126224,10 @@
     },
     {
       "mot": "lambrequin",
-      "note": "découpure de tissu ornant le haut d'une fenêtre"
+      "note": "découpure de tissu ornant le haut d'une fenêtre",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "lame",
@@ -126061,7 +126267,10 @@
     },
     {
       "mot": "lapidaire",
-      "note": "court, précis et incisif comme une inscription sur pierre"
+      "note": "court, précis et incisif comme une inscription sur pierre",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "laps",
@@ -126197,7 +126406,10 @@
     },
     {
       "mot": "liséré",
-      "note": "étroite bordure d'une couleur différente ornant un tissu"
+      "note": "étroite bordure d'une couleur différente ornant un tissu",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "litanie",
@@ -126272,7 +126484,7 @@
       "note": "développement prodigieux et sauvage de la végétation"
     },
     {
-      "mot": "lyanthrope",
+      "mot": "lycanthrope",
       "note": "homme transformé en loup sous l'effet de la lune"
     },
     {
@@ -126293,7 +126505,10 @@
     },
     {
       "mot": "magister",
-      "note": "maître d'école de village régentant ses élèves"
+      "note": "maître d'école de village régentant ses élèves",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "magnanimité",
@@ -126369,15 +126584,24 @@
     },
     {
       "mot": "marmoréen",
-      "note": "qui a la froideur, la blancheur et la dureté du marbre"
+      "note": "qui a la froideur, la blancheur et la dureté du marbre",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "marquisat",
-      "note": "territoire ou titre sous la juridiction d'un marquis"
+      "note": "territoire ou titre sous la juridiction d'un marquis",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "martyr",
-      "note": "celui qui souffre la mort pour témoigner de sa foi"
+      "note": "celui qui souffre la mort pour témoigner de sa foi",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "mascarade",
@@ -126393,7 +126617,10 @@
     },
     {
       "mot": "mastaba",
-      "note": "tombeau égyptien ancien en forme de pyramide tronquée"
+      "note": "tombeau égyptien ancien en forme de pyramide tronquée",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "mâture",
@@ -126417,7 +126644,10 @@
     },
     {
       "mot": "mélancolie",
-      "note": "tristesse douce et poétique sans cause précise"
+      "note": "tristesse douce et poétique sans cause précise",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "mélodie",
@@ -126425,7 +126655,10 @@
     },
     {
       "mot": "mémento",
-      "note": "prière pour les morts, ou petit carnet de notes"
+      "note": "prière pour les morts, ou petit carnet de notes",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "méphitique",
@@ -126453,7 +126686,10 @@
     },
     {
       "mot": "métempsycose",
-      "note": "migration de l'âme dans un autre corps après la mort"
+      "note": "migration de l'âme dans un autre corps après la mort",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "météore",
@@ -126484,7 +126720,7 @@
       "note": "douleur violente et tenace localisée à la tête"
     },
     {
-      "mot": "mimi, mimer",
+      "mot": "mimer",
       "note": "exprimer la pensée par les seuls gestes du visage"
     },
     {
@@ -126525,7 +126761,10 @@
     },
     {
       "mot": "météorite",
-      "note": "fragment de roche tombé de l'espace sur la terre"
+      "note": "fragment de roche tombé de l'espace sur la terre",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "mithridatisation",
@@ -126541,7 +126780,11 @@
     },
     {
       "mot": "modénature",
-      "note": "proportion des moulures ornant la façade d'un monument"
+      "note": "proportion des moulures ornant la façade d'un monument",
+      "tags": [
+        "like",
+        "monument"
+      ]
     },
     {
       "mot": "moire",
@@ -126641,7 +126884,11 @@
     },
     {
       "mot": "nacarat",
-      "note": "d'un rouge orangé fort vif et très étincelant"
+      "note": "d'un rouge orangé fort vif et très étincelant",
+      "tags": [
+        "couleur",
+        "like"
+      ]
     },
     {
       "mot": "naïade",
@@ -126681,7 +126928,10 @@
     },
     {
       "mot": "nectar",
-      "note": "boisson délicieuse réservée au séjour des dieux"
+      "note": "boisson délicieuse réservée au séjour des dieux",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "négligence",
@@ -126705,7 +126955,10 @@
     },
     {
       "mot": "nerveux",
-      "note": "vigoureux, sec et doué de ressort fort"
+      "note": "vigoureux, sec et doué de ressort fort",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "nervure",
@@ -126720,12 +126973,13 @@
       "note": "nuage de matière stellaire étincelant au fond du ciel"
     },
     {
-      "mot": "nécropole",
-      "note": "cité des morts rassembleuse de tombeaux antiques"
-    },
-    {
       "mot": "néréide",
-      "note": "nymphe de la mer, fille du vieux Nérée"
+      "note": "nymphe de la mer, fille du vieux Nérée",
+      "tags": [
+        "like",
+        "mythologie",
+        "eau"
+      ]
     },
     {
       "mot": "nervosité",
@@ -126733,7 +126987,10 @@
     },
     {
       "mot": "niche",
-      "note": "enfoncement pratiqué dans un mur pour placer une statue"
+      "note": "enfoncement pratiqué dans un mur pour placer une statue",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "nielle",
@@ -126801,7 +127058,10 @@
     },
     {
       "mot": "noumène",
-      "note": "réalité intelligible opposée au phénomène sensible"
+      "note": "réalité intelligible opposée au phénomène sensible",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "novice",
@@ -126821,7 +127081,10 @@
     },
     {
       "mot": "nuque",
-      "note": "partie arrière du cou au bas du crâne"
+      "note": "partie arrière du cou au bas du crâne",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "nychthémère",
@@ -126829,7 +127092,12 @@
     },
     {
       "mot": "nymphe",
-      "note": "divinité féminine des bois, des fleuves et des grottes"
+      "note": "divinité féminine des bois, des fleuves et des grottes",
+      "tags": [
+        "like",
+        "plante",
+        "mythologie"
+      ]
     },
     {
       "mot": "obélisque",
@@ -126865,7 +127133,10 @@
     },
     {
       "mot": "obsèques",
-      "note": "cérémonies solennelles rendues au lit d'un défunt"
+      "note": "cérémonies solennelles rendues au lit d'un défunt",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "obsession",
@@ -126921,7 +127192,10 @@
     },
     {
       "mot": "oisiveté",
-      "note": "état d'une âme exempte de tout travail utile"
+      "note": "état d'une âme exempte de tout travail utile",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "olifant",
@@ -127028,10 +127302,6 @@
       "note": "étoffes usées d'un éclat trompeur et faussement riche"
     },
     {
-      "mot": "oratoire",
-      "note": "qui a trait à l'art d'émouvoir par le discours"
-    },
-    {
       "mot": "orthodoxie",
       "note": "conformité stricte aux doctrines d'une foi"
     },
@@ -127065,7 +127335,10 @@
     },
     {
       "mot": "ouragan",
-      "note": "tempête d'une violence extrême soulevant les mers"
+      "note": "tempête d'une violence extrême soulevant les mers",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "outrage",
@@ -127129,7 +127402,10 @@
     },
     {
       "mot": "pamphlet",
-      "note": "court écrit violent attaquant une figure ou un ordre"
+      "note": "court écrit violent attaquant une figure ou un ordre",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "panacée",
@@ -127185,7 +127461,11 @@
     },
     {
       "mot": "parapharnalie",
-      "note": "ensemble d'objets ou d'instruments propres à une pratique"
+      "note": "ensemble d'objets ou d'instruments propres à une pratique",
+      "tags": [
+        "précieux",
+        "like"
+      ]
     },
     {
       "mot": "parchemin",
@@ -127341,7 +127621,10 @@
     },
     {
       "mot": "philosophie",
-      "note": "quête de la sagesse et de la vérité par la raison"
+      "note": "quête de la sagesse et de la vérité par la raison",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "phylactère",
@@ -127357,7 +127640,10 @@
     },
     {
       "mot": "piédestal",
-      "note": "support en maçonnerie portant une statue"
+      "note": "support en maçonnerie portant une statue",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "piété",
@@ -127437,7 +127723,10 @@
     },
     {
       "mot": "poignard",
-      "note": "arme courte à double tranchant faite pour frapper"
+      "note": "arme courte à double tranchant faite pour frapper",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "poésie",
@@ -127561,7 +127850,10 @@
     },
     {
       "mot": "pyramide",
-      "note": "monument monumental à base carrée s'élevant en pointe"
+      "note": "monument monumental à base carrée s'élevant en pointe",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "pyromanette",
@@ -127569,7 +127861,10 @@
     },
     {
       "mot": "pyrotechnie",
-      "note": "art de fabriquer des feux d'artifice éclatants"
+      "note": "art de fabriquer des feux d'artifice éclatants",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "quadrille",
@@ -127585,7 +127880,10 @@
     },
     {
       "mot": "quinte",
-      "note": "accès de toux violent, ou intervalle de cinq notes"
+      "note": "accès de toux violent, ou intervalle de cinq notes",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "quintessence",
@@ -127629,7 +127927,10 @@
     },
     {
       "mot": "rebord",
-      "note": "partie saillante au bord d'un gouffre ou d'une fenêtre"
+      "note": "partie saillante au bord d'un gouffre ou d'une fenêtre",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "récalcitrant",
@@ -127673,7 +127974,10 @@
     },
     {
       "mot": "refuge",
-      "note": "lieu sûr où l'on s'abrite pour échapper au danger"
+      "note": "lieu sûr où l'on s'abrite pour échapper au danger",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "relais",
@@ -127681,7 +127985,10 @@
     },
     {
       "mot": "reliure",
-      "note": "assemblage des cahiers d'un livre sous une couverture"
+      "note": "assemblage des cahiers d'un livre sous une couverture",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "relique",
@@ -127697,7 +128004,10 @@
     },
     {
       "mot": "remords",
-      "note": "déchirement de la conscience après une faute"
+      "note": "déchirement de la conscience après une faute",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "renégat",
@@ -127709,7 +128019,10 @@
     },
     {
       "mot": "renoncement",
-      "note": "abandon volontaire des plaisirs du monde"
+      "note": "abandon volontaire des plaisirs du monde",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "repaire",
@@ -127745,7 +128058,10 @@
     },
     {
       "mot": "retraite",
-      "note": "lieu calme où l'on se retire pour méditer"
+      "note": "lieu calme où l'on se retire pour méditer",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "révélation",
@@ -127829,11 +128145,17 @@
     },
     {
       "mot": "rune",
-      "note": "caractère d'écriture magique des anciens peuples du nord"
+      "note": "caractère d'écriture magique des anciens peuples du nord",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "rustique",
-      "note": "qui appartient à la campagne, simple et brut"
+      "note": "qui appartient à la campagne, simple et brut",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "sabbat",
@@ -127861,7 +128183,10 @@
     },
     {
       "mot": "sagaie",
-      "note": "lance légère portée par les tribus guerrières"
+      "note": "lance légère portée par les tribus guerrières",
+      "tags": [
+        "arme"
+      ]
     },
     {
       "mot": "sainteté",
@@ -127981,7 +128306,10 @@
     },
     {
       "mot": "scoutisme",
-      "note": "mouvement d'éducation des jeunes en pleine nature"
+      "note": "mouvement d'éducation des jeunes en pleine nature",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "sécheresse",
@@ -128001,7 +128329,10 @@
     },
     {
       "mot": "séduction",
-      "note": "art d'attirer et d'enchanter le cœur"
+      "note": "art d'attirer et d'enchanter le cœur",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "sédition",
@@ -128029,7 +128360,10 @@
     },
     {
       "mot": "servitude",
-      "note": "état d'un peuple privé de sa liberté"
+      "note": "état d'un peuple privé de sa liberté",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "séquestration",
@@ -128169,7 +128503,10 @@
     },
     {
       "mot": "strates",
-      "note": "couches superposées de roches déposées par le temps"
+      "note": "couches superposées de roches déposées par le temps",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "stupéfaction",
@@ -128201,7 +128538,10 @@
     },
     {
       "mot": "subversion",
-      "note": "renversement complet des lois et de l'ordre"
+      "note": "renversement complet des lois et de l'ordre",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "supplice",
@@ -128425,7 +128765,11 @@
     },
     {
       "mot": "vasistas",
-      "note": "petite partie d'une fenêtre s'ouvrant seule"
+      "note": "petite partie d'une fenêtre s'ouvrant seule",
+      "tags": [
+        "like",
+        "précieux"
+      ]
     },
     {
       "mot": "vaticiner",
@@ -128453,7 +128797,10 @@
     },
     {
       "mot": "venin",
-      "note": "liqueur toxique injectée par la morsure des serpents"
+      "note": "liqueur toxique injectée par la morsure des serpents",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "ventriloque",
@@ -128473,7 +128820,11 @@
     },
     {
       "mot": "vermeil",
-      "note": "d'un rouge vif teinté d'or, ou argent doré"
+      "note": "d'un rouge vif teinté d'or, ou argent doré",
+      "tags": [
+        "like",
+        "couleur"
+      ]
     },
     {
       "mot": "vermine",
@@ -128501,11 +128852,17 @@
     },
     {
       "mot": "vespéral",
-      "note": "qui appartient au soir, relatif au crépuscule"
+      "note": "qui appartient au soir, relatif au crépuscule",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "vestale",
-      "note": "prêtresse romaine gardienne du feu sacré Inextinguible"
+      "note": "prêtresse romaine gardienne du feu sacré Inextinguible",
+      "tags": [
+        "like"
+      ]
     },
     {
       "mot": "vestige",
@@ -128577,7 +128934,10 @@
     },
     {
       "mot": "vocabulaire",
-      "note": "ensemble des mots employés par un poète"
+      "note": "ensemble des mots employés par un poète",
+      "tags": [
+        "exclu"
+      ]
     },
     {
       "mot": "vocifération",
@@ -128638,6 +128998,45 @@
     {
       "mot": "zombie",
       "note": "cadavre réanimé par la magie sortant de sa tombe"
+    },
+    {
+      "mot": "nacré",
+      "note": "qui a l'éclat chatoyant de la nacre",
+      "tags": [
+        "exclu"
+      ]
+    },
+    {
+      "mot": "crépusculaire",
+      "note": "relatif au crépuscule, à la lumière incertaine du soir",
+      "tags": [
+        "like"
+      ]
+    },
+    {
+      "mot": "lancinant",
+      "note": "qui cause une douleur ou une pensée persistante et obsédante",
+      "tags": [
+        "like"
+      ]
+    },
+    {
+      "mot": "ébouriffant",
+      "note": "qui surprend au point de décoiffer, extraordinaire",
+      "tags": [
+        "exclu"
+      ]
+    },
+    {
+      "mot": "obombrer",
+      "note": "couvrir d'une ombre"
+    },
+    {
+      "mot": "tarabiscoté",
+      "note": "excessivement orné, compliqué à l'excès",
+      "tags": [
+        "like"
+      ]
     }
   ],
   "aRbR": [

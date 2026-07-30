@@ -48,28 +48,49 @@ side panel, no internet connection required for the core features.
   words such as *canopée*, *sylve*, *futaie*, *orée*), each with a short gloss. About thirty
   themes are built in, including one dedicated to old/archaic French vocabulary. You can
   optionally tick Wiktionnaire and/or CRISCO to pull in related words fetched live as extra
-  inspiration candidates.
+  inspiration candidates. **Click any word** (from a recognised theme or an online source) to
+  select it — the selection persists across successive searches, so you can build one field from
+  several related queries (e.g. *sea* + *colour*). Once at least one word is selected, an action
+  bar lets you add the whole selection in one go, either to a **lexical field** (existing —
+  autocompleted — or a brand-new one, created on the fly with its own trigger keywords) or
+  directly as **rare word(s)** into `dictionnaire-perso.json`. Definitions already known for a
+  selected word (from a recognised theme) are carried over automatically; words coming from an
+  online source have no definition and can be completed afterwards from the **Notes** tab.
 - **Synonyms** — type a word to see synonyms and antonyms. A small built-in dictionary answers
   instantly offline; you can additionally enable live lookups from **Wiktionnaire** and/or
   **CRISCO** (Université de Caen's synonym dictionary), toggled independently with checkboxes,
   with a one-click button to save any online result into your personal dictionary for future
   offline use. See [Online sources](#online-sources) below.
 - **Definitions** — look up a rare word before using it: fetches a definition excerpt and
-  etymology from **CNRTL** (the *Trésor de la Langue Française informatisé*), with a link to
-  the full entry. On-demand only — nothing is looked up automatically.
+  etymology from **CNRTL** (the *Trésor de la Langue Française informatisé*), shown in its own
+  boxed section with a link to the full entry. On-demand only — nothing is looked up
+  automatically.
 - **Hasard** — one button, one rare or forgotten French word at random (*smaragdin*,
   *coruscant*, *pétrichor*, *s'ennuiter*...), with a short gloss and quick links to look it up
   in the Definitions or Rhymes tab. Every word can carry free-form **tags** (désuet, savant,
-  poétique...), addable/removable on the fly from the drawn word, used to filter the draw pool
-  (checking tags widens the pool — OR logic). "exclu" is a reserved tag: a word tagged this way
-  is always left out of the draw by default, with a "👎 Ne plus tirer ce mot" shortcut button
-  that just applies it, and a "Voir les mots exclus" panel to review and un-exclude any word.
-  Tags can also be declared directly in `dictionnaire-perso.json` (see below) — useful for
-  pre-tagging a bulk import — and merge with tags added from the UI. The draw itself avoids
-  repeating recently-shown words (a rolling window that adapts to the size of the current
-  filtered pool, so a narrow tag filter never gets stuck empty). A small form lets you add a
-  rare word manually (word, optional gloss, optional tags) straight into your personal
-  dictionary without going through an external source.
+  poétique...), each with its own stable colour (reused everywhere the tag appears), addable/
+  removable on the fly from the drawn word — via dynamic preset buttons (your most-used tags
+  first) or a free-text field with autocomplete. Tags widen the draw pool (checking several is
+  OR logic). "exclu" is a reserved tag — a "🚫 Ne plus tirer ce mot" shortcut applies it, and two
+  always-visible quick-filter buttons ("🚫 Explorer les exclus" / "☆ Explorer «
+  most-used-tag »") let you toggle a review mode that draws *only* from that subset; picking one
+  clears the other, since combining them silently ignored the second filter. A "💾 Graver dans
+  dictionnaire-perso.json" button commits the currently-drawn word (with its tags) permanently
+  into your personal dictionary and clears its temporary tag record from Obsidian's plugin data
+  — a lightweight staging area for tags added mid-session, not meant to accumulate forever
+  (a bulk "Graver en masse" version of the same action lives in Settings, for after a big
+  tagging session). A collapsible stats panel at the bottom shows total word count, how many are
+  excluded, how many have no tag yet, and the resulting "% already seen" — handy for deciding
+  when it's time to import a fresh batch of words. Tags can also be declared directly in
+  `dictionnaire-perso.json` (see below) — useful for pre-tagging a bulk import — and merge with
+  tags added from the UI. The draw itself avoids repeating recently-shown words (a rolling
+  window that adapts to the size of the current filtered pool, so a narrow tag filter never gets
+  stuck empty). A small form lets you add a rare word manually (word, optional gloss, optional
+  tags) straight into your personal dictionary without going through an external source.
+- **Notes** — a maintenance tab: lists every rare word and every lexical-field word that's
+  missing a definition (typically after a bulk import, or a word added from an online source
+  with no gloss available), each with an inline text field to write one by hand — saved directly
+  to `dictionnaire-perso.json` on save, disappearing from the list once done.
 - **Guide** — a quick reference: how French syllable counting works, metre names, caesura,
   enjambment, stanza names, a handful of classic poem forms (sonnet, rondeau, ballade,
   villanelle, pantoum, triolet, virelai, tanka, calligramme, ode, haiku, fable, acrostic, free
@@ -176,7 +197,14 @@ endings exceed a thousand words) are shown 100 at a time with a button to reveal
 }
 ```
 `motsClefs` are the everyday words that trigger this theme in the Inspiration tab (matching
-ignores accents and simple plurals).
+ignores accents and simple plurals). A theme is matched against an existing one (built-in or
+already loaded) by its name, case/accent-insensitively — if it matches, the two are **merged**
+(keywords unioned, words added, empty notes filled in) rather than kept as a separate, invisible
+duplicate. If your `dictionnaire-perso.json` predates this behaviour, run **Settings → Carnet du
+Poète → "Nettoyer et fusionner dictionnaire-perso.json"** once to merge any existing duplicates
+and repair auto-generated keyword lists from before the fix (a multi-word theme used to collapse
+into one unsearchable glued string, e.g. "Night & darkness" → `nightdarkness` instead of
+`["night", "darkness"]`).
 
 **D) Custom synonyms/antonyms** (added to the built-in ones — this is also exactly what the
 "💾 Save to my personal dictionary" button in the Synonyms tab writes for you automatically):
@@ -199,6 +227,10 @@ with optional tags for filtering the random draw (also addable/removable later f
   ]
 }
 ```
+This is also the format for bulk-importing a large word list (thousands of entries at once are
+fine performance-wise). Tags added from the UI during a session live temporarily in Obsidian's
+plugin data, not in this file — use the "💾 Graver" button (per word, Hasard tab) or "Graver en
+masse" (Settings, all at once) to commit them here permanently.
 
 ## Online sources
 
@@ -261,6 +293,42 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.8.0** — Large Hasard and Inspiration rework, aimed at curating a big personal dictionary
+  incrementally (e.g. after a bulk import) rather than all at once:
+  - **Hasard**: tag filtering redesigned as a text field with autocomplete plus two always-
+    visible quick-filter buttons ("🚫 Explorer les exclus" and one for your most-used tag),
+    mutually exclusive with each other and with typed filters (combining "exclu" with another
+    tag used to silently ignore the second one — fixed by making the choice explicit). The old
+    "Voir les mots exclus" panel is gone, replaced by that same exclu quick-filter. Tags now get
+    a stable colour each, reused across filter chips, the drawn word's chips, and dynamic preset
+    buttons (your most-used tags, one click to apply). New "💾 Graver" button commits the drawn
+    word permanently into `dictionnaire-perso.json` and clears its temporary tag record. New
+    collapsible stats panel (total / excluded / untagged / % already seen).
+  - **Inspiration**: replaced the old per-word "+" popover (which had a DOM bug silently
+    breaking it for online-source words) with a click-to-select model — words stay selected
+    across successive searches, and a shared action bar lets you add the whole selection at once
+    to a lexical field or as rare word(s), reusing each word's known definition when available.
+    Theme suggestions are now shown as an explicit clickable hint rather than silently
+    pre-filled, after a word belonging to two overlapping themes could end up filed under the
+    wrong one without it being obvious.
+  - **New Notes tab**: lists rare words and lexical-field words missing a definition, editable
+    inline, saved straight to `dictionnaire-perso.json`.
+  - **Fixed**: personal `champsLexicaux` entries sharing a theme name with an existing one
+    (built-in or personal) were never merged, only silently duplicated and hidden behind the
+    first match — themes are now merged on load (see the `dictionnaire-perso.json` section
+    above), plus a new Settings → "Nettoyer et fusionner" button to clean up files written
+    before this fix, including repairing glued auto-generated keyword lists.
+  - **Fixed** two more CNRTL parsing gaps in the Definitions tab: a homograph number rendered
+    via a `<sup>` tag (as opposed to plain digits) left stray whitespace after tag-stripping
+    that the article-start detection didn't tolerate, and the "word not found" message wasn't
+    recognised in one of its phrasings — both could surface the site's own display-options menu
+    instead of a real definition, or instead of a clean "not found" message. Also fixed
+    definitions/etymologies occasionally rendering one character per line (multi-element markup,
+    e.g. a Greek etymology spelled out letter by letter, flattened into stray line breaks).
+    Definitions and etymology are now shown in their own boxed sections with a coloured heading.
+  - Perf: the personal-dictionary tag lookup used a linear scan per word, fine at the built-in
+    scale but quadratic overall once `motsRares` grows into the thousands (e.g. after a bulk
+    import) — now backed by an index rebuilt on each dictionary (re)load.
 - **2.7.0** — New tagging system for the Hasard tab's rare words: free-form tags addable/
   removable on the fly, used to filter the random draw (OR logic — checking tags widens the
   pool). "exclu" is a reserved tag that permanently removes a word from the draw by default,

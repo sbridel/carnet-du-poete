@@ -630,6 +630,20 @@ function normaliseMot(mot){
   return (mot || '').toLowerCase().trim().replace(/[’‘‛]/g, "'").replace(/[^a-zàâäéèêëîïôöùûüÿœç']/gi, '');
 }
 
+/* Découpe un thème en mots-clés de recherche individuels, contrairement à
+   normaliseMot() qui supprime purement et simplement les espaces et
+   ponctuations (utile pour comparer deux mots, mais désastreux pour un
+   thème à plusieurs mots : "Nuit & obscurité" deviendrait "nuitobscurité",
+   une chaîne que personne ne tape jamais en recherche). Ici chaque mot du
+   thème redevient sa propre entrée de motsClefs. */
+function motsClefsDepuisTheme(theme){
+  return (theme || '')
+    .toLowerCase()
+    .split(/[^a-zàâäéèêëîïôöùûüÿœç]+/i)
+    .map(t => t.trim())
+    .filter(t => t.length > 1);
+}
+
 /* =========================================================
    CHAMPS LEXICAUX — inspiration de vocabulaire
    Contrairement aux rimes (question de son), il s'agit ici de
@@ -1140,8 +1154,21 @@ const MOTS_RARES = MOTS_RARES_BASE.slice();
 let MOTS_RARES_META = {}; // { motNormalisé: { tags: [...] } }
 const TAG_EXCLU = 'exclu';
 
+/* Index mot normalisé -> entrée, reconstruit à chaque (re)chargement du
+   dictionnaire (voir reconstruitIndexMotsRares()). Évite un .find() linéaire
+   dans MOTS_RARES à chaque appel de tagsDeclares/tagsDuMot — sensible dès
+   que MOTS_RARES dépasse quelques centaines d'entrées (import en masse). */
+let MOTS_RARES_INDEX = new Map();
+
+function reconstruitIndexMotsRares(){
+  MOTS_RARES_INDEX = new Map();
+  MOTS_RARES.forEach(e => {
+    if (e && e.mot) MOTS_RARES_INDEX.set(normaliseMot(e.mot), e);
+  });
+}
+
 function tagsDeclares(mot){
-  const entree = MOTS_RARES.find(e => normaliseMot(e.mot) === normaliseMot(mot));
+  const entree = MOTS_RARES_INDEX.get(normaliseMot(mot));
   return (entree && Array.isArray(entree.tags)) ? entree.tags : [];
 }
 
@@ -1150,6 +1177,36 @@ function tagsDuMot(mot){
   const declares = tagsDeclares(mot);
   const perso = (MOTS_RARES_META[w] && MOTS_RARES_META[w].tags) || [];
   return [...new Set([...declares, ...perso])];
+}
+
+/* Couleur stable par tag (même tag = même couleur partout), en réutilisant
+   la palette déjà utilisée pour les rimes/syllabes plutôt que d'en créer
+   une nouvelle. "exclu" garde toujours son rouge dédié (cohérent avec
+   l'icône 🚫), les autres tags piochent dans la palette par hash du nom. */
+function couleurTag(tag){
+  if (tag === TAG_EXCLU) return '#c0392b';
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
+  return PALETTE_RIMES[hash % PALETTE_RIMES.length];
+}
+
+/* Puce de tag colorée, réutilisée partout où on affiche des tags (chips du
+   mot courant, chips de filtres actifs...). onRemove optionnel : ajoute
+   un × cliquable. */
+function creeChipTag(container, tag, onRemove){
+  const chip = container.createSpan({ cls: 'cp-tag-chip' + (tag === TAG_EXCLU ? ' cp-tag-chip-exclu' : '') });
+  if (tag !== TAG_EXCLU) {
+    const c = couleurTag(tag);
+    chip.style.background = c;
+    chip.style.borderColor = c;
+    chip.style.color = '#fff';
+  }
+  chip.createSpan({ text: tag });
+  if (onRemove) {
+    const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
+    btnX.addEventListener('click', onRemove);
+  }
+  return chip;
 }
 
 function estExclu(mot){
@@ -1177,12 +1234,37 @@ async function retireTagMot(plugin, mot, tag){
   await plugin.saveData(data);
 }
 
+/* Vide l'entrée data.json d'un mot (zone tampon), typiquement après l'avoir
+   gravé dans dictionnaire-perso.json : ses tags vivent désormais dans le
+   fichier perso lui-même, plus besoin de les garder en double ici. */
+async function purgeMetaMot(plugin, mot){
+  const w = normaliseMot(mot);
+  if (!MOTS_RARES_META[w]) return;
+  delete MOTS_RARES_META[w];
+  const data = (await plugin.loadData()) || {};
+  data.motsRaresMeta = MOTS_RARES_META;
+  await plugin.saveData(data);
+}
+
 /* Liste des tags actuellement en usage sur au moins un mot (hors "exclu",
    géré à part dans l'interface), pour construire les filtres à la volée. */
 function tousLesTagsUtilises(){
   const tags = new Set();
-  MOTS_RARES.forEach(e => tagsDuMot(e.mot).forEach(t => { if (t !== TAG_EXCLU) tags.add(t); }));
+  MOTS_RARES.forEach(e => tagsDuMot(e.mot).forEach(t => tags.add(t)));
   return [...tags].sort();
+}
+
+/* Comme tousLesTagsUtilises, mais trié par fréquence d'usage décroissante
+   plutôt qu'alphabétique — sert à proposer des boutons de tag "presets"
+   (les plus utilisés en premier). "exclu" en est toujours absent : il a
+   déjà son propre bouton dédié (👎). */
+function tagsParFrequence(){
+  const compte = new Map();
+  MOTS_RARES.forEach(e => tagsDuMot(e.mot).forEach(t => {
+    if (t === TAG_EXCLU) return;
+    compte.set(t, (compte.get(t) || 0) + 1);
+  }));
+  return [...compte.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t);
 }
 
 /* Historique des derniers mots tirés (en mémoire, pas persisté), pour
@@ -1193,9 +1275,17 @@ const HISTORIQUE_MAX = 40;
 
 function motAuHasard(tagsActifs){
   tagsActifs = tagsActifs || new Set();
-  let pool = MOTS_RARES.filter(e => !estExclu(e.mot));
-  if (tagsActifs.size > 0) {
-    pool = pool.filter(e => tagsDuMot(e.mot).some(t => tagsActifs.has(t)));
+  let pool;
+  if (tagsActifs.has(TAG_EXCLU)) {
+    // Mode revue : on tire uniquement parmi les mots exclus, pour les
+    // retrouver et éventuellement les réintégrer (retirer le tag depuis
+    // les chips affichées) — remplace l'ancien panel dédié.
+    pool = MOTS_RARES.filter(e => estExclu(e.mot));
+  } else {
+    pool = MOTS_RARES.filter(e => !estExclu(e.mot));
+    if (tagsActifs.size > 0) {
+      pool = pool.filter(e => tagsDuMot(e.mot).some(t => tagsActifs.has(t)));
+    }
   }
   if (pool.length === 0) return null;
 
@@ -1369,7 +1459,7 @@ async function chercheCnrtl(mot){
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
   const html = reponse.text || '';
-  if (/n['’]a pas été trouvé|La forme .* est introuvable/i.test(html)) {
+  if (/n['’]a pas été trouvé|(?:la|cette) forme[\s\S]{0,60}introuvable/i.test(html)) {
     return { trouve: false, url };
   }
 
@@ -1380,10 +1470,16 @@ async function chercheCnrtl(mot){
   // Le vrai début de l'article se reconnaît à "MOT," (ou "MOT1,", "MOT2,"
   // pour les homographes numérotés par le TLFi, ex. "ombre" = OMBRE1 le
   // phénomène optique / OMBRE2 le poisson) suivi d'une catégorie
-  // grammaticale. On ne se rabat sur "MOT " (sans virgule) qu'en dernier
+  // grammaticale — parfois avec la forme féminine intercalée juste avant
+  // ("DRACONIEN¹, IENNE, adj."). Le numéro d'homographe peut être un
+  // chiffre normal ou un chiffre en exposant unicode (¹²³... non reconnus
+  // par \d), et — quand il est rendu via une balise <sup> dans le HTML
+  // source — se retrouve entouré d'espaces après le nettoyage des balises
+  // (chaque balise est remplacée par un espace), d'où les \s* de part et
+  // d'autre. On ne se rabat sur "MOT " (sans virgule) qu'en dernier
   // recours, car ce motif plus large peut aussi matcher un simple titre de
   // page ("OMBRE : Définition de OMBRE") plutôt que le vrai contenu.
-  const regexDebut = new RegExp(motMaj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d{0,2}\\s*,');
+  const regexDebut = new RegExp(motMaj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[0-9¹²³⁰⁴⁵⁶⁷⁸⁹]{0,2}\\s*,');
   const matchDebut = regexDebut.exec(texte);
   let debutArticle = matchDebut ? matchDebut.index : -1;
   if (debutArticle === -1) debutArticle = texte.indexOf(motMaj + ' ');
@@ -1392,7 +1488,7 @@ async function chercheCnrtl(mot){
   let definition = '';
   if (debutArticle !== -1) {
     const finDef = etymIdx !== -1 ? etymIdx : debutArticle + 1000;
-    definition = texte.slice(debutArticle, Math.min(finDef, debutArticle + 1000)).trim();
+    definition = texte.slice(debutArticle, Math.min(finDef, debutArticle + 1000)).replace(/\s+/g, ' ').trim();
   }
 
   let etymologie = '';
@@ -1402,7 +1498,7 @@ async function chercheCnrtl(mot){
     let finEtym = etymIdx + 900;
     if (freqIdx !== -1 && freqIdx < finEtym) finEtym = freqIdx;
     else if (bbgIdx !== -1 && bbgIdx < finEtym) finEtym = bbgIdx;
-    etymologie = texte.slice(etymIdx, finEtym).trim();
+    etymologie = texte.slice(etymIdx, finEtym).replace(/\s+/g, ' ').trim();
   }
 
   return { trouve: !!(definition || etymologie), definition, etymologie, url };
@@ -1717,6 +1813,314 @@ async function ajouteMotRarePerso(plugin, mot, note, tags){
   }
 }
 
+/* Gravure en masse : transfère en une seule lecture/écriture TOUS les mots
+   qui ont des tags en attente dans data.json (zone tampon, MOTS_RARES_META)
+   vers dictionnaire-perso.json, puis vide entièrement data.json. Plus
+   efficace et moins risqué qu'une boucle d'appels à ajouteMotRarePerso
+   (qui relit/réécrit le fichier à chaque mot). Déclenché depuis les
+   réglages du plugin, où l'UI demande une confirmation avant d'appeler
+   cette fonction — pas de confirmation ici, elle est supposée acquise. */
+async function graverTousLesMotsRaresEnMasse(plugin){
+  const motsAvecMeta = Object.keys(MOTS_RARES_META)
+    .filter(w => MOTS_RARES_META[w] && Array.isArray(MOTS_RARES_META[w].tags) && MOTS_RARES_META[w].tags.length > 0);
+
+  if (motsAvecMeta.length === 0) {
+    new Notice('Carnet du Poète : aucun tag en attente dans data.json, rien à graver.');
+    return 0;
+  }
+
+  const adapter = plugin.app.vault.adapter;
+  const configDir = plugin.app.vault.configDir;
+  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+  let chemin = await cheminDictionnairePersoConfigure(plugin);
+  if (!chemin) {
+    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
+    for (const c of candidats) {
+      if (await adapter.exists(c)) { chemin = c; break; }
+    }
+  }
+  if (!chemin) {
+    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
+    if (fichierVault) chemin = fichierVault.path;
+  }
+  if (!chemin) {
+    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
+  }
+
+  let data = {};
+  if (chemin) {
+    try {
+      const raw = await adapter.read(chemin);
+      data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') data = {};
+    } catch (e) {
+      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant pour la gravure en masse', e);
+      data = {};
+    }
+  } else {
+    chemin = 'dictionnaire-perso.json';
+    data = {};
+  }
+  if (!Array.isArray(data.motsRares)) data.motsRares = [];
+
+  let compte = 0;
+  motsAvecMeta.forEach(w => {
+    const entreeSource = MOTS_RARES_INDEX.get(w);
+    const mot = entreeSource ? entreeSource.mot : w;
+    const note = entreeSource ? (entreeSource.note || '') : '';
+    const tags = tagsDuMot(mot);
+    const existante = data.motsRares.find(e => e && normaliseMot(e.mot) === w);
+    if (existante) {
+      if (!existante.note && note) existante.note = note;
+      existante.tags = [...new Set([...(existante.tags || []), ...tags])];
+    } else {
+      const entree = { mot, note };
+      if (tags.length > 0) entree.tags = tags;
+      data.motsRares.push(entree);
+    }
+    compte++;
+  });
+
+  const contenu = JSON.stringify(data, null, 2);
+  try {
+    if (await adapter.exists(chemin)) {
+      await adapter.write(chemin, contenu);
+    } else {
+      await plugin.app.vault.create(chemin, contenu);
+    }
+  } catch (e) {
+    console.error('[Carnet du Poète] échec de l\'écriture en masse de dictionnaire-perso.json', e);
+    new Notice('Carnet du Poète : échec de la gravure en masse (voir la console).');
+    return 0;
+  }
+
+  MOTS_RARES_META = {};
+  const metaData = (await plugin.loadData()) || {};
+  metaData.motsRaresMeta = {};
+  await plugin.saveData(metaData);
+
+  await chargeDictionnairePerso(plugin);
+  new Notice(`Carnet du Poète : ${compte} mot(s) gravé(s) en masse dans ${chemin}, data.json vidé.`);
+  return compte;
+}
+
+/* Ajoute un mot à un champ lexical personnel, en le créant s'il n'existe
+   pas encore (même mécanique de recherche/écriture de fichier que
+   ajouteMotRarePerso). motsClefs ne sert qu'à la création d'un nouveau
+   champ : on n'élargit jamais silencieusement la portée de recherche
+   d'un champ existant juste parce qu'on lui ajoute un mot. */
+async function ajouteMotChampLexicalPerso(plugin, theme, motsClefs, mot, note, opts){
+  const adapter = plugin.app.vault.adapter;
+  let chemin = null;
+  let data = {};
+
+  const configDir = plugin.app.vault.configDir;
+  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+  chemin = await cheminDictionnairePersoConfigure(plugin);
+  if (!chemin) {
+    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
+    for (const c of candidats) {
+      if (await adapter.exists(c)) { chemin = c; break; }
+    }
+  }
+  if (!chemin) {
+    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
+    if (fichierVault) chemin = fichierVault.path;
+  }
+  if (!chemin) {
+    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
+  }
+
+  if (chemin) {
+    try {
+      const raw = await adapter.read(chemin);
+      data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') data = {};
+    } catch (e) {
+      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant, un nouveau contenu sera écrit avec prudence', e);
+      data = {};
+    }
+  } else {
+    chemin = 'dictionnaire-perso.json';
+    data = {};
+  }
+
+  if (!Array.isArray(data.champsLexicaux)) data.champsLexicaux = [];
+  const themeNorm = normaliseMot(theme);
+  let champ = data.champsLexicaux.find(c => c && normaliseMot(c.theme) === themeNorm);
+  if (!champ) {
+    const clefs = (motsClefs && motsClefs.length > 0) ? motsClefs : motsClefsDepuisTheme(theme);
+    champ = { theme, motsClefs: clefs, mots: [] };
+    data.champsLexicaux.push(champ);
+  }
+  if (!Array.isArray(champ.mots)) champ.mots = [];
+  const motNorm = normaliseMot(mot);
+  const existante = champ.mots.find(m => m && normaliseMot(m.mot) === motNorm);
+  if (existante) {
+    if (note) existante.note = note;
+  } else {
+    champ.mots.push({ mot, note: note || '' });
+  }
+
+  const contenu = JSON.stringify(data, null, 2);
+  try {
+    if (await adapter.exists(chemin)) {
+      await adapter.write(chemin, contenu);
+    } else {
+      await plugin.app.vault.create(chemin, contenu);
+    }
+    if (!(opts && opts.silencieux)) new Notice(`Carnet du Poète : « ${mot} » ajouté au champ lexical « ${champ.theme} ».`);
+    await chargeDictionnairePerso(plugin);
+  } catch (e) {
+    console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
+    new Notice('Carnet du Poète : échec de l\'enregistrement (voir la console).');
+  }
+}
+
+/* Liste des thèmes actuellement connus (intégrés + personnels), pour
+   l'autocomplétion du champ "thème" au moment d'ajouter un mot. */
+function tousLesThemesLexicaux(){
+  return [...new Set(CHAMPS_LEXICAUX.map(c => c.theme))].sort();
+}
+
+/* Relit dictionnaire-perso.json, fusionne toute entrée dupliquée (même
+   thème pour les champs lexicaux, même mot pour les mots rares et les
+   synonymes/antonymes) et réécrit le fichier nettoyé. Corrige les
+   doublons accumulés par des sessions successives (ex. avant le
+   correctif de fusion à la lecture des champs lexicaux) — et redécoupe au
+   passage les motsClefs "collés" auto-générés par l'ancien comportement
+   (ex. "nuitobscurité") en mots-clés séparés et recherchables. Déclenché
+   depuis les réglages, avec confirmation en deux temps côté UI. */
+async function nettoieEtFusionneDictionnairePerso(plugin){
+  const adapter = plugin.app.vault.adapter;
+  const configDir = plugin.app.vault.configDir;
+  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+  let chemin = await cheminDictionnairePersoConfigure(plugin);
+  if (!chemin) {
+    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
+    for (const c of candidats) {
+      if (await adapter.exists(c)) { chemin = c; break; }
+    }
+  }
+  if (!chemin) {
+    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
+    if (fichierVault) chemin = fichierVault.path;
+  }
+  if (!chemin) {
+    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
+  }
+  if (!chemin) {
+    new Notice('Carnet du Poète : aucun dictionnaire-perso.json trouvé, rien à nettoyer.');
+    return;
+  }
+
+  let data;
+  try {
+    const raw = await adapter.read(chemin);
+    data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') { new Notice('Carnet du Poète : dictionnaire-perso.json invalide, nettoyage annulé.'); return; }
+  } catch (e) {
+    console.error('[Carnet du Poète] impossible de lire dictionnaire-perso.json pour le nettoyage', e);
+    new Notice('Carnet du Poète : impossible de lire le fichier (voir la console).');
+    return;
+  }
+
+  let champsAvant = 0, champsApres = 0, raresAvant = 0, raresApres = 0, synoAvant = 0, synoApres = 0;
+
+  // --- champs lexicaux : fusion par thème normalisé ---
+  if (Array.isArray(data.champsLexicaux)) {
+    champsAvant = data.champsLexicaux.length;
+    const fusion = [];
+    data.champsLexicaux.forEach(c => {
+      if (!c || !c.theme) return;
+      const themeNorm = normaliseMot(c.theme);
+      let cible = fusion.find(f => normaliseMot(f.theme) === themeNorm);
+      if (!cible) {
+        cible = { theme: c.theme, motsClefs: [], mots: [] };
+        fusion.push(cible);
+      }
+      const clefsSource = Array.isArray(c.motsClefs) ? c.motsClefs : [];
+      // remplace un motClef "collé" auto-généré (égal au thème normalisé
+      // en un seul bloc) par sa version proprement découpée, pour que les
+      // fichiers écrits avant ce correctif redeviennent recherchables
+      const clefsCorrigees = clefsSource.flatMap(k => (k === themeNorm ? motsClefsDepuisTheme(c.theme) : [k]));
+      cible.motsClefs = [...new Set([...cible.motsClefs, ...clefsCorrigees])];
+      (Array.isArray(c.mots) ? c.mots : []).forEach(m => {
+        if (!m || !m.mot) return;
+        const mNorm = normaliseMot(m.mot);
+        const existante = cible.mots.find(e => e && normaliseMot(e.mot) === mNorm);
+        if (existante) {
+          if (!existante.note && m.note) existante.note = m.note;
+        } else {
+          cible.mots.push({ mot: m.mot, note: m.note || '' });
+        }
+      });
+    });
+    data.champsLexicaux = fusion;
+    champsApres = fusion.length;
+  }
+
+  // --- mots rares : fusion par mot normalisé ---
+  if (Array.isArray(data.motsRares)) {
+    raresAvant = data.motsRares.length;
+    const fusion = [];
+    data.motsRares.forEach(m => {
+      if (!m || !m.mot) return;
+      const mNorm = normaliseMot(m.mot);
+      let cible = fusion.find(f => normaliseMot(f.mot) === mNorm);
+      if (!cible) {
+        cible = { mot: m.mot, note: m.note || '', tags: Array.isArray(m.tags) ? [...m.tags] : [] };
+        fusion.push(cible);
+      } else {
+        if (!cible.note && m.note) cible.note = m.note;
+        cible.tags = [...new Set([...(cible.tags || []), ...(Array.isArray(m.tags) ? m.tags : [])])];
+      }
+    });
+    fusion.forEach(c => { if (c.tags.length === 0) delete c.tags; });
+    data.motsRares = fusion;
+    raresApres = fusion.length;
+  }
+
+  // --- synonymes/antonymes : fusion par mot normalisé ---
+  if (Array.isArray(data.synonymes)) {
+    synoAvant = data.synonymes.length;
+    const fusion = [];
+    data.synonymes.forEach(s => {
+      if (!s || !s.mot) return;
+      const mNorm = normaliseMot(s.mot);
+      let cible = fusion.find(f => normaliseMot(f.mot) === mNorm);
+      if (!cible) {
+        cible = { mot: s.mot, synonymes: Array.isArray(s.synonymes) ? [...s.synonymes] : [], antonymes: Array.isArray(s.antonymes) ? [...s.antonymes] : [] };
+        fusion.push(cible);
+      } else {
+        cible.synonymes = [...new Set([...cible.synonymes, ...(Array.isArray(s.synonymes) ? s.synonymes : [])])];
+        cible.antonymes = [...new Set([...cible.antonymes, ...(Array.isArray(s.antonymes) ? s.antonymes : [])])];
+      }
+    });
+    data.synonymes = fusion;
+    synoApres = fusion.length;
+  }
+
+  const contenu = JSON.stringify(data, null, 2);
+  try {
+    await adapter.write(chemin, contenu);
+  } catch (e) {
+    console.error('[Carnet du Poète] échec de l\'écriture après nettoyage', e);
+    new Notice('Carnet du Poète : échec de l\'écriture du fichier nettoyé (voir la console).');
+    return;
+  }
+
+  await chargeDictionnairePerso(plugin);
+
+  const messages = [];
+  if (champsAvant !== champsApres) messages.push(`${champsAvant - champsApres} champ(s) lexical(aux) fusionné(s) (${champsAvant} → ${champsApres})`);
+  if (raresAvant !== raresApres) messages.push(`${raresAvant - raresApres} mot(s) rare(s) fusionné(s) (${raresAvant} → ${raresApres})`);
+  if (synoAvant !== synoApres) messages.push(`${synoAvant - synoApres} entrée(s) de synonymes fusionnée(s) (${synoAvant} → ${synoApres})`);
+  new Notice(messages.length > 0
+    ? `Carnet du Poète : nettoyage terminé — ${messages.join(', ')}.`
+    : 'Carnet du Poète : nettoyage terminé, aucun doublon trouvé.');
+}
+
 async function chargeDictionnairePerso(plugin, opts){
   const notifierAbsence = !!(opts && opts.notifierAbsence);
   // on repart toujours de la base pour ne jamais accumuler de doublons
@@ -1724,11 +2128,16 @@ async function chargeDictionnairePerso(plugin, opts){
   FAMILLES.length = 0;
   FAMILLES.push(...FAMILLES_BASE);
   CHAMPS_LEXICAUX.length = 0;
-  CHAMPS_LEXICAUX.push(...CHAMPS_LEXICAUX_BASE);
+  CHAMPS_LEXICAUX.push(...CHAMPS_LEXICAUX_BASE.map(c => ({
+    theme: c.theme,
+    motsClefs: [...c.motsClefs],
+    mots: c.mots.map(m => ({ ...m }))
+  })));
   SYNONYMES.length = 0;
   SYNONYMES.push(...SYNONYMES_BASE);
   MOTS_RARES.length = 0;
   MOTS_RARES.push(...MOTS_RARES_BASE);
+  reconstruitIndexMotsRares();
   DICO_PHONETIQUE = null;
   DICO_PHONETIQUE_GROUPES = null;
 
@@ -1757,12 +2166,32 @@ async function chargeDictionnairePerso(plugin, opts){
     }
 
     // Champs lexicaux personnalisés (indépendant du format familles/phonétique
-    // ci-dessous : peut cohabiter avec l'un ou l'autre dans le même fichier)
+    // ci-dessous : peut cohabiter avec l'un ou l'autre dans le même fichier).
+    // Si un champ du même nom existe déjà (intégré ou déjà fusionné), on
+    // l'enrichit au lieu de pousser un doublon distinct — sinon la
+    // recherche ne renvoie que la première correspondance trouvée et le
+    // doublon personnel reste invisible.
     let champsCount = 0;
     if (Array.isArray(data.champsLexicaux)) {
       data.champsLexicaux.forEach(c => {
         if (c && c.theme && Array.isArray(c.motsClefs) && Array.isArray(c.mots)) {
-          CHAMPS_LEXICAUX.push(c);
+          const themeNorm = normaliseMot(c.theme);
+          const existant = CHAMPS_LEXICAUX.find(ch => normaliseMot(ch.theme) === themeNorm);
+          if (existant) {
+            existant.motsClefs = [...new Set([...existant.motsClefs, ...c.motsClefs])];
+            c.mots.forEach(m => {
+              if (!m || !m.mot) return;
+              const mNorm = normaliseMot(m.mot);
+              const dejaPresent = existant.mots.find(e => e && normaliseMot(e.mot) === mNorm);
+              if (dejaPresent) {
+                if (!dejaPresent.note && m.note) dejaPresent.note = m.note;
+              } else {
+                existant.mots.push({ mot: m.mot, note: m.note || '' });
+              }
+            });
+          } else {
+            CHAMPS_LEXICAUX.push({ theme: c.theme, motsClefs: [...c.motsClefs], mots: c.mots.map(m => ({ ...m })) });
+          }
           champsCount++;
         }
       });
@@ -1797,6 +2226,7 @@ async function chargeDictionnairePerso(plugin, opts){
       if (raresCount > 0) {
         new Notice(`Carnet du Poète : ${raresCount} mot(s) rare(s) personnalisé(s) chargé(s).`);
       }
+      reconstruitIndexMotsRares();
     }
 
     // Format A : familles personnalisées
@@ -2099,7 +2529,30 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
 }
 
 /* Rendu partagé des résultats d'inspiration (panneau + fenêtre modale). */
-function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives){
+/* Bouton "+" à côté d'un mot d'inspiration, ouvrant un petit formulaire
+   inline pour l'ajouter à un champ lexical personnel (existant ou
+   nouveau, créé à la volée). blocParent = conteneur où insérer le
+   formulaire (pleine largeur) ; ligneParent = élément juste après lequel
+   le placer. Ne s'affiche pas sans plugin (ex. depuis la fenêtre modale). */
+/* Rend un mot d'inspiration cliquable pour le sélectionner/désélectionner
+   (accumulation possible à travers plusieurs recherches successives —
+   utile pour composer un champ depuis "mer" + "couleur" par exemple).
+   selectionApi = { estSelectionne, toggle } fourni par buildPanelInspiration ;
+   absent (ex. depuis la fenêtre modale) => mot non cliquable, comportement
+   inchangé. */
+function rendMotSelectionnable(el, mot, themeSuggere, note, selectionApi){
+  if (!selectionApi) return;
+  const w = normaliseMot(mot);
+  const maj = () => el.toggleClass('cp-selectionne', selectionApi.estSelectionne(w));
+  maj();
+  el.addClass('cp-inspi-cliquable');
+  el.addEventListener('click', () => {
+    selectionApi.toggle(mot, themeSuggere, note);
+    maj();
+  });
+}
+
+function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives, selectionApi){
   container.empty();
   const saisie = (motSaisi || '').trim();
   if (!saisie) return;
@@ -2117,15 +2570,17 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives)
       const liste = bloc.createDiv({ cls: 'cp-inspi-liste' });
       champ.mots.forEach(entree => {
         const ligne = liste.createDiv({ cls: 'cp-inspi-mot' });
-        ligne.createSpan({ cls: 'cp-inspi-terme', text: entree.mot });
+        const terme = ligne.createSpan({ cls: 'cp-inspi-terme', text: entree.mot });
         if (entree.note) {
           ligne.createSpan({ cls: 'cp-inspi-note', text: entree.note });
         }
+        rendMotSelectionnable(terme, entree.mot, champ.theme, entree.note || '', selectionApi);
       });
     });
   }
 
   // --- bonus : mots proches trouvés en ligne (à piocher comme inspiration) ---
+  const themeSuggereEnLigne = saisie.charAt(0).toUpperCase() + saisie.slice(1);
   const liste = (sourcesActives || []).map(id => SOURCES_EN_LIGNE[id]).filter(Boolean);
   liste.forEach(source => {
     const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
@@ -2140,7 +2595,10 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives)
         return;
       }
       const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
-      mots.forEach(m => { motsDiv.createSpan({ cls: 'cp-mot cp-mot-syno', text: m }); });
+      mots.forEach(m => {
+        const span = motsDiv.createSpan({ cls: 'cp-mot cp-mot-syno', text: m });
+        rendMotSelectionnable(span, m, themeSuggereEnLigne, '', selectionApi);
+      });
     }).catch(err => {
       console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
       statut.setText(`Recherche impossible sur ${source.nom} (voir la console).`);
@@ -2233,6 +2691,7 @@ class CarnetView extends ItemView {
     const tabGuide = tabBar.createEl('button', { text: 'Guide', cls: 'cp-tab' });
     const tabDefs = tabBar.createEl('button', { text: 'Définitions', cls: 'cp-tab' });
     const tabHasard = tabBar.createEl('button', { text: 'Hasard', cls: 'cp-tab' });
+    const tabNotes = tabBar.createEl('button', { text: 'Notes', cls: 'cp-tab' });
 
     const panelSyl = container.createDiv({ cls: 'cp-panel active' });
     const panelRimes = container.createDiv({ cls: 'cp-panel' });
@@ -2241,6 +2700,7 @@ class CarnetView extends ItemView {
     const panelGuide = container.createDiv({ cls: 'cp-panel' });
     const panelDefs = container.createDiv({ cls: 'cp-panel' });
     const panelHasard = container.createDiv({ cls: 'cp-panel' });
+    const panelNotes = container.createDiv({ cls: 'cp-panel' });
 
     const switchTab = (which) => {
       tabSyl.toggleClass('active', which === 'syl');
@@ -2250,6 +2710,7 @@ class CarnetView extends ItemView {
       tabGuide.toggleClass('active', which === 'guide');
       tabDefs.toggleClass('active', which === 'defs');
       tabHasard.toggleClass('active', which === 'hasard');
+      tabNotes.toggleClass('active', which === 'notes');
       panelSyl.toggleClass('active', which === 'syl');
       panelRimes.toggleClass('active', which === 'rimes');
       panelInspi.toggleClass('active', which === 'inspi');
@@ -2257,6 +2718,8 @@ class CarnetView extends ItemView {
       panelGuide.toggleClass('active', which === 'guide');
       panelDefs.toggleClass('active', which === 'defs');
       panelHasard.toggleClass('active', which === 'hasard');
+      panelNotes.toggleClass('active', which === 'notes');
+      if (which === 'notes' && this._rafraichitPanelNotes) this._rafraichitPanelNotes();
     };
     tabSyl.addEventListener('click', () => switchTab('syl'));
     tabRimes.addEventListener('click', () => switchTab('rimes'));
@@ -2265,6 +2728,7 @@ class CarnetView extends ItemView {
     tabGuide.addEventListener('click', () => switchTab('guide'));
     tabDefs.addEventListener('click', () => switchTab('defs'));
     tabHasard.addEventListener('click', () => switchTab('hasard'));
+    tabNotes.addEventListener('click', () => switchTab('notes'));
     this._switchTab = switchTab;
 
     this.buildPanelSyllabes(panelSyl);
@@ -2274,6 +2738,7 @@ class CarnetView extends ItemView {
     this.buildPanelGuide(panelGuide);
     this.buildPanelDefinitions(panelDefs);
     this.buildPanelHasard(panelHasard);
+    this.buildPanelNotes(panelNotes);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
     footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèse affichée en variante complète). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
@@ -2533,7 +2998,7 @@ class CarnetView extends ItemView {
 
   buildPanelInspiration(panelInspi){
     const intro = panelInspi.createEl('p', { cls: 'cp-inspi-intro' });
-    intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème.');
+    intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème. Clique sur un mot pour le sélectionner, puis ajoute ta sélection à un champ lexical ou comme mots rares.');
 
     const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
     sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
@@ -2549,6 +3014,94 @@ class CarnetView extends ItemView {
     const form = panelInspi.createDiv({ cls: 'cp-rime-form' });
     const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un thème… (ex. forêt, mer, nuit, amour, moyen-âge)' } });
     const btnChercher = form.createEl('button', { text: 'Chercher' });
+
+    // --- sélection persistante à travers les recherches + barre d'action ---
+    const selectionMots = new Map(); // normaliseMot(mot) -> { mot, themeSuggere, note }
+    const actionBarDiv = panelInspi.createDiv({ cls: 'cp-inspi-action-bar' });
+    actionBarDiv.style.display = 'none';
+
+    const renderActionBar = () => {
+      actionBarDiv.empty();
+      if (selectionMots.size === 0) { actionBarDiv.style.display = 'none'; return; }
+      actionBarDiv.style.display = 'flex';
+
+      const chipsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-chips' });
+      chipsRow.createSpan({ cls: 'cp-sources-label', text: `${selectionMots.size} mot(s) sélectionné(s) : ` });
+      [...selectionMots.values()].forEach(({ mot }) => {
+        const chip = chipsRow.createSpan({ cls: 'cp-tag-chip' });
+        chip.createSpan({ text: mot });
+        const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
+        btnX.addEventListener('click', () => { toggleSelection(mot); });
+      });
+      const btnClear = chipsRow.createEl('button', { cls: 'cp-link-btn', text: 'Tout désélectionner' });
+      btnClear.addEventListener('click', () => { selectionMots.clear(); renderActionBar(); });
+
+      const actionsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-actions' });
+      const btnChamp = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter à un champ lexical' });
+      const btnRare = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter comme mot(s) rare(s)' });
+
+      let formChamp = null;
+      btnChamp.addEventListener('click', () => {
+        if (formChamp) { formChamp.remove(); formChamp = null; return; }
+        formChamp = actionBarDiv.createDiv({ cls: 'cp-inspi-ajout-form' });
+        const datalistId = 'cp-inspi-themes-' + Math.random().toString(36).slice(2, 8);
+        const themeInput = formChamp.createEl('input', { attr: { type: 'text', placeholder: 'thème (ex. Bretagne)', list: datalistId } });
+        const datalist = formChamp.createEl('datalist', { attr: { id: datalistId } });
+        tousLesThemesLexicaux().forEach(t => datalist.createEl('option', { attr: { value: t } }));
+        const clefsInput = formChamp.createEl('input', { attr: { type: 'text', placeholder: 'mots-clés séparés par virgule (si nouveau thème)' } });
+        const btnValider = formChamp.createEl('button', { cls: 'cp-link-btn', text: `Ajouter les ${selectionMots.size} mot(s)` });
+
+        // Suggestion affichée à part (jamais pré-remplie en silence) : si
+        // tous les mots sélectionnés viennent du même champ reconnu, on
+        // propose ce thème, mais seul un clic explicite l'applique — un
+        // mot présent dans deux champs à la fois (ex. rattaché à "Nuit &
+        // obscurité" ET à "Noir") ne doit jamais faire deviner le mauvais.
+        const themesSuggeres = [...new Set([...selectionMots.values()].map(v => v.themeSuggere).filter(Boolean))];
+        if (themesSuggeres.length === 1) {
+          const suggestion = formChamp.createDiv({ cls: 'cp-inspi-suggestion' });
+          suggestion.createSpan({ text: 'Suggestion : ' });
+          const btnSuggestion = suggestion.createEl('button', { cls: 'cp-link-btn', text: themesSuggeres[0] });
+          btnSuggestion.addEventListener('click', () => { themeInput.value = themesSuggeres[0]; themeInput.focus(); });
+        }
+
+        const valider = async () => {
+          const theme = themeInput.value.trim();
+          if (!theme) { new Notice('Le thème est requis.'); return; }
+          const motsClefs = clefsInput.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+          const mots = [...selectionMots.values()];
+          for (const { mot, note } of mots) {
+            await ajouteMotChampLexicalPerso(this.plugin, theme, motsClefs, mot, note || '', { silencieux: true });
+          }
+          new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) au champ lexical « ${theme} ».`);
+          selectionMots.clear();
+          renderActionBar();
+        };
+        btnValider.addEventListener('click', valider);
+        themeInput.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
+      });
+
+      btnRare.addEventListener('click', async () => {
+        const mots = [...selectionMots.values()];
+        for (const { mot, note } of mots) {
+          await ajouteMotRarePerso(this.plugin, mot, note || '', []);
+        }
+        new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) comme mot(s) rare(s) dans dictionnaire-perso.json.`);
+        selectionMots.clear();
+        renderActionBar();
+      });
+    };
+
+    const toggleSelection = (mot, themeSuggere, note) => {
+      const w = normaliseMot(mot);
+      if (selectionMots.has(w)) selectionMots.delete(w);
+      else selectionMots.set(w, { mot, themeSuggere, note });
+      renderActionBar();
+    };
+    const selectionApi = {
+      estSelectionne: (w) => selectionMots.has(w),
+      toggle: toggleSelection
+    };
+
     const resultatsDiv = panelInspi.createDiv({ cls: 'cp-resultats' });
 
     const sourcesActives = () => SOURCES_EN_LIGNE_ORDRE.filter(id => cases[id].checked);
@@ -2565,7 +3118,7 @@ class CarnetView extends ItemView {
     })();
     Object.values(cases).forEach(c => c.addEventListener('change', sauvePreference));
 
-    const chercher = () => renderResultatsInspiration(resultatsDiv, motInput.value, this.plugin, sourcesActives());
+    const chercher = () => renderResultatsInspiration(resultatsDiv, motInput.value, this.plugin, sourcesActives(), selectionApi);
 
     btnChercher.addEventListener('click', chercher);
     motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
@@ -2749,18 +3302,18 @@ class CarnetView extends ItemView {
           resultatsDiv.createEl('p', { cls: 'cp-vide', text: `« ${saisie} » n'a pas été trouvé sur le CNRTL.` });
           return;
         }
+        const lien = resultatsDiv.createEl('a', { text: `Voir « ${saisie} » sur le CNRTL →`, attr: { href: r.url, target: '_blank', rel: 'noopener' } });
+        lien.addClass('cp-cnrtl-lien');
         if (r.definition) {
-          const blocDef = resultatsDiv.createDiv({ cls: 'cp-groupe' });
-          blocDef.createDiv({ cls: 'cp-titre', text: 'Définition' });
+          const blocDef = resultatsDiv.createDiv({ cls: 'cp-cnrtl-bloc' });
+          blocDef.createDiv({ cls: 'cp-cnrtl-titre', text: 'Définition' });
           blocDef.createEl('p', { cls: 'cp-cnrtl-texte', text: r.definition });
         }
         if (r.etymologie) {
-          const blocEtym = resultatsDiv.createDiv({ cls: 'cp-groupe' });
-          blocEtym.createDiv({ cls: 'cp-titre', text: 'Étymologie' });
+          const blocEtym = resultatsDiv.createDiv({ cls: 'cp-cnrtl-bloc' });
+          blocEtym.createDiv({ cls: 'cp-cnrtl-titre', text: 'Étymologie' });
           blocEtym.createEl('p', { cls: 'cp-cnrtl-texte', text: r.etymologie });
         }
-        const lien = resultatsDiv.createEl('a', { text: 'Voir la fiche complète sur le CNRTL →', attr: { href: r.url, target: '_blank', rel: 'noopener' } });
-        lien.addClass('cp-cnrtl-lien');
       } catch (err) {
         console.error('[Carnet du Poète] erreur CNRTL', err);
         statut.setText('Recherche impossible (pas de connexion, ou le site a changé — voir la console).');
@@ -2780,58 +3333,176 @@ class CarnetView extends ItemView {
     const intro = panelHasard.createEl('p', { cls: 'cp-inspi-intro' });
     intro.setText('Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.');
 
-    // --- filtres par tags (élargissent le pool ; OU logique) ---
+    // --- stats de progression (utile pour savoir quand importer un
+    // nouveau lot de mots, ex. Méral, sans redemander à voir les mêmes).
+    // Repliées par défaut en bas de l'onglet (cf. plus bas) pour ne pas
+    // surcharger le haut du panel ; statsDiv est assigné après coup.
+    let statsDiv = null;
+    const renderStats = () => {
+      if (!statsDiv) return;
+      statsDiv.empty();
+      const total = MOTS_RARES.length;
+      const exclus = MOTS_RARES.filter(e => estExclu(e.mot)).length;
+      const sansTag = MOTS_RARES.filter(e => tagsDuMot(e.mot).length === 0).length;
+      const vus = total - sansTag;
+      const pct = total > 0 ? Math.round((vus / total) * 100) : 0;
+      const item = (texte, cls) => statsDiv.createSpan({ cls: 'cp-hasard-stat ' + cls, text: texte });
+      item(`${total} mot(s) au total`, 'cp-hasard-stat-total');
+      item(`${exclus} exclu(s)`, 'cp-hasard-stat-exclus');
+      item(`${sansTag} sans tag`, 'cp-hasard-stat-sanstag');
+      item(`${pct}% déjà vu(s)`, 'cp-hasard-stat-vu');
+    };
+
+    // --- filtres par tags (élargissent le pool ; OU logique). "exclu"
+    // bascule en mode revue : ne tire QUE parmi les mots exclus. ---
     const filtresDiv = panelHasard.createDiv({ cls: 'cp-hasard-filtres' });
-    const casesTag = {};
+    const filtresRapidesDiv = filtresDiv.createDiv({ cls: 'cp-hasard-filtres-rapides' });
+    const filtresChipsDiv = filtresDiv.createDiv({ cls: 'cp-hasard-filtres-chips' });
+    const filtresFormDiv = filtresDiv.createDiv({ cls: 'cp-hasard-filtres-form' });
+    const datalistId = 'cp-hasard-taglist-' + Math.random().toString(36).slice(2, 8);
+    const filtreInput = filtresFormDiv.createEl('input', { attr: { type: 'text', placeholder: 'ou saisir un autre tag…', list: datalistId } });
+    const filtreDatalist = filtresFormDiv.createEl('datalist', { attr: { id: datalistId } });
+    const btnAjouterFiltre = filtresFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ filtre' });
+
+    const filtresActifs = new Set();
+    // Datalist du champ "ajouter un tag" (créé plus bas dans le DOM) —
+    // référence assignée après coup, mais rafraîchie depuis ici pour rester
+    // synchronisée avec la liste des tags à chaque changement.
+    let tagAjoutDatalist = null;
+
+    // "exclu" (mode revue) et les autres tags sont mutuellement exclusifs :
+    // les combiner n'a pas de sens pratique (les mots exclus ne portent
+    // en général pas d'autre tag), et ça créait une confusion silencieuse
+    // (le second filtre semblait actif sans influencer le tirage).
+    const activeFiltre = (tag) => {
+      if (tag === TAG_EXCLU) filtresActifs.clear();
+      else filtresActifs.delete(TAG_EXCLU);
+      filtresActifs.add(tag);
+      renderFiltresTags();
+    };
+    const desactiveFiltre = (tag) => {
+      filtresActifs.delete(tag);
+      renderFiltresTags();
+    };
+
+    // Raccourcis toujours visibles : "exclu" (revue des exclus) + le tag
+    // le plus utilisé (souvent "like" ou équivalent), sans avoir à taper
+    // son nom. Basculent juste on/off au clic (pas besoin du champ texte).
+    const renderFiltresRapides = () => {
+      filtresRapidesDiv.empty();
+      const topTag = tagsParFrequence()[0] || null;
+      const rapides = [TAG_EXCLU, ...(topTag ? [topTag] : [])];
+      rapides.forEach(tag => {
+        const actif = filtresActifs.has(tag);
+        const label = tag === TAG_EXCLU ? '🚫 Explorer les exclus' : `☆ Explorer « ${tag} »`;
+        const btn = filtresRapidesDiv.createEl('button', {
+          cls: 'cp-hasard-filtre-rapide' + (actif ? ' cp-hasard-filtre-rapide-actif' : ''),
+          text: label
+        });
+        const c = couleurTag(tag);
+        btn.style.borderColor = c;
+        if (actif) { btn.style.background = c; btn.style.color = '#fff'; }
+        else { btn.style.color = c; }
+        btn.addEventListener('click', () => {
+          if (filtresActifs.has(tag)) desactiveFiltre(tag); else activeFiltre(tag);
+        });
+      });
+    };
+
     const renderFiltresTags = () => {
-      filtresDiv.empty();
+      renderStats();
+      renderFiltresRapides();
       const tags = tousLesTagsUtilises();
-      if (tags.length === 0) return;
-      filtresDiv.createSpan({ cls: 'cp-sources-label', text: 'Filtrer par tag : ' });
+      filtreDatalist.empty();
       tags.forEach(tag => {
-        const lbl = filtresDiv.createEl('label', { cls: 'cp-source-toggle' });
-        const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
-        c.checked = !!(casesTag[tag] && casesTag[tag].checked);
-        lbl.createSpan({ text: ' ' + tag });
-        casesTag[tag] = c;
-        c.addEventListener('change', () => { /* pris en compte au prochain tirage */ });
+        if (filtresActifs.has(tag)) return;
+        filtreDatalist.createEl('option', { attr: { value: tag } });
+      });
+      if (tagAjoutDatalist) {
+        tagAjoutDatalist.empty();
+        tags.forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
+      }
+      filtresChipsDiv.empty();
+      if (filtresActifs.size === 0) return;
+      filtresChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Filtres actifs : ' });
+      [...filtresActifs].forEach(tag => {
+        creeChipTag(filtresChipsDiv, tag, () => desactiveFiltre(tag));
       });
     };
     renderFiltresTags();
 
-    const tagsActifs = () => new Set(Object.keys(casesTag).filter(t => casesTag[t].checked));
+    const ajouterFiltre = () => {
+      const tag = filtreInput.value.trim().toLowerCase();
+      if (!tag) return;
+      activeFiltre(tag);
+      filtreInput.value = '';
+    };
+    btnAjouterFiltre.addEventListener('click', ajouterFiltre);
+    filtreInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouterFiltre(); } });
 
-    const btnTirer = panelHasard.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
+    const tagsActifs = () => filtresActifs;
+
+    const btnTirerWrap = panelHasard.createDiv({ cls: 'cp-hasard-bouton-wrap' });
+    const btnTirer = btnTirerWrap.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
 
     const zone = panelHasard.createDiv({ cls: 'cp-hasard-zone' });
     const motEl = zone.createEl('div', { cls: 'cp-hasard-mot' });
     const noteEl = zone.createEl('p', { cls: 'cp-hasard-note' });
     const chipsDiv = zone.createDiv({ cls: 'cp-hasard-tags' });
+
+    // actions de navigation (définition, rimes, exclusion) — séparées de
+    // la gravure et du tagging, qui vivent dans leurs propres zones plus bas
     const actions = zone.createDiv({ cls: 'cp-hasard-actions' });
     actions.style.display = 'none';
-
     const btnDefs = actions.createEl('button', { cls: 'cp-link-btn', text: 'Voir sa définition (CNRTL) →' });
     const btnRimes = actions.createEl('button', { cls: 'cp-link-btn', text: 'Chercher ses rimes →' });
-    const btnExclure = actions.createEl('button', { cls: 'cp-link-btn cp-btn-exclure', text: '👎 Ne plus tirer ce mot' });
+    const btnExclure = actions.createEl('button', { cls: 'cp-link-btn cp-btn-exclure', text: '🚫 Ne plus tirer ce mot' });
 
-    // ajout de tag rapide sur le mot courant
+    // gravure : sa propre zone, séparée visuellement du tagging par un filet
+    const graverWrap = zone.createDiv({ cls: 'cp-hasard-graver-wrap' });
+    graverWrap.style.display = 'none';
+    const btnGraver = graverWrap.createEl('button', { cls: 'cp-hasard-graver-btn', text: '💾 Graver dans dictionnaire-perso.json' });
+
+    // boutons de tag rapide (presets dynamiques, les plus utilisés en premier)
+    const presetsDiv = zone.createDiv({ cls: 'cp-hasard-tag-presets' });
+    const renderPresets = () => {
+      presetsDiv.empty();
+      tagsParFrequence().slice(0, 6).forEach(tag => {
+        const btn = presetsDiv.createEl('button', { cls: 'cp-hasard-preset-btn', text: '+ ' + tag });
+        const c = couleurTag(tag);
+        btn.style.borderColor = c;
+        btn.style.color = c;
+        btn.addEventListener('click', async () => {
+          if (!motCourant) return;
+          await ajouteTagMot(this.plugin, motCourant, tag);
+          renderChips();
+          renderFiltresTags();
+          renderPresets();
+        });
+      });
+    };
+
+    // ajout de tag rapide (libre) sur le mot courant
     const tagFormDiv = zone.createDiv({ cls: 'cp-hasard-tag-ajout' });
     tagFormDiv.style.display = 'none';
-    const tagInput = tagFormDiv.createEl('input', { attr: { type: 'text', placeholder: 'ajouter un tag (ex. désuet)' } });
+    const tagAjoutDatalistId = 'cp-hasard-tagajout-' + Math.random().toString(36).slice(2, 8);
+    const tagInput = tagFormDiv.createEl('input', { attr: { type: 'text', placeholder: 'ajouter un tag (ex. désuet)', list: tagAjoutDatalistId } });
+    tagAjoutDatalist = tagFormDiv.createEl('datalist', { attr: { id: tagAjoutDatalistId } });
+    tousLesTagsUtilises().forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
     const btnAjouterTag = tagFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ tag' });
 
     let motCourant = null;
+    let noteCourante = '';
 
     const renderChips = () => {
       chipsDiv.empty();
       if (!motCourant) return;
       tagsDuMot(motCourant).forEach(tag => {
-        const chip = chipsDiv.createSpan({ cls: 'cp-tag-chip' + (tag === TAG_EXCLU ? ' cp-tag-chip-exclu' : ''), text: tag });
-        const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
-        btnX.addEventListener('click', async () => {
+        creeChipTag(chipsDiv, tag, async () => {
           await retireTagMot(this.plugin, motCourant, tag);
           renderChips();
           renderFiltresTags();
+          renderPresets();
         });
       });
     };
@@ -2842,15 +3513,21 @@ class CarnetView extends ItemView {
         motEl.setText('Aucun mot disponible avec ces filtres.');
         noteEl.setText('');
         chipsDiv.empty();
+        presetsDiv.empty();
         actions.style.display = 'none';
+        graverWrap.style.display = 'none';
         tagFormDiv.style.display = 'none';
+        motCourant = null;
         return;
       }
       motCourant = entree.mot;
+      noteCourante = entree.note || '';
       motEl.setText(entree.mot);
-      noteEl.setText(entree.note || '');
+      noteEl.setText(noteCourante);
       renderChips();
+      renderPresets();
       actions.style.display = 'flex';
+      graverWrap.style.display = 'flex';
       tagFormDiv.style.display = 'flex';
     };
 
@@ -2870,41 +3547,29 @@ class CarnetView extends ItemView {
       new Notice(`« ${motCourant} » ne sera plus tiré au hasard.`);
       tirer();
     });
+    btnGraver.addEventListener('click', async () => {
+      if (!motCourant) return;
+      const mot = motCourant;
+      const tags = tagsDuMot(mot);
+      await ajouteMotRarePerso(this.plugin, mot, noteCourante, tags);
+      await purgeMetaMot(this.plugin, mot);
+      new Notice(`« ${mot} » gravé dans dictionnaire-perso.json (zone tampon vidée).`);
+      renderFiltresTags();
+      renderPresets();
+      if (motCourant && normaliseMot(motCourant) === normaliseMot(mot)) renderChips();
+    });
     btnAjouterTag.addEventListener('click', async () => {
       if (!motCourant || !tagInput.value.trim()) return;
       await ajouteTagMot(this.plugin, motCourant, tagInput.value);
       tagInput.value = '';
       renderChips();
       renderFiltresTags();
+      renderPresets();
     });
     tagInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnAjouterTag.click(); });
 
     btnTirer.addEventListener('click', tirer);
     tirer();
-
-    // --- mots exclus, consultables et réintégrables ---
-    const exclusDetails = panelHasard.createEl('details', { cls: 'cp-hasard-exclus' });
-    exclusDetails.createEl('summary', { text: 'Voir les mots exclus du tirage' });
-    const exclusListe = exclusDetails.createDiv();
-    exclusDetails.addEventListener('toggle', () => {
-      if (!exclusDetails.open) return;
-      exclusListe.empty();
-      const exclus = MOTS_RARES.filter(e => estExclu(e.mot));
-      if (exclus.length === 0) {
-        exclusListe.createEl('p', { cls: 'cp-vide', text: 'Aucun mot exclu pour l\'instant.' });
-        return;
-      }
-      exclus.forEach(e => {
-        const ligne = exclusListe.createDiv({ cls: 'cp-hasard-exclu-ligne' });
-        ligne.createSpan({ text: e.mot });
-        const btnReintegrer = ligne.createEl('button', { cls: 'cp-link-btn', text: 'Réintégrer' });
-        btnReintegrer.addEventListener('click', async () => {
-          await retireTagMot(this.plugin, e.mot, TAG_EXCLU);
-          exclusDetails.dispatchEvent(new Event('toggle'));
-          if (motCourant && normaliseMot(motCourant) === normaliseMot(e.mot)) renderChips();
-        });
-      });
-    });
 
     // --- ajout manuel d'un mot rare ---
     const ajoutDetails = panelHasard.createEl('details', { cls: 'cp-hasard-ajout' });
@@ -2923,6 +3588,80 @@ class CarnetView extends ItemView {
       inputMot.value = ''; inputNote.value = ''; inputTags.value = '';
       renderFiltresTags();
     });
+
+    // --- stats, repliées en bas pour ne pas surcharger le haut du panel ---
+    const statsDetails = panelHasard.createEl('details', { cls: 'cp-hasard-stats-details' });
+    statsDetails.createEl('summary', { text: 'Afficher les statistiques' });
+    statsDiv = statsDetails.createDiv({ cls: 'cp-hasard-stats' });
+    statsDetails.addEventListener('toggle', () => { if (statsDetails.open) renderStats(); });
+    renderStats();
+  }
+
+  buildPanelNotes(panelNotes){
+    const intro = panelNotes.createEl('p', { cls: 'cp-inspi-intro' });
+    intro.setText('Mots ajoutés sans définition (import en masse, sélection Inspiration...) — complète-les à la main, enregistré directement dans dictionnaire-perso.json.');
+
+    const btnRefresh = panelNotes.createEl('button', { cls: 'cp-link-btn', text: '↻ Rafraîchir la liste' });
+
+    const secRares = panelNotes.createDiv({ cls: 'cp-groupe' });
+    secRares.createDiv({ cls: 'cp-son-label', text: 'Mots rares sans note' });
+    const listeRares = secRares.createDiv({ cls: 'cp-inspi-liste' });
+
+    const secChamps = panelNotes.createDiv({ cls: 'cp-groupe' });
+    secChamps.createDiv({ cls: 'cp-son-label', text: 'Champs lexicaux : mots sans note' });
+    const listeChamps = secChamps.createDiv({ cls: 'cp-inspi-liste' });
+
+    const renderLigneEdition = (container, mot, sousTexte, enregistrer) => {
+      const ligne = container.createDiv({ cls: 'cp-inspi-mot' });
+      ligne.createSpan({ cls: 'cp-inspi-terme', text: mot });
+      if (sousTexte) ligne.createSpan({ cls: 'cp-inspi-note', text: sousTexte });
+      const input = ligne.createEl('input', { attr: { type: 'text', placeholder: 'note / définition courte' } });
+      const btn = ligne.createEl('button', { cls: 'cp-link-btn', text: 'Enregistrer' });
+      const valider = async () => {
+        const note = input.value.trim();
+        if (!note) return;
+        await enregistrer(note);
+        new Notice(`Carnet du Poète : note ajoutée pour « ${mot} ».`);
+        ligne.remove();
+      };
+      btn.addEventListener('click', valider);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
+    };
+
+    const rerender = () => {
+      listeRares.empty();
+      listeChamps.empty();
+
+      const raresSansNote = MOTS_RARES.filter(e => e && e.mot && !e.note);
+      if (raresSansNote.length === 0) {
+        listeRares.createEl('p', { cls: 'cp-vide', text: 'Tous tes mots rares ont une note.' });
+      } else {
+        raresSansNote.forEach(e => {
+          renderLigneEdition(listeRares, e.mot, '', async (note) => {
+            await ajouteMotRarePerso(this.plugin, e.mot, note, []);
+          });
+        });
+      }
+
+      const champsSansNote = [];
+      CHAMPS_LEXICAUX.forEach(champ => {
+        champ.mots.forEach(m => {
+          if (m && m.mot && !m.note) champsSansNote.push({ mot: m.mot, theme: champ.theme });
+        });
+      });
+      if (champsSansNote.length === 0) {
+        listeChamps.createEl('p', { cls: 'cp-vide', text: 'Tous les mots de tes champs lexicaux ont une note.' });
+      } else {
+        champsSansNote.forEach(({ mot, theme }) => {
+          renderLigneEdition(listeChamps, mot, `(${theme})`, async (note) => {
+            await ajouteMotChampLexicalPerso(this.plugin, theme, [], mot, note, { silencieux: true });
+          });
+        });
+      }
+    };
+    rerender();
+    btnRefresh.addEventListener('click', rerender);
+    this._rafraichitPanelNotes = rerender;
   }
 
   async onClose(){}
@@ -3008,8 +3747,10 @@ const CARNET_CSS = `
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
-.cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: pre-wrap; }
-.cp-cnrtl-lien{ display:inline-block; margin-top:6px; font-size:0.8em; }
+.cp-cnrtl-bloc{ border:1px solid var(--background-modifier-border); border-radius:8px; padding:12px 14px; margin-bottom:12px; background: var(--background-primary-alt); }
+.cp-cnrtl-titre{ font-family: var(--font-text); font-weight:700; font-size:1em; color: var(--text-accent); margin-bottom:8px; }
+.cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: normal; }
+.cp-cnrtl-lien{ display:inline-block; margin-bottom:12px; font-size:0.85em; }
 .cp-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:10px; font-size:0.82em; }
 .cp-filtre-lettre{ width:56px; text-align:center; }
 .cp-filtre-syllabes{ font-size:0.9em; }
@@ -3024,19 +3765,40 @@ const CARNET_CSS = `
 .cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-schema-rimes{ margin-top:8px; }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
-.cp-hasard-bouton{ display:flex; align-items:center; justify-content:center; text-align:center; width:100%; padding:12px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background: var(--text-accent); color:#fff; border:none; border-radius:4px; cursor:pointer; }
+.cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-top:18px; }
+.cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background:#c0392b; color:#fff; border:none; border-radius:24px; cursor:pointer; }
 .cp-hasard-bouton:hover{ opacity:0.9; }
 .cp-hasard-zone{ margin-top:22px; text-align:center; padding: 10px 0 4px; }
 .cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:600; font-size:1.7em; color: var(--text-normal); margin-bottom:10px; }
 .cp-hasard-note{ font-size:0.9em; color: var(--text-muted); max-width:44ch; margin:0 auto 16px; line-height:1.6; }
 .cp-hasard-actions{ display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
-.cp-hasard-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:0.82em; margin-bottom:4px; }
+.cp-hasard-stats{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.cp-hasard-stats-details{ margin-top:20px; font-size:0.85em; }
+.cp-hasard-stats-details summary{ cursor:pointer; color: var(--text-muted); }
+.cp-hasard-stat{ font-size:0.75em; font-weight:600; border-radius:10px; padding:2px 10px; border:1px solid; }
+.cp-hasard-stat-total{ color: var(--text-muted); background: var(--background-primary-alt); border-color: var(--background-modifier-border); }
+.cp-hasard-stat-exclus{ color:#c0392b; background: rgba(192,57,43,0.12); border-color:#c0392b; }
+.cp-hasard-stat-sanstag{ color:#d68910; background: rgba(214,137,16,0.12); border-color:#d68910; }
+.cp-hasard-stat-vu{ color:#27ae60; background: rgba(39,174,96,0.12); border-color:#27ae60; }
+.cp-hasard-filtres{ font-size:0.82em; margin-bottom:4px; }
+.cp-hasard-filtres-rapides{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+.cp-hasard-filtre-rapide{ font-size:0.8em; font-weight:500; background:transparent; border:1.5px solid; border-radius:14px; padding:4px 12px; cursor:pointer; transition: background 0.15s, color 0.15s; }
+.cp-hasard-filtre-rapide-actif{ font-weight:700; }
+.cp-hasard-filtres-chips{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:6px; }
+.cp-hasard-filtres-form{ display:flex; align-items:center; gap:6px; }
+.cp-hasard-filtres-form input{ font-size:0.85em; flex:1; max-width:220px; }
 .cp-hasard-tags{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
-.cp-tag-chip{ display:inline-flex; align-items:center; gap:2px; font-size:0.72em; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:10px; padding:2px 8px; color: var(--text-muted); }
-.cp-tag-chip-exclu{ color: var(--text-error); border-color: var(--text-error); }
-.cp-tag-chip-x{ cursor:pointer; opacity:0.6; }
+.cp-hasard-graver-wrap{ display:flex; justify-content:center; margin-top:16px; padding-top:16px; border-top:1px dashed var(--background-modifier-border); }
+.cp-hasard-graver-btn{ font-size:0.82em; font-weight:500; background:transparent; border:1.5px solid var(--text-accent); color: var(--text-accent); border-radius:14px; padding:6px 16px; cursor:pointer; }
+.cp-hasard-graver-btn:hover{ background: var(--text-accent); color:#fff; }
+.cp-hasard-tag-presets{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:14px; margin-bottom:6px; }
+.cp-hasard-preset-btn{ font-size:0.75em; background:transparent; border:1.5px solid var(--background-modifier-border); border-radius:10px; padding:2px 10px; cursor:pointer; }
+.cp-hasard-preset-btn:hover{ opacity:0.75; }
+.cp-tag-chip{ display:inline-flex; align-items:center; gap:2px; font-size:0.72em; font-weight:500; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:10px; padding:2px 8px; color: var(--text-muted); }
+.cp-tag-chip-exclu{ background:#c0392b; border-color:#c0392b; color:#fff; }
+.cp-tag-chip-x{ cursor:pointer; opacity:0.75; }
 .cp-tag-chip-x:hover{ opacity:1; }
-.cp-btn-exclure{ color: var(--text-error); }
+.cp-btn-exclure{ color:#c0392b; }
 .cp-hasard-tag-ajout{ display:flex; justify-content:center; gap:8px; margin-top:12px; }
 .cp-hasard-tag-ajout input{ font-size:0.8em; width:180px; }
 .cp-hasard-exclus, .cp-hasard-ajout{ margin-top:20px; font-size:0.85em; }
@@ -3070,6 +3832,18 @@ const CARNET_CSS = `
 .cp-inspi-mot:last-child{ border-bottom:none; }
 .cp-inspi-terme{ font-family: var(--font-text); font-weight:600; color: var(--text-accent); white-space:nowrap; }
 .cp-inspi-note{ font-size:0.82em; color: var(--text-muted); font-style:italic; }
+.cp-inspi-cliquable{ cursor:pointer; border-radius:3px; }
+.cp-inspi-cliquable:hover{ box-shadow: 0 0 0 2px var(--background-modifier-hover); }
+.cp-inspi-cliquable.cp-selectionne{ background:#c0392b !important; border-color:#c0392b !important; color:#fff !important; }
+.cp-inspi-action-bar{ display:flex; flex-direction:column; gap:10px; margin:14px 0; padding:12px; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:8px; }
+.cp-inspi-selection-chips{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:0.85em; }
+.cp-inspi-selection-actions{ display:flex; flex-wrap:wrap; gap:10px; }
+.cp-inspi-ajout-form{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; width:100%; margin-top:4px; padding:8px; background: var(--background-primary); border-radius:6px; }
+.cp-inspi-ajout-form input{ font-size:0.82em; }
+.cp-inspi-ajout-form input[placeholder^="thème"]{ width:150px; }
+.cp-inspi-ajout-form input[placeholder^="mots-clés"]{ flex:1; min-width:160px; }
+.cp-inspi-suggestion{ width:100%; font-size:0.8em; color: var(--text-muted); }
+.cp-inspi-suggestion .cp-link-btn{ font-weight:600; }
 .cp-footer{ margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--background-modifier-border); font-size: 0.72em; color: var(--text-faint); line-height: 1.6; }
 .cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
 .cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }
@@ -3230,6 +4004,72 @@ class CarnetSettingTab extends PluginSettingTab {
         btn.setButtonText('Recharger');
         btn.onClick(async () => {
           await chargeDictionnairePerso(this.plugin, { notifierAbsence: true });
+        });
+      });
+
+    containerEl.createEl('h3', { text: 'Mots rares : tags en attente' });
+
+    let confirmationEnCours = false;
+    let timeoutConfirmation = null;
+    new Setting(containerEl)
+      .setName('Graver tous les tags en masse dans dictionnaire-perso.json')
+      .setDesc('⚠️ Transfère en une fois TOUS les tags actuellement en attente dans data.json (onglet Hasard : 👍/exclu/tags libres) vers dictionnaire-perso.json, puis vide data.json — qui n\'est qu\'une zone tampon. À utiliser plutôt en fin de session de tagging (ex. après avoir trié un gros import). Pense à sauvegarder dictionnaire-perso.json par ailleurs.')
+      .addButton(btn => {
+        btn.setButtonText('Graver en masse');
+        btn.onClick(async () => {
+          if (!confirmationEnCours) {
+            confirmationEnCours = true;
+            btn.setButtonText('⚠️ Cliquer à nouveau pour confirmer');
+            btn.buttonEl.style.color = '#c0392b';
+            btn.buttonEl.style.borderColor = '#c0392b';
+            if (timeoutConfirmation) clearTimeout(timeoutConfirmation);
+            timeoutConfirmation = setTimeout(() => {
+              confirmationEnCours = false;
+              btn.setButtonText('Graver en masse');
+              btn.buttonEl.style.color = '';
+              btn.buttonEl.style.borderColor = '';
+            }, 4000);
+            return;
+          }
+          confirmationEnCours = false;
+          if (timeoutConfirmation) clearTimeout(timeoutConfirmation);
+          btn.setButtonText('Graver en masse');
+          btn.buttonEl.style.color = '';
+          btn.buttonEl.style.borderColor = '';
+          await graverTousLesMotsRaresEnMasse(this.plugin);
+        });
+      });
+
+    containerEl.createEl('h3', { text: 'Nettoyage' });
+
+    let confirmationNettoyage = false;
+    let timeoutNettoyage = null;
+    new Setting(containerEl)
+      .setName('Nettoyer et fusionner dictionnaire-perso.json')
+      .setDesc('Relit le fichier et fusionne toute entrée dupliquée (même thème pour les champs lexicaux, même mot pour les mots rares et les synonymes), puis le réécrit proprement. Corrige aussi les mots-clés de champ auto-générés cassés (ex. "nuitobscurité" → "nuit", "obscurité"). Rien d\'utile n\'est perdu, seule la structure est nettoyée — sauvegarde le fichier par ailleurs si tu préfères.')
+      .addButton(btn => {
+        btn.setButtonText('Nettoyer et fusionner');
+        btn.onClick(async () => {
+          if (!confirmationNettoyage) {
+            confirmationNettoyage = true;
+            btn.setButtonText('⚠️ Cliquer à nouveau pour confirmer');
+            btn.buttonEl.style.color = '#c0392b';
+            btn.buttonEl.style.borderColor = '#c0392b';
+            if (timeoutNettoyage) clearTimeout(timeoutNettoyage);
+            timeoutNettoyage = setTimeout(() => {
+              confirmationNettoyage = false;
+              btn.setButtonText('Nettoyer et fusionner');
+              btn.buttonEl.style.color = '';
+              btn.buttonEl.style.borderColor = '';
+            }, 4000);
+            return;
+          }
+          confirmationNettoyage = false;
+          if (timeoutNettoyage) clearTimeout(timeoutNettoyage);
+          btn.setButtonText('Nettoyer et fusionner');
+          btn.buttonEl.style.color = '';
+          btn.buttonEl.style.borderColor = '';
+          await nettoieEtFusionneDictionnairePerso(this.plugin);
         });
       });
   }
