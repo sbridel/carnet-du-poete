@@ -1,4 +1,4 @@
-const { Plugin, ItemView, Modal, Notice, requestUrl } = require('obsidian');
+const { Plugin, ItemView, Modal, Notice, requestUrl, PluginSettingTab, Setting } = require('obsidian');
 
 const VIEW_TYPE = 'carnet-du-poete-view';
 
@@ -1127,9 +1127,87 @@ const MOTS_RARES_BASE = [
 ];
 const MOTS_RARES = MOTS_RARES_BASE.slice();
 
-function motAuHasard(){
-  if (MOTS_RARES.length === 0) return null;
-  return MOTS_RARES[Math.floor(Math.random() * MOTS_RARES.length)];
+/* =========================================================
+   TAGS DES MOTS RARES — système unifié
+   Un mot peut porter des tags libres ("désuet", "poétique"...) déclarés
+   soit directement dans son entrée JSON (dictionnaire-perso.json), soit
+   ajoutés/retirés à la volée depuis l'interface (stockés séparément,
+   persistants, indépendants de la source du mot). "exclu" est un tag
+   comme un autre — pas un champ spécial — mais retranche toujours le mot
+   du tirage par défaut, contrairement aux autres tags qui élargissent le
+   pool quand on les coche comme filtre.
+   ========================================================= */
+let MOTS_RARES_META = {}; // { motNormalisé: { tags: [...] } }
+const TAG_EXCLU = 'exclu';
+
+function tagsDeclares(mot){
+  const entree = MOTS_RARES.find(e => normaliseMot(e.mot) === normaliseMot(mot));
+  return (entree && Array.isArray(entree.tags)) ? entree.tags : [];
+}
+
+function tagsDuMot(mot){
+  const w = normaliseMot(mot);
+  const declares = tagsDeclares(mot);
+  const perso = (MOTS_RARES_META[w] && MOTS_RARES_META[w].tags) || [];
+  return [...new Set([...declares, ...perso])];
+}
+
+function estExclu(mot){
+  return tagsDuMot(mot).includes(TAG_EXCLU);
+}
+
+async function ajouteTagMot(plugin, mot, tag){
+  tag = (tag || '').trim().toLowerCase();
+  if (!tag) return;
+  const w = normaliseMot(mot);
+  if (!MOTS_RARES_META[w]) MOTS_RARES_META[w] = { tags: [] };
+  if (!MOTS_RARES_META[w].tags.includes(tag)) MOTS_RARES_META[w].tags.push(tag);
+  const data = (await plugin.loadData()) || {};
+  data.motsRaresMeta = MOTS_RARES_META;
+  await plugin.saveData(data);
+}
+
+async function retireTagMot(plugin, mot, tag){
+  const w = normaliseMot(mot);
+  if (MOTS_RARES_META[w]) {
+    MOTS_RARES_META[w].tags = MOTS_RARES_META[w].tags.filter(t => t !== tag);
+  }
+  const data = (await plugin.loadData()) || {};
+  data.motsRaresMeta = MOTS_RARES_META;
+  await plugin.saveData(data);
+}
+
+/* Liste des tags actuellement en usage sur au moins un mot (hors "exclu",
+   géré à part dans l'interface), pour construire les filtres à la volée. */
+function tousLesTagsUtilises(){
+  const tags = new Set();
+  MOTS_RARES.forEach(e => tagsDuMot(e.mot).forEach(t => { if (t !== TAG_EXCLU) tags.add(t); }));
+  return [...tags].sort();
+}
+
+/* Historique des derniers mots tirés (en mémoire, pas persisté), pour
+   éviter l'impression de répétition — la fenêtre s'adapte à la taille du
+   pool filtré courant pour ne jamais le vider complètement. */
+let HISTORIQUE_TIRAGE = [];
+const HISTORIQUE_MAX = 40;
+
+function motAuHasard(tagsActifs){
+  tagsActifs = tagsActifs || new Set();
+  let pool = MOTS_RARES.filter(e => !estExclu(e.mot));
+  if (tagsActifs.size > 0) {
+    pool = pool.filter(e => tagsDuMot(e.mot).some(t => tagsActifs.has(t)));
+  }
+  if (pool.length === 0) return null;
+
+  const fenetre = Math.min(HISTORIQUE_MAX, Math.floor(pool.length / 2));
+  const recents = new Set(HISTORIQUE_TIRAGE.slice(-fenetre));
+  let candidats = pool.filter(e => !recents.has(normaliseMot(e.mot)));
+  if (candidats.length === 0) candidats = pool; // pool trop petit pour filtrer, on retire la contrainte
+
+  const choix = candidats[Math.floor(Math.random() * candidats.length)];
+  HISTORIQUE_TIRAGE.push(normaliseMot(choix.mot));
+  if (HISTORIQUE_TIRAGE.length > HISTORIQUE_MAX) HISTORIQUE_TIRAGE.shift();
+  return choix;
 }
 
 function chercheSynonymes(motSaisi){
@@ -1432,11 +1510,33 @@ async function chercheRecursivementDansDossier(adapter, dossier, nomFichier, pro
   return null;
 }
 
+async function cheminDictionnairePersoConfigure(plugin){
+  const data = await plugin.loadData();
+  const c = data && data.cheminDictionnairePerso && data.cheminDictionnairePerso.trim();
+  return c || null;
+}
+
 async function trouveEtLisDictionnairePerso(plugin){
   const adapter = plugin.app.vault.adapter;
   const configDir = plugin.app.vault.configDir; // en général ".obsidian", mais peut être renommé
   const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
   const nomFichier = 'dictionnaire-perso.json';
+
+  // 0) Chemin personnalisé explicitement configuré dans les réglages du
+  //    plugin (prioritaire sur tout le reste s'il est renseigné et existe)
+  try {
+    const data = await plugin.loadData();
+    const cheminPerso = data && data.cheminDictionnairePerso && data.cheminDictionnairePerso.trim();
+    if (cheminPerso) {
+      if (await adapter.exists(cheminPerso)) {
+        console.log('[Carnet du Poète] dictionnaire personnel trouvé (chemin personnalisé) :', cheminPerso);
+        return await adapter.read(cheminPerso);
+      }
+      console.warn('[Carnet du Poète] chemin personnalisé configuré mais introuvable :', cheminPerso, '— repli sur la recherche automatique.');
+    }
+  } catch (e) {
+    console.warn('[Carnet du Poète] erreur en lisant le chemin personnalisé configuré', e);
+  }
 
   // 1) Emplacements précis les plus probables, testés directement (rapide,
   //    fonctionne même sur Android où l'exploration de fichiers est limitée)
@@ -1498,9 +1598,12 @@ async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
   // en gardant le chemin cette fois (pas seulement le contenu)
   const configDir = plugin.app.vault.configDir;
   const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
-  const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
-  for (const c of candidats) {
-    if (await adapter.exists(c)) { chemin = c; break; }
+  chemin = await cheminDictionnairePersoConfigure(plugin);
+  if (!chemin) {
+    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
+    for (const c of candidats) {
+      if (await adapter.exists(c)) { chemin = c; break; }
+    }
   }
   if (!chemin) {
     const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
@@ -1543,6 +1646,70 @@ async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
       await plugin.app.vault.create(chemin, contenu);
     }
     new Notice(`Carnet du Poète : « ${mot} » enregistré dans ${chemin}.`);
+    await chargeDictionnairePerso(plugin);
+  } catch (e) {
+    console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
+    new Notice('Carnet du Poète : échec de l\'enregistrement (voir la console).');
+  }
+}
+
+/* Ajoute un mot rare saisi manuellement au dictionnaire personnel (même
+   mécanique de recherche/écriture de fichier que enregistreSynonymePerso). */
+async function ajouteMotRarePerso(plugin, mot, note, tags){
+  const adapter = plugin.app.vault.adapter;
+  let chemin = null;
+  let data = {};
+
+  const configDir = plugin.app.vault.configDir;
+  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+  chemin = await cheminDictionnairePersoConfigure(plugin);
+  if (!chemin) {
+    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
+    for (const c of candidats) {
+      if (await adapter.exists(c)) { chemin = c; break; }
+    }
+  }
+  if (!chemin) {
+    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
+    if (fichierVault) chemin = fichierVault.path;
+  }
+  if (!chemin) {
+    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
+  }
+
+  if (chemin) {
+    try {
+      const raw = await adapter.read(chemin);
+      data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') data = {};
+    } catch (e) {
+      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant, un nouveau contenu sera écrit avec prudence', e);
+      data = {};
+    }
+  } else {
+    chemin = 'dictionnaire-perso.json';
+    data = {};
+  }
+
+  if (!Array.isArray(data.motsRares)) data.motsRares = [];
+  const motNorm = normaliseMot(mot);
+  const existante = data.motsRares.find(e => e && normaliseMot(e.mot) === motNorm);
+  if (existante) {
+    if (note) existante.note = note;
+    existante.tags = [...new Set([...(existante.tags || []), ...(tags || [])])];
+  } else {
+    const entree = { mot, note: note || '' };
+    if (tags && tags.length > 0) entree.tags = tags;
+    data.motsRares.push(entree);
+  }
+
+  const contenu = JSON.stringify(data, null, 2);
+  try {
+    if (await adapter.exists(chemin)) {
+      await adapter.write(chemin, contenu);
+    } else {
+      await plugin.app.vault.create(chemin, contenu);
+    }
     await chargeDictionnairePerso(plugin);
   } catch (e) {
     console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
@@ -1623,7 +1790,7 @@ async function chargeDictionnairePerso(plugin, opts){
     if (Array.isArray(data.motsRares)) {
       data.motsRares.forEach(m => {
         if (m && m.mot) {
-          MOTS_RARES.push({ mot: m.mot, note: m.note || '' });
+          MOTS_RARES.push({ mot: m.mot, note: m.note || '', tags: Array.isArray(m.tags) ? m.tags : [] });
           raresCount++;
         }
       });
@@ -2613,31 +2780,78 @@ class CarnetView extends ItemView {
     const intro = panelHasard.createEl('p', { cls: 'cp-inspi-intro' });
     intro.setText('Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.');
 
+    // --- filtres par tags (élargissent le pool ; OU logique) ---
+    const filtresDiv = panelHasard.createDiv({ cls: 'cp-hasard-filtres' });
+    const casesTag = {};
+    const renderFiltresTags = () => {
+      filtresDiv.empty();
+      const tags = tousLesTagsUtilises();
+      if (tags.length === 0) return;
+      filtresDiv.createSpan({ cls: 'cp-sources-label', text: 'Filtrer par tag : ' });
+      tags.forEach(tag => {
+        const lbl = filtresDiv.createEl('label', { cls: 'cp-source-toggle' });
+        const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
+        c.checked = !!(casesTag[tag] && casesTag[tag].checked);
+        lbl.createSpan({ text: ' ' + tag });
+        casesTag[tag] = c;
+        c.addEventListener('change', () => { /* pris en compte au prochain tirage */ });
+      });
+    };
+    renderFiltresTags();
+
+    const tagsActifs = () => new Set(Object.keys(casesTag).filter(t => casesTag[t].checked));
+
     const btnTirer = panelHasard.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
 
     const zone = panelHasard.createDiv({ cls: 'cp-hasard-zone' });
     const motEl = zone.createEl('div', { cls: 'cp-hasard-mot' });
     const noteEl = zone.createEl('p', { cls: 'cp-hasard-note' });
+    const chipsDiv = zone.createDiv({ cls: 'cp-hasard-tags' });
     const actions = zone.createDiv({ cls: 'cp-hasard-actions' });
     actions.style.display = 'none';
 
     const btnDefs = actions.createEl('button', { cls: 'cp-link-btn', text: 'Voir sa définition (CNRTL) →' });
     const btnRimes = actions.createEl('button', { cls: 'cp-link-btn', text: 'Chercher ses rimes →' });
+    const btnExclure = actions.createEl('button', { cls: 'cp-link-btn cp-btn-exclure', text: '👎 Ne plus tirer ce mot' });
+
+    // ajout de tag rapide sur le mot courant
+    const tagFormDiv = zone.createDiv({ cls: 'cp-hasard-tag-ajout' });
+    tagFormDiv.style.display = 'none';
+    const tagInput = tagFormDiv.createEl('input', { attr: { type: 'text', placeholder: 'ajouter un tag (ex. désuet)' } });
+    const btnAjouterTag = tagFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ tag' });
 
     let motCourant = null;
 
+    const renderChips = () => {
+      chipsDiv.empty();
+      if (!motCourant) return;
+      tagsDuMot(motCourant).forEach(tag => {
+        const chip = chipsDiv.createSpan({ cls: 'cp-tag-chip' + (tag === TAG_EXCLU ? ' cp-tag-chip-exclu' : ''), text: tag });
+        const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
+        btnX.addEventListener('click', async () => {
+          await retireTagMot(this.plugin, motCourant, tag);
+          renderChips();
+          renderFiltresTags();
+        });
+      });
+    };
+
     const tirer = () => {
-      const entree = motAuHasard();
+      const entree = motAuHasard(tagsActifs());
       if (!entree) {
-        motEl.setText('Aucun mot disponible.');
+        motEl.setText('Aucun mot disponible avec ces filtres.');
         noteEl.setText('');
+        chipsDiv.empty();
         actions.style.display = 'none';
+        tagFormDiv.style.display = 'none';
         return;
       }
       motCourant = entree.mot;
       motEl.setText(entree.mot);
       noteEl.setText(entree.note || '');
+      renderChips();
       actions.style.display = 'flex';
+      tagFormDiv.style.display = 'flex';
     };
 
     btnDefs.addEventListener('click', () => {
@@ -2650,10 +2864,65 @@ class CarnetView extends ItemView {
       if (this._switchTab) this._switchTab('rimes');
       if (this._prefillRimeInput) this._prefillRimeInput(motCourant);
     });
+    btnExclure.addEventListener('click', async () => {
+      if (!motCourant) return;
+      await ajouteTagMot(this.plugin, motCourant, TAG_EXCLU);
+      new Notice(`« ${motCourant} » ne sera plus tiré au hasard.`);
+      tirer();
+    });
+    btnAjouterTag.addEventListener('click', async () => {
+      if (!motCourant || !tagInput.value.trim()) return;
+      await ajouteTagMot(this.plugin, motCourant, tagInput.value);
+      tagInput.value = '';
+      renderChips();
+      renderFiltresTags();
+    });
+    tagInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnAjouterTag.click(); });
 
     btnTirer.addEventListener('click', tirer);
-
     tirer();
+
+    // --- mots exclus, consultables et réintégrables ---
+    const exclusDetails = panelHasard.createEl('details', { cls: 'cp-hasard-exclus' });
+    exclusDetails.createEl('summary', { text: 'Voir les mots exclus du tirage' });
+    const exclusListe = exclusDetails.createDiv();
+    exclusDetails.addEventListener('toggle', () => {
+      if (!exclusDetails.open) return;
+      exclusListe.empty();
+      const exclus = MOTS_RARES.filter(e => estExclu(e.mot));
+      if (exclus.length === 0) {
+        exclusListe.createEl('p', { cls: 'cp-vide', text: 'Aucun mot exclu pour l\'instant.' });
+        return;
+      }
+      exclus.forEach(e => {
+        const ligne = exclusListe.createDiv({ cls: 'cp-hasard-exclu-ligne' });
+        ligne.createSpan({ text: e.mot });
+        const btnReintegrer = ligne.createEl('button', { cls: 'cp-link-btn', text: 'Réintégrer' });
+        btnReintegrer.addEventListener('click', async () => {
+          await retireTagMot(this.plugin, e.mot, TAG_EXCLU);
+          exclusDetails.dispatchEvent(new Event('toggle'));
+          if (motCourant && normaliseMot(motCourant) === normaliseMot(e.mot)) renderChips();
+        });
+      });
+    });
+
+    // --- ajout manuel d'un mot rare ---
+    const ajoutDetails = panelHasard.createEl('details', { cls: 'cp-hasard-ajout' });
+    ajoutDetails.createEl('summary', { text: '+ Ajouter un mot rare manuellement' });
+    const ajoutForm = ajoutDetails.createDiv({ cls: 'cp-hasard-ajout-form' });
+    const inputMot = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'mot' } });
+    const inputNote = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'définition courte (optionnel)' } });
+    const inputTags = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'tags séparés par une virgule (optionnel)' } });
+    const btnAjouterMot = ajoutForm.createEl('button', { cls: 'cp-link-btn', text: 'Ajouter à mon dictionnaire personnel' });
+    btnAjouterMot.addEventListener('click', async () => {
+      const mot = inputMot.value.trim();
+      if (!mot) { new Notice('Le mot est requis.'); return; }
+      const tags = inputTags.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+      await ajouteMotRarePerso(this.plugin, mot, inputNote.value.trim(), tags);
+      new Notice(`« ${mot} » ajouté à ton dictionnaire personnel.`);
+      inputMot.value = ''; inputNote.value = ''; inputTags.value = '';
+      renderFiltresTags();
+    });
   }
 
   async onClose(){}
@@ -2761,6 +3030,21 @@ const CARNET_CSS = `
 .cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:600; font-size:1.7em; color: var(--text-normal); margin-bottom:10px; }
 .cp-hasard-note{ font-size:0.9em; color: var(--text-muted); max-width:44ch; margin:0 auto 16px; line-height:1.6; }
 .cp-hasard-actions{ display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
+.cp-hasard-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:0.82em; margin-bottom:4px; }
+.cp-hasard-tags{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+.cp-tag-chip{ display:inline-flex; align-items:center; gap:2px; font-size:0.72em; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:10px; padding:2px 8px; color: var(--text-muted); }
+.cp-tag-chip-exclu{ color: var(--text-error); border-color: var(--text-error); }
+.cp-tag-chip-x{ cursor:pointer; opacity:0.6; }
+.cp-tag-chip-x:hover{ opacity:1; }
+.cp-btn-exclure{ color: var(--text-error); }
+.cp-hasard-tag-ajout{ display:flex; justify-content:center; gap:8px; margin-top:12px; }
+.cp-hasard-tag-ajout input{ font-size:0.8em; width:180px; }
+.cp-hasard-exclus, .cp-hasard-ajout{ margin-top:20px; font-size:0.85em; }
+.cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; color: var(--text-muted); }
+.cp-hasard-exclu-ligne{ display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px dashed var(--background-modifier-border); }
+.cp-hasard-ajout-form{ display:flex; flex-direction:column; gap:6px; margin-top:8px; max-width:400px; }
+.cp-hasard-exclus, .cp-hasard-ajout{ margin-top:16px; font-size:0.85em; color: var(--text-muted); }
+.cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; }
 .cp-rime-form input{ flex:1; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }
@@ -2802,6 +3086,7 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
 
     const data = await this.loadData();
     MODE_ASSONANCE = !!(data && data.modeAssonance);
+    MOTS_RARES_META = (data && data.motsRaresMeta) || {};
 
     this.registerView(VIEW_TYPE, (leaf) => new CarnetView(leaf, this));
 
@@ -2861,6 +3146,8 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
         new InspirationModal(this.app, mot).open();
       }
     });
+
+    this.addSettingTab(new CarnetSettingTab(this.app, this));
   }
 
   injectStyles(){
@@ -2891,3 +3178,59 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
     workspace.revealLeaf(leaf);
   }
 };
+
+class CarnetSettingTab extends PluginSettingTab {
+  constructor(app, plugin){
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display(){
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl('h2', { text: 'Réglages du Carnet du Poète' });
+
+    new Setting(containerEl)
+      .setName('Mode assonance')
+      .setDesc('Quand activé, les assonances (même voyelle, terminaison différente) sont aussi montrées, dans une section clairement séparée des rimes strictes.')
+      .addToggle(toggle => {
+        toggle.setValue(MODE_ASSONANCE);
+        toggle.onChange(async (value) => {
+          MODE_ASSONANCE = value;
+          const data = (await this.plugin.loadData()) || {};
+          data.modeAssonance = value;
+          await this.plugin.saveData(data);
+        });
+      });
+
+    containerEl.createEl('h3', { text: 'Dictionnaire personnel' });
+
+    let inputChemin;
+    new Setting(containerEl)
+      .setName('Chemin personnalisé du dictionnaire personnel (optionnel)')
+      .setDesc('Chemin relatif au coffre vers dictionnaire-perso.json. Laisser vide pour une recherche automatique (dossier du plugin, .obsidian/, racine du coffre, ou n\'importe où dans le coffre).')
+      .addText(text => {
+        inputChemin = text;
+        (async () => {
+          const data = await this.plugin.loadData();
+          text.setValue((data && data.cheminDictionnairePerso) || '');
+        })();
+        text.setPlaceholder('ex. dictionnaires/dictionnaire-perso.json');
+        text.onChange(async (value) => {
+          const data = (await this.plugin.loadData()) || {};
+          data.cheminDictionnairePerso = value.trim();
+          await this.plugin.saveData(data);
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Recharger le dictionnaire personnel')
+      .setDesc('Relit dictionnaire-perso.json (utile après l\'avoir ajouté, déplacé, ou modifié en dehors d\'Obsidian).')
+      .addButton(btn => {
+        btn.setButtonText('Recharger');
+        btn.onClick(async () => {
+          await chargeDictionnairePerso(this.plugin, { notifierAbsence: true });
+        });
+      });
+  }
+}

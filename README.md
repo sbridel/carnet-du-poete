@@ -59,8 +59,17 @@ side panel, no internet connection required for the core features.
   the full entry. On-demand only — nothing is looked up automatically.
 - **Hasard** — one button, one rare or forgotten French word at random (*smaragdin*,
   *coruscant*, *pétrichor*, *s'ennuiter*...), with a short gloss and quick links to look it up
-  in the Definitions or Rhymes tab. Extensible with your own words via `motsRares` in
-  `dictionnaire-perso.json`.
+  in the Definitions or Rhymes tab. Every word can carry free-form **tags** (désuet, savant,
+  poétique...), addable/removable on the fly from the drawn word, used to filter the draw pool
+  (checking tags widens the pool — OR logic). "exclu" is a reserved tag: a word tagged this way
+  is always left out of the draw by default, with a "👎 Ne plus tirer ce mot" shortcut button
+  that just applies it, and a "Voir les mots exclus" panel to review and un-exclude any word.
+  Tags can also be declared directly in `dictionnaire-perso.json` (see below) — useful for
+  pre-tagging a bulk import — and merge with tags added from the UI. The draw itself avoids
+  repeating recently-shown words (a rolling window that adapts to the size of the current
+  filtered pool, so a narrow tag filter never gets stuck empty). A small form lets you add a
+  rare word manually (word, optional gloss, optional tags) straight into your personal
+  dictionary without going through an external source.
 - **Guide** — a quick reference: how French syllable counting works, metre names, caesura,
   enjambment, stanza names, a handful of classic poem forms (sonnet, rondeau, ballade,
   villanelle, pantoum, triolet, virelai, tanka, calligramme, ode, haiku, fable, acrostic, free
@@ -180,12 +189,13 @@ ignores accents and simple plurals).
 }
 ```
 
-**E) Custom words for the Hasard tab** (added to the built-in pool of rare/forgotten words):
+**E) Custom words for the Hasard tab** (added to the built-in pool of rare/forgotten words),
+with optional tags for filtering the random draw (also addable/removable later from the UI):
 
 ```json
 {
   "motsRares": [
-    { "mot": "estival", "note": "qui appartient à l'été" }
+    { "mot": "estival", "note": "qui appartient à l'été", "tags": ["saison"] }
   ]
 }
 ```
@@ -251,6 +261,15 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.7.0** — New tagging system for the Hasard tab's rare words: free-form tags addable/
+  removable on the fly, used to filter the random draw (OR logic — checking tags widens the
+  pool). "exclu" is a reserved tag that permanently removes a word from the draw by default,
+  with a one-click "👎" shortcut and a review panel to un-exclude. The draw also now avoids
+  repeating recently-shown words, with a window that adapts to the current filtered pool size.
+  A manual-entry form lets you add a rare word straight to your personal dictionary without an
+  external source. New **settings tab** (Obsidian Settings → Carnet du Poète): toggle Mode
+  assonance from there too, set a custom path for `dictionnaire-perso.json` instead of relying
+  on automatic search, and reload the personal dictionary with one click.
 - **2.6.2** — Fixed another CNRTL pollution case: words with numbered homographs in the TLFi
   (e.g. "ombre" is listed as OMBRE1/OMBRE2) weren't matched by the exact "MOT," pattern, falling
   through to a looser match that could grab the site's own display-options panel (font/colour

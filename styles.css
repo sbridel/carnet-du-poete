@@ -206,3 +206,20 @@
 .cp-mot-assonance{ border-left-style: dashed; border-left-color: var(--text-faint); opacity: 0.8; }
 .cp-label-assonance{ color: var(--text-faint); font-style: italic; }
 .cp-bloc-assonance{ border-top: 1px dashed var(--background-modifier-border); padding-top: 10px; margin-top: 6px; }
+
+.cp-hasard-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:0.82em; margin-bottom:4px; }
+.cp-hasard-tags{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+.cp-tag-chip{ display:inline-flex; align-items:center; gap:2px; font-size:0.72em; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:10px; padding:2px 8px; color: var(--text-muted); }
+.cp-tag-chip-exclu{ color: var(--text-error); border-color: var(--text-error); }
+.cp-tag-chip-x{ cursor:pointer; opacity:0.6; }
+.cp-tag-chip-x:hover{ opacity:1; }
+.cp-btn-exclure{ color: var(--text-error); }
+.cp-hasard-tag-ajout{ display:flex; justify-content:center; gap:8px; margin-top:12px; }
+.cp-hasard-tag-ajout input{ font-size:0.8em; width:180px; }
+.cp-hasard-exclus, .cp-hasard-ajout{ margin-top:20px; font-size:0.85em; }
+.cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; color: var(--text-muted); }
+.cp-hasard-exclu-ligne{ display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px dashed var(--background-modifier-border); }
+.cp-hasard-ajout-form{ display:flex; flex-direction:column; gap:6px; margin-top:8px; max-width:400px; }
+
+.cp-hasard-exclus, .cp-hasard-ajout{ margin-top:16px; font-size:0.85em; color: var(--text-muted); }
+.cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; }
