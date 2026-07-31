@@ -183,6 +183,7 @@
 .cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:0.82em; color: var(--text-muted); }
 .cp-sources-label{ font-weight:600; }
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
+.cp-hasard-masquer-connus{ margin-top:6px; font-size:0.85em; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
 

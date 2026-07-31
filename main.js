@@ -1273,7 +1273,7 @@ function tagsParFrequence(){
 let HISTORIQUE_TIRAGE = [];
 const HISTORIQUE_MAX = 40;
 
-function motAuHasard(tagsActifs){
+function motAuHasard(tagsActifs, masquerConnus){
   tagsActifs = tagsActifs || new Set();
   let pool;
   if (tagsActifs.has(TAG_EXCLU)) {
@@ -1286,6 +1286,12 @@ function motAuHasard(tagsActifs){
     if (tagsActifs.size > 0) {
       pool = pool.filter(e => tagsDuMot(e.mot).some(t => tagsActifs.has(t)));
     }
+  }
+  if (masquerConnus) {
+    // Filtre AND indépendant du mode (thème ou revue des exclus) : sert à
+    // se concentrer sur ce qui n'est pas encore acquis, même en explorant
+    // un thème ou en triant les exclus.
+    pool = pool.filter(e => !tagsDuMot(e.mot).includes('connu'));
   }
   if (pool.length === 0) return null;
 
@@ -3364,6 +3370,15 @@ class CarnetView extends ItemView {
     const filtreDatalist = filtresFormDiv.createEl('datalist', { attr: { id: datalistId } });
     const btnAjouterFiltre = filtresFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ filtre' });
 
+    // Filtre indépendant (AND, pas OR comme les tags) : masque les mots
+    // tagués "connu" du tirage, peu importe le reste des filtres actifs.
+    // N'apparaît que si ce tag a déjà été utilisé au moins une fois — pas
+    // de case vide et sans effet avant que l'utilisateur s'en serve.
+    const masquerConnusLabel = filtresDiv.createEl('label', { cls: 'cp-source-toggle cp-hasard-masquer-connus' });
+    masquerConnusLabel.style.display = 'none';
+    const masquerConnusCase = masquerConnusLabel.createEl('input', { attr: { type: 'checkbox' } });
+    masquerConnusLabel.createSpan({ text: ' Masquer les mots connus' });
+
     const filtresActifs = new Set();
     // Datalist du champ "ajouter un tag" (créé plus bas dans le DOM) —
     // référence assignée après coup, mais rafraîchie depuis ici pour rester
@@ -3422,6 +3437,7 @@ class CarnetView extends ItemView {
         tagAjoutDatalist.empty();
         tags.forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
       }
+      masquerConnusLabel.style.display = tags.includes('connu') ? 'inline-flex' : 'none';
       filtresChipsDiv.empty();
       if (filtresActifs.size === 0) return;
       filtresChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Filtres actifs : ' });
@@ -3508,7 +3524,7 @@ class CarnetView extends ItemView {
     };
 
     const tirer = () => {
-      const entree = motAuHasard(tagsActifs());
+      const entree = motAuHasard(tagsActifs(), masquerConnusCase.checked);
       if (!entree) {
         motEl.setText('Aucun mot disponible avec ces filtres.');
         noteEl.setText('');
@@ -3745,6 +3761,7 @@ const CARNET_CSS = `
 .cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:0.82em; color: var(--text-muted); }
 .cp-sources-label{ font-weight:600; }
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
+.cp-hasard-masquer-connus{ margin-top:6px; font-size:0.85em; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
 .cp-cnrtl-bloc{ border:1px solid var(--background-modifier-border); border-radius:8px; padding:12px 14px; margin-bottom:12px; background: var(--background-primary-alt); }

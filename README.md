@@ -81,7 +81,10 @@ side panel, no internet connection required for the core features.
   (a bulk "Graver en masse" version of the same action lives in Settings, for after a big
   tagging session). A collapsible stats panel at the bottom shows total word count, how many are
   excluded, how many have no tag yet, and the resulting "% already seen" — handy for deciding
-  when it's time to import a fresh batch of words. Tags can also be declared directly in
+  when it's time to import a fresh batch of words. An optional "Masquer les mots connus"
+  checkbox (appears once you've used a "connu" tag) subtracts from the draw pool regardless of
+  any other active filter — useful for treating "connu" as a personal already-mastered marker.
+  Tags can also be declared directly in
   `dictionnaire-perso.json` (see below) — useful for pre-tagging a bulk import — and merge with
   tags added from the UI. The draw itself avoids repeating recently-shown words (a rolling
   window that adapts to the size of the current filtered pool, so a narrow tag filter never gets
@@ -293,6 +296,12 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.8.1** — Hasard: new "Masquer les mots connus" checkbox next to the tag filters. Unlike
+  regular tags (which widen the draw pool — OR logic), this one subtracts: when checked, it
+  excludes anything tagged "connu" from the draw regardless of any other active filter, including
+  theme filters or the "exclu" review mode — handy for using "connu" as a personal
+  already-mastered marker and drawing only from what's left to learn. Only shown once the
+  "connu" tag has actually been used at least once; unchecked by default on each panel open.
 - **2.8.0** — Large Hasard and Inspiration rework, aimed at curating a big personal dictionary
   incrementally (e.g. after a bulk import) rather than all at once:
   - **Hasard**: tag filtering redesigned as a text field with autocomplete plus two always-
