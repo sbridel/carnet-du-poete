@@ -183,7 +183,10 @@
 .cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:0.82em; color: var(--text-muted); }
 .cp-sources-label{ font-weight:600; }
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
-.cp-hasard-masquer-connus{ margin-top:6px; font-size:0.85em; }
+.cp-hasard-ligne-raccourcis{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px; }
+.cp-hasard-toggle-pool{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8em; font-weight:500; color: var(--text-muted); background: var(--background-primary-alt); border:1.5px solid var(--background-modifier-border); border-radius:14px; padding:4px 12px; }
+.cp-hasard-toggle-pool:has(input:checked){ color: var(--text-normal); border-color: var(--text-accent); background: var(--background-modifier-hover); }
+.cp-hasard-toggle-pool input{ margin:0; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
 
@@ -232,7 +235,7 @@
 .cp-hasard-stat-sanstag{ color:#d68910; background: rgba(214,137,16,0.12); border-color:#d68910; }
 .cp-hasard-stat-vu{ color:#27ae60; background: rgba(39,174,96,0.12); border-color:#27ae60; }
 .cp-hasard-filtres{ font-size:0.82em; margin-bottom:4px; }
-.cp-hasard-filtres-rapides{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+.cp-hasard-filtres-rapides{ display:flex; flex-wrap:wrap; gap:8px; }
 .cp-hasard-filtre-rapide{ font-size:0.8em; font-weight:500; background:transparent; border:1.5px solid; border-radius:14px; padding:4px 12px; cursor:pointer; transition: background 0.15s, color 0.15s; }
 .cp-hasard-filtre-rapide-actif{ font-weight:700; }
 .cp-hasard-filtres-chips{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:6px; }
@@ -243,7 +246,13 @@
 .cp-hasard-graver-btn{ font-size:0.82em; font-weight:500; background:transparent; border:1.5px solid var(--text-accent); color: var(--text-accent); border-radius:14px; padding:6px 16px; cursor:pointer; }
 .cp-hasard-graver-btn:hover{ background: var(--text-accent); color:#fff; }
 .cp-hasard-tag-presets{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:14px; margin-bottom:6px; }
+.cp-hasard-voir-tous-tags{ display:block; font-size:0.78em; margin-top:4px; }
 .cp-hasard-preset-btn{ font-size:0.75em; background:transparent; border:1.5px solid var(--background-modifier-border); border-radius:10px; padding:2px 10px; cursor:pointer; }
+.cp-hasard-tous-tags-box{ margin-top:8px; padding:10px; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:8px; }
+.cp-hasard-tous-tags-filtre{ width:100%; font-size:0.82em; margin-bottom:8px; }
+.cp-hasard-tous-tags-grille{ display:flex; flex-wrap:wrap; gap:4px; max-height:160px; overflow-y:auto; }
+.cp-hasard-preset-btn-mini{ font-size:0.72em; background: var(--background-primary); border:1px solid var(--background-modifier-border); border-radius:8px; padding:1px 8px; cursor:pointer; }
+.cp-hasard-preset-btn-mini:hover{ opacity:0.75; }
 .cp-hasard-preset-btn:hover{ opacity:0.75; }
 .cp-tag-chip{ display:inline-flex; align-items:center; gap:2px; font-size:0.72em; font-weight:500; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:10px; padding:2px 8px; color: var(--text-muted); }
 .cp-tag-chip-exclu{ background:#c0392b; border-color:#c0392b; color:#fff; }

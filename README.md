@@ -296,6 +296,19 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.8.2** — Hasard filter refinements:
+  - Fixed the stats panel not updating after excluding a word ("🚫 Ne plus tirer ce mot") — it
+    refreshed correctly after tagging actions but not after that specific one, the most common of
+    all.
+  - New "Masquer les mots déjà tagués" checkbox, always visible, next to "Masquer les mots
+    connus" — same AND-style subtraction, but for *any* tag rather than just "connu". Useful for
+    drawing only from genuinely untouched words, e.g. right after a bulk import.
+  - Both the tag-add field and the tag-filter field now offer a "Voir tous les tags" expandable
+    panel with a live search box, instead of relying solely on the browser's native (unstyled,
+    unsorted, hard to scan once there are many tags) autocomplete dropdown.
+  - The quick-filter buttons ("🚫 Explorer les exclus" / "☆ Explorer «tag»") and the two
+    "Masquer..." checkboxes now share a single row/flex-wrap group instead of being stacked on
+    separate lines.
 - **2.8.1** — Hasard: new "Masquer les mots connus" checkbox next to the tag filters. Unlike
   regular tags (which widen the draw pool — OR logic), this one subtracts: when checked, it
   excludes anything tagged "connu" from the draw regardless of any other active filter, including
