@@ -61,10 +61,15 @@ side panel, no internet connection required for the core features.
   selected word (from a recognised theme) are carried over automatically; words coming from an
   online source have no definition and can be completed afterwards from the **Notes** tab.
 - **Synonyms** — type a word to see synonyms and antonyms. A small built-in dictionary answers
-  instantly offline; you can additionally enable live lookups from **Wiktionnaire** and/or
-  **CRISCO** (Université de Caen's synonym dictionary), toggled independently with checkboxes,
-  with a one-click button to save any online result into your personal dictionary for future
-  offline use. See [Online sources](#online-sources) below.
+  instantly offline, extended by any Format C entries in your personal dictionary; you can
+  additionally enable live lookups from **Wiktionnaire** and/or **CRISCO** (Université de
+  Caen's synonym dictionary), toggled independently with checkboxes, with a one-click button
+  to save any online result into your personal dictionary for future offline use — click any
+  chip first to exclude it from that save if a source returned a bad match. Every
+  synonym/antonym that genuinely rhymes with your search word gets a rhyme-quality badge, and
+  an optional **"Rime avec…"** field narrows the list down to only the ones that also rhyme
+  with a second word of your choice — handy when a rhyme is already fixed by another line.
+  See [Online sources](#online-sources) below.
 - **Definitions** — look up a rare word before using it: fetches a definition excerpt and
   etymology from **CNRTL** (the *Trésor de la Langue Française informatisé*), shown in its own
   boxed section with a link to the full entry. On-demand only — nothing is looked up
@@ -334,6 +339,31 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.11.0** — Follow-ups to the phonetic engine (2.10.0), mostly bug fixes surfaced by
+  actually using it on real dictionaries/searches:
+  - **Fixed**: the Wiktionnaire scraper searched the whole page for a "synonyms" section
+    without first isolating the French-language block — a word that also exists in another
+    language (e.g. *rage*, which is also Dutch) could return that other language's synonyms
+    instead of French ones. Now scoped to `== {{langue|fr}} ==` first.
+  - **Fixed**: the new rhyme-quality badge in the Synonyms tab was showing on every single
+    synonym/antonym, even ones that don't rhyme at all with the searched word — `classeRime`
+    always returns a level (even "pauvre") for any pair, it was never meant to be called
+    without first checking there's a genuine rhyme. The badge now only appears when `memeRime`
+    confirms one.
+  - **New**: click any synonym/antonym chip (in the online-source results) to exclude it
+    before saving — useful for the case above, or any bad match from an online source — click
+    again to un-exclude; the "💾 Save" button only writes what's left.
+  - **New**: clearer, differentiated error messages for the three online sources (429 = rate
+    limited, 403 = blocked, 5xx = the site's own problem, vs. a generic network/timeout
+    message) instead of a single generic "see the console".
+  - **New**: debug-only toggle in Settings ("ignore the personal dictionary") to instantly
+    compare rhyme results with/without it loaded, without touching the vault file — and it now
+    actually forces every open tab (Syllables, Rhymes, Synonyms) to recompute immediately,
+    instead of only taking effect on the next fresh search or after clearing/repasting the
+    draft.
+  - **Fixed**: the "Mode assonance" checkbox in the Rhymes tab could go visually stale if you
+    changed the same global setting from Settings while that tab was already open — it now
+    resyncs every time you switch back to the Rhymes tab.
 - **2.10.0** — New "Format C" for `dictionnaire-perso.json`: an object nested one level
   deeper than Format B (`group → word → {phonetique, synonymes, antonymes}`), giving each
   word its full phonetic transcription (SAMPA-like, one character per phoneme) plus its own
