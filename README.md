@@ -33,11 +33,15 @@ side panel, no internet connection required for the core features.
   count, drawn from roughly sixty built-in sound families. If you supply a complete phonetic
   rhyme dictionary (see below), exact matches from it take priority over the built-in
   approximation. Results can be narrowed down with filters (first letter, syllable count, and
-  rhyme quality — *pauvre* / *suffisante* / *riche*, estimated from how many trailing letters
-  the candidate shares with your word). Each group shows a colour-coded quality summary
-  (counts per quality) and every word chip carries a matching coloured border and badge, for a
-  quick visual read of the list. You can also tick **RimesSolides** to pull in additional live
-  results from [rimessolides.com](https://www.rimessolides.com). A global **"Mode assonance"**
+  rhyme quality — *pauvre* / *suffisante* / *riche+*, with **Très riche** and **Léonine** as
+  optional sub-filters that narrow the "riche+" bucket further). Quality is estimated from how
+  many trailing sounds the candidate shares with your word, with a syllable-aware check (attack
+  + vowel + coda, using French syllabification rules) distinguishing riche / très riche / léonine
+  once the basic count reaches "riche". Each group shows a colour-coded quality summary (counts
+  per quality) and every word chip carries a matching coloured border and badge, with a tooltip
+  explaining the criterion, for a quick visual read of the list. You can also tick
+  **RimesSolides** to pull in additional live results from
+  [rimessolides.com](https://www.rimessolides.com). A global **"Mode assonance"**
   toggle (off by default — strict rhymes only) additionally surfaces words that share the same
   vowel but differ in what follows it (e.g. *ombre*/*montre* — same nasal vowel, but "b" vs "t"
   right before the final "r"), shown in a clearly separate, dashed-border section so they're
@@ -286,9 +290,12 @@ Definitions tab may need an update.
 - The built-in rhyme, vocabulary and synonym dictionaries are hand-curated, not exhaustive; a
   rare word may not be recognised. The optional complete phonetic rhyme dictionary (format B
   above) largely closes that gap for rhymes specifically.
-- Rhyme quality (*pauvre* / *suffisante* / *riche*) is estimated by comparing trailing letters,
-  not real phonetic transcription — a reasonable approximation for most common spelling
-  patterns, but not infallible (silent letters can throw it off occasionally).
+- Rhyme quality (*pauvre* / *suffisante* / *riche* / *très riche* / *léonine*) is a phonetic
+  heuristic, not a real IPA transcription — it handles common spelling/sound mismatches
+  (-tion≈-ssion, doubled letters, i/y semi-consonant, ê/è/ei/circumflex, intervocalic "s"→[z]...)
+  but isn't infallible, especially on rare or irregular words. The très riche/léonine distinction
+  relies on an approximate French syllabification (valid onset clusters, e.g. "pl", "tr"); very
+  unusual consonant clusters may still be split incorrectly.
 - The online sources depend on third-party websites staying reachable and structurally
   unchanged; treat them as a bonus on top of, not a replacement for, the offline dictionaries.
 - Rhyme-pair colour-coding applies to the rendered analysis below the text box, not to the raw
@@ -296,6 +303,25 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.9.0** — Rhyme quality is now a 5-level scale (*pauvre* / *suffisante* / *riche* / *très
+  riche* / *léonine*) instead of 3, with **Très riche** and **Léonine** as optional sub-filters
+  narrowing the new "Riche+" filter bucket. The two extra levels rely on a syllable-aware check
+  (attack + vowel + coda) using approximate French syllabification rules (valid onset clusters
+  such as "pl"/"tr" stay grouped; doubled letters split as one sound) instead of the previous
+  naive "all consonants join the next syllable" convention — this is what lets pairs like
+  *sultans*/*insultants* or *railleur*/*ferrailleur* be correctly recognised as léonine. Several
+  phonetic-matching gaps were also closed along the way, since they fed into the same
+  comparison: "-tion" now matches "-ssion" (*passion*/*nation* rhyme for real, not just look
+  similar); a monosyllabic word's leading consonant is no longer dropped from the comparison
+  (*beau*/*escabeau*); and doubled letters, the "i"/"y" semi-consonant glide, the ê/è/ei/circumflex
+  spellings of the same oral vowel, and an intervocalic "s" pronounced [z] are now recognised as
+  equivalent (*chêne*/*plaine*, *cieux*/*yeux*, *chaumières*/*chères*, *treize*/*fraise*,
+  *pierre*/*lumière* and more now correctly match, which also fixes some rhyme-scheme/colour
+  groupings in the Syllables tab that previously separated genuine rhyme pairs). Quality badges'
+  tooltips now explain the criterion in plain language instead of just "approximatif,
+  orthographique". Guide tab expanded with the voyelle/consonne d'appui distinction, très riche
+  vs léonine definitions and examples, and the fuller list of rhyme-succession forms (annexées,
+  internes, batelées, sénées, couronnées, triplées, emperières).
 - **2.8.2** — Hasard filter refinements:
   - Fixed the stats panel not updating after excluding a word ("🚫 Ne plus tirer ce mot") — it
     refreshed correctly after tagging actions but not after that specific one, the most common of

@@ -199,10 +199,13 @@
 .cp-filtre-lettre{ width:56px; text-align:center; }
 .cp-filtre-syllabes{ font-size:0.9em; }
 .cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
+.cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
 .cp-qualite{ margin-left:3px; font-weight:700; border-radius:3px; padding:0 3px; cursor:help; }
 .cp-qualite-pauvre{ color: var(--text-faint); }
 .cp-qualite-suffisante{ color: var(--text-muted); }
 .cp-qualite-riche{ color: var(--text-accent); }
+.cp-qualite-tresriche{ color: #8e44ad; }
+.cp-qualite-leonine{ color: #d4af37; }
 
 .cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-schema-rimes{ margin-top:8px; }

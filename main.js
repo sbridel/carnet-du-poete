@@ -287,16 +287,91 @@ function retireContraction(norm){
   return (norm || '').replace(/^(jusqu|lorsqu|puisqu|quoiqu|qu|[ldjmtsnc])'/, '');
 }
 
+/* "-tion" en fin de mot se prononce [sjɔ̃], exactement comme "-ssion"
+   (passion/nation riment vraiment), SAUF quand un "s" précède déjà le
+   "t" (question, digestion... qui gardent [tj]) : on convertit donc "t"
+   en "s" dans ce seul cas, pour que la comparaison orthographique ne
+   traite plus à tort ces deux graphies comme des sons différents. */
+function normaliseTiVersS(w){
+  return w.replace(/([^s])tion$/, '$1sion');
+}
+
+/* Prépare un mot pour toute comparaison de rime : contraction élidée,
+   pluriel, consonne finale muette (d/t/x) puis règle "-tion" → "-ssion"
+   ci-dessus. Base commune à cleFinApprox et aux fonctions de classement
+   pauvre/suffisante/riche/très riche/léonine plus bas dans ce fichier. */
+function preparerMotRime(mot){
+  let w = retireContraction(normaliseMot(mot));
+  if (!w) return '';
+  if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
+  w = w.replace(/[dtx]$/, '');
+  return normaliseTiVersS(w);
+}
+
+/* Applique à une clé de fin de mot (déjà ancrée sur la dernière voyelle
+   prononcée) toutes les équivalences graphie↔son utilisées pour juger si
+   deux mots riment : circonflexe neutre, semi-consonne i/y en tête,
+   nasales équivalentes, graphies du son [ɛ] (ê/è/ei/e fermé), "s"
+   intervocalique → [z], lettres doublées → un seul son. Partagée par
+   cleFinApprox (détection "ça rime ou pas") ET segmentsPhonetiques
+   (comptage pauvre/suffisante/riche) pour que les deux jugent les mêmes
+   sons équivalents — sans quoi un mot ne bénéficiant de ces équivalences
+   que dans l'un des deux calculs se retrouvait sous-évalué en richesse
+   alors même qu'il était déjà reconnu comme rimant (ex. "airs"/"concerts"). */
+function normaliseSonsFinal(cle){
+  // Le circonflexe sur i/a/u ne change pas le timbre de la voyelle (î=i,
+  // â=a, û=u à l'oreille) : on le neutralise avant tout le reste, pour que
+  // "traîne" (aîne) matche "peine" (eine → ai ne, cf. plus bas) sans que
+  // le "î" fasse obstacle à la comparaison.
+  cle = cle.replace(/î/g, 'i').replace(/â/g, 'a').replace(/û/g, 'u');
+
+  // Un "i" ou un "y" suivi d'une autre voyelle dans le même groupe n'est
+  // jamais la voyelle porteuse de la rime : c'est une semi-consonne [j]
+  // (attaque de syllabe), comme dans "yeux" [jø] ou "chaumière" [-mjɛʁ].
+  // On le retire donc en tête de clé pour que "cieux"/"yeux" (ieu/yeu →
+  // eu) et "chaumières"/"chères" (ière/ère → ère) soient bien reconnus
+  // comme la même rime, avant d'appliquer la normalisation ê/è/e ci-dessous.
+  cle = cle.replace(/^[iy](?=[aeiouyàâäéèêëîïôöùûüÿœ])/, '');
+
+  // Normalise quelques graphies nasales équivalentes en début de clé
+  // (démente/envoûtante doivent matcher malgré "en" vs "an" ; ombre/
+  // nombre doivent matcher malgré "om" vs futur "on")
+  cle = cle
+    .replace(/^ein(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^ain(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^yn(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^en(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'an')
+    .replace(/^om(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'on')
+    // Graphies équivalentes du son oral [ɛ] : "ê"/"è"/"ei" se prononcent
+    // comme "ai" (chêne/plaine, peine/traîne, treize/fraise...), et un
+    // "e" isolé suivi d'une seule consonne en fin de mot (syllabe finale
+    // fermée, donc tonique) se prononce aussi [ɛ] (concert/air, sel/balai).
+    .replace(/^ê/, 'ai')
+    .replace(/^è/, 'ai')
+    .replace(/^ei(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'ai')
+    .replace(/^e(?=[^aeiouyàâäéèêëîïôöùûüÿœ])/, 'ai');
+
+  // Un "s" isolé entre deux voyelles se prononce [z], jamais [s] (rose,
+  // fraise, maison...) — à distinguer du "ss" doublé qui reste [s] et
+  // n'est pas touché ici (le motif exige une voyelle des deux côtés).
+  cle = cle.replace(/([aeiouyàâäéèêëîïôöùûüÿœ])s([aeiouyàâäéèêëîïôöùûüÿœ])/g, '$1z$2');
+
+  // Une lettre doublée ne représente qu'un seul son (pierre "rr" = lumière
+  // "r") : appliqué en tout dernier, après la règle du "s" ci-dessus pour
+  // ne pas la perturber (un "ss" doublé doit rester [s], jamais devenir un
+  // "s" isolé qu'on convertirait ensuite à tort en [z]).
+  cle = cle.replace(/(.)\1+/g, '$1');
+
+  return cle;
+}
+
 /* Clé approchée toujours disponible (orthographique) : contraction et
    pluriel retirés, puis une éventuelle consonne finale muette fréquente
    (d, t, x) retirée à son tour, avant de garder les 2 dernières lettres.
    Sert de filet de sécurité quand la clé "riche" ci-dessous est absente
    ou incohérente entre deux mots qui riment pourtant à l'oreille. */
 function cleFinApprox(mot){
-  let w = retireContraction(normaliseMot(mot));
-  if (!w) return null;
-  if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
-  w = w.replace(/[dtx]$/, '');
+  const w = preparerMotRime(mot);
   if (!w) return null;
 
   const groupes = trouveGroupesAvecPositions(w);
@@ -311,17 +386,7 @@ function cleFinApprox(mot){
   if (dernier.texte === 'e' && dernier.fin === w.length && idxAncre > 0) {
     idxAncre--; // e muet final : la vraie rime est portée par la voyelle d'avant
   }
-  let cle = w.slice(groupes[idxAncre].debut);
-
-  // Normalise quelques graphies nasales équivalentes en début de clé
-  // (démente/envoûtante doivent matcher malgré "en" vs "an" ; ombre/
-  // nombre doivent matcher malgré "om" vs futur "on")
-  cle = cle
-    .replace(/^ein(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
-    .replace(/^ain(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
-    .replace(/^yn(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
-    .replace(/^en(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'an')
-    .replace(/^om(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'on');
+  const cle = normaliseSonsFinal(w.slice(groupes[idxAncre].debut));
 
   return cle || null;
 }
@@ -2341,21 +2406,219 @@ async function chargeDictionnairePerso(plugin, opts){
 /* Recherche unifiée : dictionnaire phonétique complet en priorité
    (correspondance exacte), puis repli sur les familles heuristiques
    orthographiques si le mot n'y figure pas. */
+/* Découpe la partie finale d'un mot en unités "consonantiques" grossières :
+   une lettre doublée (ss, ll, tt...) ou un digramme courant représentant
+   un seul son (ch, ph, gn, qu, gu) compte pour UNE unité, pas deux —
+   sinon on surcompte des lettres qui ne correspondent à aucun son
+   supplémentaire à l'oreille. */
+const DIGRAMMES_UN_SON = ['ch', 'ph', 'gn', 'qu', 'gu'];
+function decoupeConsonnesSons(cons){
+  const out = [];
+  let i = 0;
+  while (i < cons.length) {
+    if (i + 1 < cons.length && cons[i] === cons[i + 1]) { out.push(cons[i]); i += 2; continue; }
+    if (i + 1 < cons.length && DIGRAMMES_UN_SON.includes(cons.slice(i, i + 2))) { out.push(cons.slice(i, i + 2)); i += 2; continue; }
+    out.push(cons[i]); i += 1;
+  }
+  return out;
+}
+
+/* Découpe un mot en une suite d'unités phonétiques grossières (noyau
+   vocalique, consonnes attenantes) en s'appuyant sur trouveGroupesAvecPositions
+   (déjà utilisé par cleFinApprox) plutôt que sur les lettres brutes. Sert
+   de base à estimeSonsCommuns pour éviter qu'une lettre qui matche par
+   coïncidence orthographique (ex. le "i" de "-ssion" vs "-bion") soit
+   comptée comme un son à part entière alors qu'elle ne porte, à l'oreille,
+   aucun son distinct de la voyelle nasale qui l'englobe. Capture aussi
+   les consonnes d'attaque du tout premier groupe vocalique du mot (ex.
+   le "b" de "beau"), sans quoi un mot monosyllabique perdait toujours
+   sa consonne d'appui dans la comparaison. */
+function segmentsPhonetiques(mot){
+  const w = preparerMotRime(mot);
+  if (!w) return [];
+
+  const groupes = trouveGroupesAvecPositions(w);
+  if (groupes.length === 0) return w.split('');
+
+  // Ancre sur la dernière voyelle réellement prononcée, comme cleFinApprox,
+  // pour pouvoir appliquer à cette partie EXACTEMENT les mêmes équivalences
+  // phonétiques (ê/è/ei/e, i/y semi-consonne, s→z, lettres doublées) —
+  // sans quoi un mot pouvait être reconnu comme rimant (via cleFinApprox)
+  // tout en étant sous-évalué en richesse ici, faute des mêmes équivalences
+  // (ex. "airs"/"concerts" ressortait "pauvre" alors qu'ils riment déjà).
+  let idxAncre = groupes.length - 1;
+  const dernier = groupes[idxAncre];
+  if (dernier.texte === 'e' && dernier.fin === w.length && idxAncre > 0) idxAncre--;
+
+  const queue = normaliseSonsFinal(w.slice(groupes[idxAncre].debut));
+  const groupesQueue = trouveGroupesAvecPositions(queue);
+  const segments = [];
+  let posQueue = queue.length;
+  for (let i = groupesQueue.length - 1; i >= 0; i--) {
+    const g = groupesQueue[i];
+    const consApres = queue.slice(g.fin, posQueue);
+    if (consApres) segments.unshift(...decoupeConsonnesSons(consApres));
+    segments.unshift(g.texte);
+    posQueue = g.debut;
+  }
+  const consInitialesQueue = queue.slice(0, posQueue);
+  if (consInitialesQueue) segments.unshift(...decoupeConsonnesSons(consInitialesQueue));
+
+  // Syllabes précédant l'ancre (pour pouvoir compter au-delà de la finale,
+  // utile aux rimes très riches) : méthode brute, sans ces équivalences —
+  // elles ne s'appliquent qu'à la voyelle réellement porteuse de la rime.
+  let pos = groupes[idxAncre].debut;
+  for (let i = idxAncre - 1; i >= 0; i--) {
+    const g = groupes[i];
+    const consApres = w.slice(g.fin, pos);
+    if (consApres) segments.unshift(...decoupeConsonnesSons(consApres));
+    segments.unshift(g.texte);
+    pos = g.debut;
+  }
+  const consInitiales = w.slice(0, pos);
+  if (consInitiales) segments.unshift(...decoupeConsonnesSons(consInitiales));
+  return segments;
+}
+
 /* Estimation orthographique du nombre de "sons" partagés en fin de mot
-   (approximation : compare les lettres finales, pas une vraie transcription
-   phonétique). Sert à classer une rime en pauvre/suffisante/riche. */
+   (approximation : s'appuie sur un découpage en unités phonétiques
+   grossières, pas une vraie transcription phonétique IPA). Sert de base
+   au classement pauvre (1 son) / suffisante (2 sons) / riche (3+ sons). */
 function estimeSonsCommuns(motA, motB){
-  let a = normaliseMot(motA); if (a.endsWith('s') && !a.endsWith('ss')) a = a.slice(0, -1);
-  let b = normaliseMot(motB); if (b.endsWith('s') && !b.endsWith('ss')) b = b.slice(0, -1);
+  const a = segmentsPhonetiques(motA);
+  const b = segmentsPhonetiques(motB);
   let i = a.length - 1, j = b.length - 1, n = 0;
   while (i >= 0 && j >= 0 && a[i] === b[j]) { n++; i--; j--; }
   return n;
 }
+
+/* Attaques de syllabe valides en français pour un groupe de 2 consonnes :
+   une obstruante suivie d'une liquide (l/r). Un mot français ne commence
+   jamais par un autre groupe de 2 consonnes (pas de "ns-", "lt-", "rb-"...). */
+const ATTAQUES_VALIDES = ['pl','bl','cl','gl','fl','pr','br','tr','dr','cr','gr','fr','vr'];
+
+/* Détermine, pour un groupe de consonnes entre deux voyelles, combien de
+   caractères (en partant de la fin) rejoignent l'attaque de la syllabe
+   SUIVANTE — le reste retombe en coda de la syllabe précédente. Règle
+   d'attaque maximale contrainte par les attaques valides du français :
+   - 0 ou 1 consonne : tout part dans l'attaque suivante (V.CV)
+   - lettre doublée (ss, mm, tt...) : un seul son, tout part dans l'attaque
+     suivante (pas de coupure au milieu d'un seul son)
+   - digramme à un son (ch, ph, gn, qu, gu) : idem, reste groupé
+   - obstruante+liquide (pl, tr, vr...) : ce groupe de 2 forme l'attaque
+     suivante, le reste (s'il y en a) reste en coda de la précédente
+   - sinon : seule la toute dernière consonne rejoint l'attaque suivante
+     (ex. "ns" dans "in-sul-tant" : le "n" reste dans la syllabe d'avant). */
+function pointDeCoupure(cons){
+  if (cons.length <= 1) return cons.length;
+  const derniers2 = cons.slice(-2);
+  if (derniers2[0] === derniers2[1]) return 2;
+  if (DIGRAMMES_UN_SON.includes(derniers2)) return 2;
+  if (ATTAQUES_VALIDES.includes(derniers2)) return 2;
+  return 1;
+}
+
+/* Reconnaît une nasale dont la graphie du noyau vocalique varie selon la
+   consonne qui suit immédiatement (ombre → "om" nasal ; démente/envoûtante
+   → "en"/"an" équivalents), pour que deux mots utilisant des graphies
+   différentes du même son nasal soient reconnus comme syllabiquement
+   identiques. Retourne le noyau normalisé et le nombre de caractères
+   "consommés" dans la queue (0 ou 1 : la consonne nasale elle-même). */
+function normaliseNasaleSyllabe(noyau, premierCarQueue){
+  const paire = noyau + (premierCarQueue || '');
+  if (paire === 'ein' || paire === 'ain' || paire === 'yn') return { noyau: 'in', consomme: 1 };
+  if (paire === 'en') return { noyau: 'an', consomme: 1 };
+  if (paire === 'om') return { noyau: 'on', consomme: 1 };
+  return { noyau, consomme: 0 };
+}
+
+/* Écrase une lettre doublée en une seule occurrence (ss, rr, ll... ne
+   représentent qu'un seul son à l'oreille) : appliqué UNIQUEMENT après la
+   coupure syllabique ci-dessus (qui a besoin de la longueur brute pour
+   décider où couper), jamais avant, pour ne pas fausser pointDeCoupure. */
+function normaliseGroupesConsonnes(str){
+  return (str || '').replace(/(.)\1+/g, '$1');
+}
+
+/* Découpe un mot en syllabes { onset, noyau, coda } (attaque / voyelle /
+   coda), utilisé UNIQUEMENT pour distinguer riche / très riche / léonine
+   une fois qu'on sait déjà (via estimeSonsCommuns) qu'on est au moins à
+   "riche". Chaque groupe de consonnes entre deux voyelles est réparti via
+   pointDeCoupure ci-dessus plutôt que d'être systématiquement rattaché à
+   la syllabe suivante — ce qui permet de distinguer p. ex. "sultans" en
+   sul-tans plutôt que su-ltans. */
+function decoupeSyllabesRime(mot){
+  let w = preparerMotRime(mot);
+  if (!w) return [];
+  let groupes = trouveGroupesAvecPositions(w);
+  if (groupes.length > 1) {
+    const dernier = groupes[groupes.length - 1];
+    if (dernier.texte === 'e' && dernier.fin === w.length) {
+      w = w.slice(0, -1); // e muet final : pas une syllabe à part pour la rime
+      groupes = trouveGroupesAvecPositions(w);
+    }
+  }
+  if (groupes.length === 0) return [{ onset: w, noyau: '', coda: '' }];
+
+  const nasal = groupes.map(g => normaliseNasaleSyllabe(g.texte, w[g.fin]));
+  const n = groupes.length;
+
+  // Groupe de consonnes brut entre chaque paire de voyelles consécutives
+  // (nasale déjà consommée exclue), et sa coupure onset-suivant/coda-précédent.
+  const clusters = [];
+  for (let i = 0; i < n - 1; i++) {
+    const debut = groupes[i].fin + nasal[i].consomme;
+    clusters.push(w.slice(debut, groupes[i + 1].debut));
+  }
+  const coupures = clusters.map(pointDeCoupure);
+
+  const queueFinale = w.slice(groupes[n - 1].fin + nasal[n - 1].consomme);
+
+  const syllabes = [];
+  for (let i = 0; i < n; i++) {
+    const onset = i === 0
+      ? w.slice(0, groupes[0].debut)
+      : clusters[i - 1].slice(clusters[i - 1].length - coupures[i - 1]);
+    const coda = i === n - 1
+      ? queueFinale
+      : clusters[i].slice(0, clusters[i].length - coupures[i]);
+    syllabes.push({ onset: normaliseGroupesConsonnes(onset), noyau: nasal[i].noyau, coda: normaliseGroupesConsonnes(coda) });
+  }
+  return syllabes;
+}
+
+/* Classe une rime en 5 niveaux, du plus faible au plus fort :
+   - pauvre      : 1 seul son commun (la voyelle finale)
+   - suffisante  : 2 sons communs
+   - riche       : 3 sons communs ou plus
+   - très riche  : la syllabe finale est intégralement identique (attaque
+                   + voyelle + coda) ET la voyelle de la syllabe d'avant
+                   coïncide aussi (mais pas son attaque)
+   - léonine     : la syllabe finale ET la syllabe d'avant sont toutes
+                   les deux intégralement identiques
+   Très riche et léonine ne sont que des affinements de "riche" : le seuil
+   pauvre/suffisante/riche reste le comptage additif ci-dessus. */
 function classeRime(motA, motB){
   const n = estimeSonsCommuns(motA, motB);
-  if (n >= 3) return 'riche';
+  if (n <= 1) return 'pauvre';
   if (n === 2) return 'suffisante';
-  return 'pauvre';
+
+  const sa = decoupeSyllabesRime(motA), sb = decoupeSyllabesRime(motB);
+  if (sa.length === 0 || sb.length === 0) return 'riche';
+  const finA = sa[sa.length - 1], finB = sb[sb.length - 1];
+  const syllabeFinaleComplete = finA.onset === finB.onset && finA.coda === finB.coda;
+  if (!syllabeFinaleComplete || sa.length < 2 || sb.length < 2) return 'riche';
+
+  const prevA = sa[sa.length - 2], prevB = sb[sb.length - 2];
+  if (prevA.noyau !== prevB.noyau) return 'riche';
+  return (prevA.onset === prevB.onset && prevA.coda === prevB.coda) ? 'leonine' : 'tresriche';
+}
+
+/* Bucket d'affichage/filtrage regroupant très riche et léonine sous
+   "riche" pour les 3 filtres principaux de l'UI (les deux distinctions
+   plus fines restent des sous-filtres optionnels). */
+function classeRimeGroupe(q){
+  return (q === 'tresriche' || q === 'leonine') ? 'riche' : q;
 }
 
 /* Cherche des assonances pour un mot dans TOUT le dictionnaire phonétique
@@ -2412,12 +2675,22 @@ function chercheRimes(motSaisi){
    Les groupes phonétiques exacts peuvent contenir plusieurs milliers
    de mots (ex. toutes les conjugaisons en -erai) : on n'affiche que
    les 100 premiers par défaut, avec un bouton pour dérouler le reste. */
-const COULEURS_QUALITE = { pauvre: '#7f8c8d', suffisante: '#2980b9', riche: '#c0392b' };
+const COULEURS_QUALITE = { pauvre: '#7f8c8d', suffisante: '#2980b9', riche: '#c0392b', tresriche: '#8e44ad', leonine: '#d4af37' };
+const LABELS_QUALITE = { pauvre: 'pauvre', suffisante: 'suffisante', riche: 'riche', tresriche: 'très riche', leonine: 'léonine' };
+const LETTRES_QUALITE = { pauvre: 'P', suffisante: 'S', riche: 'R', tresriche: 'T', leonine: 'L' };
+const EXPLICATIONS_QUALITE = {
+  pauvre: 'seule la voyelle finale est commune',
+  suffisante: 'voyelle + un appui (avant ou après) communs',
+  riche: 'syllabe finale entière commune (voyelle + deux appuis)',
+  tresriche: 'syllabe finale entière + la voyelle de la syllabe précédente',
+  leonine: 'deux syllabes finales entières, communes'
+};
 
 function badgeQualite(badgeMot, mot, saisie){
   const q = classeRime(saisie, mot);
   badgeMot.style.borderLeftColor = COULEURS_QUALITE[q];
-  const b = badgeMot.createEl('sup', { cls: 'cp-qualite cp-qualite-' + q, text: q[0].toUpperCase() });
+  const b = badgeMot.createEl('sup', { cls: 'cp-qualite cp-qualite-' + q, text: LETTRES_QUALITE[q] });
+  b.setAttr('title', `Rime ${LABELS_QUALITE[q]} — ${EXPLICATIONS_QUALITE[q]} (heuristique phonétique approchée)`);
   b.setAttr('title', `Rime ${q} (approximatif, orthographique)`);
   return q;
 }
@@ -2446,7 +2719,15 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
       });
     }
     if (filtres.qualites && filtres.qualites.size > 0 && filtres.qualites.size < 3) {
-      l = l.filter(m => filtres.qualites.has(classeRime(saisie, m)));
+      l = l.filter(m => filtres.qualites.has(classeRimeGroupe(classeRime(saisie, m))));
+    }
+    if (filtres.sousQualites && filtres.sousQualites.size > 0) {
+      // sous-filtre optionnel : ne restreint que l'intérieur du groupe
+      // "riche+" (très riche / léonine), sans jamais exclure pauvre/suffisante
+      l = l.filter(m => {
+        const q = classeRime(saisie, m);
+        return classeRimeGroupe(q) !== 'riche' || filtres.sousQualites.has(q);
+      });
     }
     return l;
   };
@@ -2477,14 +2758,14 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
       const g = conteneur.createDiv({ cls: 'cp-groupe' });
       g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
 
-      const compte = { pauvre: 0, suffisante: 0, riche: 0 };
+      const compte = { pauvre: 0, suffisante: 0, riche: 0, tresriche: 0, leonine: 0 };
       liste.forEach(m => { compte[classeRime(saisie, m)]++; });
       const synthese = g.createDiv({ cls: 'cp-synthese-qualite' });
-      ['riche', 'suffisante', 'pauvre'].forEach(q => {
+      ['leonine', 'tresriche', 'riche', 'suffisante', 'pauvre'].forEach(q => {
         if (compte[q] === 0) return;
         const item = synthese.createSpan({ cls: 'cp-synthese-item' });
         item.createSpan({ cls: 'cp-synthese-pastille', attr: { style: `background:${COULEURS_QUALITE[q]}` } });
-        item.createSpan({ text: `${q} : ${compte[q]}` });
+        item.createSpan({ text: `${LABELS_QUALITE[q]} : ${compte[q]}` });
       });
 
       const motsDiv = g.createDiv({ cls: 'cp-mots' });
@@ -2870,7 +3151,7 @@ class CarnetView extends ItemView {
           const badgeRime = badges.createSpan({ cls: 'cp-rime-lettre', text: ligneInfo.lettre });
           badgeRime.style.color = PALETTE_RIMES[ligneInfo.coulIdx];
           badgeRime.style.borderColor = PALETTE_RIMES[ligneInfo.coulIdx];
-          const titreQualite = ligneInfo.qualite ? ` (rime ${ligneInfo.qualite})` : '';
+          const titreQualite = ligneInfo.qualite ? ` (rime ${LABELS_QUALITE[ligneInfo.qualite] || ligneInfo.qualite})` : '';
           badgeRime.setAttr('title', `Groupe de rime ${ligneInfo.lettre}${titreQualite}`);
         }
         const genre = genreDuVers(r.details);
@@ -2930,7 +3211,7 @@ class CarnetView extends ItemView {
       lignesUtiles.forEach(l => {
         const genre = genreDuVers(l.r.details) || '';
         const texteEchappe = l.texte.replace(/\|/g, '\\|');
-        md += `| ${texteEchappe} | ${l.r.total} | ${genre} | ${l.lettre || ''} | ${l.qualite || ''} |\n`;
+        md += `| ${texteEchappe} | ${l.r.total} | ${genre} | ${l.lettre || ''} | ${l.qualite ? (LABELS_QUALITE[l.qualite] || l.qualite) : ''} |\n`;
       });
       navigator.clipboard.writeText(md).then(() => {
         new Notice('Analyse copiée en Markdown — colle-la où tu veux.');
@@ -2994,12 +3275,25 @@ class CarnetView extends ItemView {
 
     const qualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres' });
     const casesQualite = {};
-    [['pauvre','Pauvre'],['suffisante','Suffisante'],['riche','Riche']].forEach(([id, label]) => {
+    [['pauvre','Pauvre'],['suffisante','Suffisante'],['riche','Riche+']].forEach(([id, label]) => {
       const lbl = qualiteDiv.createEl('label', { cls: 'cp-source-toggle' });
       const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
       c.checked = true;
       lbl.createSpan({ text: ' ' + label });
       casesQualite[id] = c;
+    });
+
+    // Sous-filtres optionnels, à l'intérieur du groupe "Riche+" : décochés
+    // par défaut (aucune restriction supplémentaire tant que l'un des deux
+    // n'est pas explicitement coché).
+    const sousQualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres cp-qualite-sousfiltres' });
+    const casesSousQualite = {};
+    [['tresriche','Très riche'],['leonine','Léonine']].forEach(([id, label]) => {
+      const lbl = sousQualiteDiv.createEl('label', { cls: 'cp-source-toggle' });
+      const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
+      c.checked = false;
+      lbl.createSpan({ text: ' ' + label });
+      casesSousQualite[id] = c;
     });
 
     const sourcesDiv = panelRimes.createDiv({ cls: 'cp-sources' });
@@ -3032,7 +3326,8 @@ class CarnetView extends ItemView {
     const lireFiltres = () => ({
       lettre: lettreInput.value.trim(),
       syllabes: syllabesSelect.value,
-      qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
+      qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked)),
+      sousQualites: new Set(Object.keys(casesSousQualite).filter(id => casesSousQualite[id].checked))
     });
     const sourcesActives = () => (inputRimesSolides.checked ? ['rimessolides'] : []);
 
@@ -3043,6 +3338,7 @@ class CarnetView extends ItemView {
     lettreInput.addEventListener('input', chercher);
     syllabesSelect.addEventListener('change', chercher);
     Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
+    Object.values(casesSousQualite).forEach(c => c.addEventListener('change', chercher));
     inputRimesSolides.addEventListener('change', chercher);
 
     this._prefillRimeInput = (mot) => {
@@ -3274,18 +3570,31 @@ class CarnetView extends ItemView {
     ]);
 
     section('Les rimes : généralités');
-    para('Disposition des rimes dans une strophe :');
+    para('Disposition des rimes dans une strophe (les trois formes courantes, détectées automatiquement dans l\'onglet Syllabes) :');
     liste([
       { titre:'Rimes plates (ou suivies) — AABB', texte:'deux vers qui riment se suivent directement.' },
       { titre:'Rimes croisées — ABAB', texte:'un vers sur deux rime avec le suivant du même type.' },
       { titre:'Rimes embrassées — ABBA', texte:'deux rimes s\'enferment autour de deux autres.' }
     ]);
-    para('Qualité d\'une rime (nombre de sons communs à la fin des mots) :');
+    para('Formes plus rares (non détectées automatiquement, à repérer soi-même) :');
     liste([
-      { titre:'Rime pauvre', texte:'un seul son commun (ex. « ami / parti »).' },
-      { titre:'Rime suffisante', texte:'deux sons communs (ex. « chagrin / matin »).' },
-      { titre:'Rime riche', texte:'trois sons communs ou plus (ex. « tendresse / paresse »).' }
+      { titre:'Rimes annexées (ou concaténées)', texte:'la fin d\'un vers est reprise au début du vers suivant.' },
+      { titre:'Rimes internes (ou brisées)', texte:'une rime sonne à la fois à la césure et à la fin du même vers.' },
+      { titre:'Rimes batelées', texte:'la fin d\'un vers trouve son écho à la césure du vers suivant.' },
+      { titre:'Rimes sénées', texte:'tous les mots d\'un même vers commencent par le même son.' },
+      { titre:'Rimes couronnées', texte:'le mot-rime est répété deux fois de suite en fin de vers.' },
+      { titre:'Rimes triplées', texte:'trois vers de suite sur la même rime (aaa), plutôt romantique — la poésie classique préférait s\'arrêter à deux.' },
+      { titre:'Rimes emperières', texte:'un même son revient trois fois dans le même vers ; pure prouesse de rhétoriqueur.' }
     ]);
+    para('Qualité d\'une rime — comptage classique du nombre de sons communs en partant de la fin des mots (2 unités pour la voyelle tonique, qui porte le son dominant ; 1 unité par consonne d\'appui) :');
+    liste([
+      { titre:'Rime pauvre', texte:'un seul son commun, seule la voyelle finale (ex. « ami / parti »).' },
+      { titre:'Rime suffisante', texte:'deux sons communs (ex. « chagrin / matin »).' },
+      { titre:'Rime riche', texte:'trois sons communs ou plus (ex. « tendresse / paresse »).' },
+      { titre:'Rime très riche', texte:'la syllabe finale est intégralement identique, et la voyelle de la syllabe précédente coïncide aussi — deux syllabes homophones moins un phonème (ex. « patin / matin », « ambroisie / cramoisie »).' },
+      { titre:'Rime léonine', texte:'deux syllabes entières, consonnes d\'appui comprises, sont identiques (ex. « railleur / ferrailleur », « sultans / insultants »).' }
+    ]);
+    para('Une nuance utile : une voyelle d\'appui (la voyelle de la syllabe qui précède la rime) enrichit davantage qu\'une simple consonne d\'appui, car elle est plus audible — « harem / Jérusalem » ou « aurore / sonore » riment plus richement qu\'une consonne d\'appui seule ne le laisserait penser. C\'est cette logique qui distingue « riche » de « très riche » ci-dessus.');
     para('Genre d\'une rime, et règle d\'alternance classique :');
     liste([
       { titre:'Rime féminine', texte:'le vers se termine par un e muet (ex. « montagne », « chêne »).' },
@@ -3867,10 +4176,13 @@ const CARNET_CSS = `
 .cp-filtre-lettre{ width:56px; text-align:center; }
 .cp-filtre-syllabes{ font-size:0.9em; }
 .cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
+.cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
 .cp-qualite{ margin-left:3px; font-weight:700; border-radius:3px; padding:0 3px; cursor:help; }
 .cp-qualite-pauvre{ color: var(--text-faint); }
 .cp-qualite-suffisante{ color: var(--text-muted); }
 .cp-qualite-riche{ color: var(--text-accent); }
+.cp-qualite-tresriche{ color: #8e44ad; }
+.cp-qualite-leonine{ color: #d4af37; }
 .cp-synthese-qualite{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px; font-size:0.78em; color: var(--text-muted); }
 .cp-synthese-item{ display:inline-flex; align-items:center; gap:5px; text-transform:capitalize; }
 .cp-synthese-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; }
