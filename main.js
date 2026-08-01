@@ -296,15 +296,52 @@ function normaliseTiVersS(w){
   return w.replace(/([^s])tion$/, '$1sion');
 }
 
+/* Mots où le "-er" final se prononce vraiment (le "r" s'entend), à ne
+   PAS confondre avec l'infinitif muet (chanter → [ʃɑ̃te]) : liste non
+   exhaustive des cas les plus courants — mots natifs courts, emprunts
+   anglais fréquents, et les invariables en "-ers" (dont le "s" pluriel
+   est déjà retiré plus haut, laissant "...er" comme les autres). Signaler
+   toute omission plutôt que de supposer que la liste est complète. */
+const EXCEPTIONS_ER_PRONONCE = new Set([
+  'mer', 'fer', 'cher', 'hier', 'ver', 'fier', 'cuiller', 'hiver', 'enfer',
+  'super', 'cancer', 'amer', 'éther', 'revolver',
+  'divers', 'univers', 'travers', 'envers', 'revers', 'pers',
+  'leader', 'container', 'reporter', 'gangster', 'cracker', 'poker',
+  'roller', 'thriller', 'cluster', 'master', 'mixer', 'scooter', 'sweater', 'toaster',
+].map(m => m.replace(/s$/, ''))); // les invariables en -ers ont déjà perdu leur "s" avant cet appel
+
+/* Mots où le "-ez" final se prononce vraiment (rare : quelques noms
+   communs, et surtout des patronymes/toponymes d'origine hispanique où
+   le "z" est audible, [-ɛz]) — liste non exhaustive, mêmes réserves que
+   ci-dessus. */
+const EXCEPTIONS_EZ_PRONONCE = new Set([
+  'fez', 'suez',
+  'perez', 'pérez', 'sanchez', 'sánchez', 'gomez', 'gómez', 'fernandez', 'fernández',
+  'martinez', 'martínez', 'gonzalez', 'gonzález', 'hernandez', 'hernández',
+  'dominguez', 'domínguez', 'rodriguez', 'rodríguez', 'velazquez', 'velázquez',
+  'chavez', 'chávez', 'jimenez', 'jiménez', 'ramirez', 'ramírez', 'alvarez', 'álvarez',
+  'lopez', 'lópez', 'nunez', 'núñez',
+]);
+
 /* Prépare un mot pour toute comparaison de rime : contraction élidée,
-   pluriel, consonne finale muette (d/t/x) puis règle "-tion" → "-ssion"
-   ci-dessus. Base commune à cleFinApprox et aux fonctions de classement
-   pauvre/suffisante/riche/très riche/léonine plus bas dans ce fichier. */
+   pluriel, infinitif en "-er" et "-ez" tous deux ramenés à "é" (sauf
+   exceptions ci-dessus où ils se prononcent — vérifié AVANT le retrait
+   d/t/x ci-dessous, jamais après : sinon "concert" perdrait son "t" muet
+   d'abord, se retrouverait à tort terminé en "-er" ["concer"], et serait
+   converti par erreur), consonne finale muette (d/t/x) sinon, puis règle
+   "-tion" → "-ssion". Base commune à cleFinApprox et aux fonctions de
+   classement pauvre/suffisante/riche/très riche/léonine plus bas. */
 function preparerMotRime(mot){
   let w = retireContraction(normaliseMot(mot));
   if (!w) return '';
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
-  w = w.replace(/[dtx]$/, '');
+  if (w.endsWith('er') && w.length > 2 && !EXCEPTIONS_ER_PRONONCE.has(w)) {
+    w = w.slice(0, -2) + 'é';
+  } else if (w.endsWith('ez') && w.length > 2 && !EXCEPTIONS_EZ_PRONONCE.has(w)) {
+    w = w.slice(0, -2) + 'é';
+  } else {
+    w = w.replace(/[dtx]$/, '');
+  }
   return normaliseTiVersS(w);
 }
 
@@ -340,8 +377,18 @@ function normaliseSonsFinal(cle){
     .replace(/^ein(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
     .replace(/^ain(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
     .replace(/^yn(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    // Même nasale [ɛ̃], mais devant un "m" plutôt qu'un "n" (faim/main,
+    // Reims) — pas de règle "^em" ici : "em" devant consonne est déjà la
+    // nasale [ɑ̃] (comme "en"), pas [ɛ̃] (sauf cas particuliers déjà rares).
+    .replace(/^aim(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^eim(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^im(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
+    .replace(/^ym(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'in')
     .replace(/^en(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'an')
     .replace(/^om(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'on')
+    // Même principe pour la 4e nasale [œ̃] : "um" devant consonne/fin se
+    // prononce comme "un" (parfum/brun, aucun/parfum).
+    .replace(/^um(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'un')
     // Graphies équivalentes du son oral [ɛ] : "ê"/"è"/"ei" se prononcent
     // comme "ai" (chêne/plaine, peine/traîne, treize/fraise...), et un
     // "e" isolé suivi d'une seule consonne en fin de mot (syllabe finale
@@ -349,7 +396,30 @@ function normaliseSonsFinal(cle){
     .replace(/^ê/, 'ai')
     .replace(/^è/, 'ai')
     .replace(/^ei(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'ai')
-    .replace(/^e(?=[^aeiouyàâäéèêëîïôöùûüÿœ])/, 'ai');
+    .replace(/^e(?=[^aeiouyàâäéèêëîïôöùûüÿœ])/, 'ai')
+    // "eau" et "au" se prononcent tous les deux [o] fermé, comme "o" seul
+    // en syllabe OUVERTE — rien après la voyelle, un "e" muet, ou un "s"
+    // intervocalique (qui deviendra [z] plus bas dans cette même fonction :
+    // "pause"/"pose"/"morose" sont bien tous fermés) — (chaud/pot,
+    // chapeau/pot, pause/pose). En syllabe fermée par une AUTRE consonne en
+    // revanche, le "o" écrit peut être fermé (rose) OU ouvert (note) selon
+    // le mot, de façon imprévisible depuis la seule orthographe — dans ce
+    // cas on ne convertit PAS, pour ne pas risquer de faire rimer à tort
+    // "faute" [fot] et "note" [nɔt] : deux timbres différents malgré la
+    // graphie proche. "eau" d'abord, sinon la règle "au" plus bas le
+    // prendrait en écharpe et laisserait un "e" résiduel.
+    .replace(/^eau(?=z|s[aeiouyàâäéèêëîïôöùûüÿœ]|e?$)/, 'o')
+    .replace(/^au(?=z|s[aeiouyàâäéèêëîïôöùûüÿœ]|e?$)/, 'o')
+    // "œu"/"oeu" (avec ou sans ligature) se prononcent comme "eu" seul —
+    // ICI pas besoin de la même restriction qu'au-dessus : "eu" et "œu"
+    // suivent tous les deux la même règle de position (fermé [ø] en
+    // syllabe ouverte, ouvert [œ] en syllabe fermée), donc les fusionner
+    // ne mélange jamais deux timbres différents — contrairement à au/eau
+    // qui est TOUJOURS fermé quelle que soit la syllabe. cœur/heure et
+    // cœur/fleur (syllabe fermée, [œ] dans les deux graphies) doivent
+    // rimer tout autant que vœu/peu (syllabe ouverte, [ø] dans les deux).
+    .replace(/^œu/, 'eu')
+    .replace(/^oeu/, 'eu');
 
   // Un "s" isolé entre deux voyelles se prononce [z], jamais [s] (rose,
   // fraise, maison...) — à distinguer du "ss" doublé qui reste [s] et

@@ -328,10 +328,12 @@ Definitions tab may need an update.
   both compared words have a known transcription in an extended phonetic dictionary (format F
   above) — real phonemes, no guessing. Otherwise it falls back to a spelling-based heuristic
   that handles common mismatches (-tion≈-ssion, doubled letters, i/y semi-consonant,
-  ê/è/ei/circumflex, intervocalic "s"→[z]...) but isn't infallible, especially on rare or
-  irregular words. The très riche/léonine distinction (both engines) relies on an approximate
-  syllabification (valid onset clusters, e.g. "pl", "tr"); very unusual consonant clusters may
-  still be split incorrectly.
+  ê/è/ei/circumflex, intervocalic "s"→[z], au/eau≈o, œu/oeu≈eu, um≈un, im≈in, infinitive
+  -er/-ez≈é...) but isn't infallible, especially on rare or irregular words — and can
+  occasionally be *more generous* than the real phonemes would be (a silent final e has, on
+  rare occasions, been miscounted as an extra shared son). The très riche/léonine distinction
+  (both engines) relies on an approximate syllabification (valid onset clusters, e.g. "pl",
+  "tr"); very unusual consonant clusters may still be split incorrectly.
 - The online sources depend on third-party websites staying reachable and structurally
   unchanged; treat them as a bonus on top of, not a replacement for, the offline dictionaries.
 - Rhyme-pair colour-coding applies to the rendered analysis below the text box, not to the raw
@@ -339,6 +341,42 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.12.0** — Several more spelling/sound equivalences added to the **orthographic heuristic**
+  used by rhyme detection and quality (pauvre/suffisante/riche/très riche/léonine) — see the
+  important scope note below before reading the list.
+  - `au`/`eau` ≈ `o` when genuinely closed [o] — word-final, before a mute e, or before an
+    intervocalic "s" that becomes [z] (*chaud*/*pot*, *chapeau*/*pot*, *pause*/*pose*/*morose*).
+    Deliberately **not** applied before any other consonant, since a plain "o" there can be
+    either closed (*rose*) or open (*note*) unpredictably from spelling alone — merging them
+    would have wrongly rhymed *faute* [fot] with *note* [nɔt].
+  - `œu`/`oeu` ≈ `eu` (*vœu*/*peu*, *cœur*/*fleur*) — no restriction needed here, unlike au/eau:
+    both spellings follow the exact same open/closed rule based on syllable position, so
+    merging them never crosses a timbre boundary.
+  - `um` ≈ `un` and `im`/`aim`/`eim`/`ym` ≈ `in` (the two remaining nasal vowels) — *parfum*/
+    *brun*, *faim*/*main*.
+  - Infinitive `-er` (silent r) and `-ez` (silent z) now both resolve to the same key as `-é`
+    (*chanter*/*aimé*, *chantez*/*aimé*, *nez*/*été*), with a short exception list for the
+    genuine cases where the final consonant is pronounced (*mer*, *fer*, *cher*, *hier*, *ver*,
+    *fier*, *cuiller*, *hiver*, *enfer*, *cancer*, *amer*, *éther*, *revolver*, the invariable
+    "-ers" nouns like *divers*/*travers*/*envers*/*revers*, a few common English loanwords, and
+    for `-ez` specifically *fez* and Hispanic surnames/place names like *Pérez*, *Sánchez*,
+    *Gómez*, *Suez*). Neither list claims to be exhaustive.
+  - **Important scope note**: all of the above — today's additions and everything already in
+    `normaliseSonsFinal` (ê/è/ei, circumflex, i/y semi-consonant, intervocalic s→z, doubled
+    letters, -tion≈-ssion...) — only ever runs as the **orthographic fallback**, used when at
+    least one of the two compared words has no known transcription in an extended phonetic
+    dictionary (format F). When *both* words are covered by one, `classeRime` uses the real
+    phonemes directly and none of this applies. This can occasionally make the phonetic result
+    *more conservative* than the heuristic one, not just more permissive: e.g. the heuristic
+    counted *pose*/*morose* as "riche" (its trailing mute *e* was miscounted as a third shared
+    son), whereas the real transcription (`poz`/`mORoz`, 2 shared phonemes: o+z, differing
+    onset) correctly gives "suffisante" — a case where the phonetic engine caught the
+    heuristic being too generous, not too strict.
+  - Also fixed two bugs found while testing the above: the -er/-ez check ran *after* the
+    silent d/t/x removal, so a word like *concert* lost its "t" first and then looked like a
+    (wrongly convertible) "-er" word — reordered so -er/-ez is checked on the original ending
+    first. And the Hispanic-surname exceptions were missing their accented forms (*Pérez* vs
+    *perez*) in the very first pass.
 - **2.11.0** — Follow-ups to the phonetic engine (2.10.0), mostly bug fixes surfaced by
   actually using it on real dictionaries/searches:
   - **Fixed**: the Wiktionnaire scraper searched the whole page for a "synonyms" section
