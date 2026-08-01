@@ -397,7 +397,7 @@ function cleFinApprox(mot){
 function cleRicheMot(mot){
   const w = retireContraction(normaliseMot(mot));
   if (!w) return null;
-  if (typeof DICO_PHONETIQUE !== 'undefined' && DICO_PHONETIQUE && DICO_PHONETIQUE.has(w)) {
+  if (!DEBUG_IGNORER_DICO_PERSO && typeof DICO_PHONETIQUE !== 'undefined' && DICO_PHONETIQUE && DICO_PHONETIQUE.has(w)) {
     return 'PH:' + DICO_PHONETIQUE.get(w);
   }
   const fam = trouveFamille(w);
@@ -435,6 +435,12 @@ function coeurVocalique(cle){
 // Bascule globale "mode assonance" — équivalent, pour les rimes, du
 // toggle diérèse pour les syllabes. Désactivée par défaut (mode strict).
 let MODE_ASSONANCE = false;
+
+// Debug uniquement (Settings → Carnet du Poète) : ignore temporairement le
+// dictionnaire personnel (Formats B/C) partout où il serait normalement
+// consulté, pour comparer le comportement avec/sans lui sans avoir à le
+// retirer du vault ni à recharger le plugin.
+let DEBUG_IGNORER_DICO_PERSO = false;
 
 /* Classe la relation entre deux mots en fin de vers :
    - 'rime'      : terminaison réellement identique (voyelle + tout ce qui suit)
@@ -1425,14 +1431,22 @@ function chercheSynonymes(motSaisi){
   const wSouple = normaliseSouple(motSaisi);
   if (!w) return null;
   const correspondances = SYNONYMES.filter(e => normaliseMot(e.mot) === w || normaliseSouple(e.mot) === wSouple);
-  if (correspondances.length === 0) return null;
-  if (correspondances.length === 1) return correspondances[0];
-  // plusieurs entrées pour le même mot (ex. une intégrée + une ajoutée via
-  // dictionnaire-perso.json) : on les fusionne au lieu de ne garder que la
-  // première, sinon les ajouts personnels restent invisibles à tort.
-  const synonymes = [...new Set(correspondances.flatMap(e => e.synonymes || []))];
-  const antonymes = [...new Set(correspondances.flatMap(e => e.antonymes || []))];
-  return { mot: correspondances[0].mot, synonymes, antonymes };
+
+  // Format C (bulk kaikki) : synonymes/antonymes déjà résolus phonétiquement,
+  // stockés à part (SYNONYMES_PHONETIQUE) plutôt que dans SYNONYMES lui-même
+  // pour ne pas alourdir la structure existante — on les fusionne ici à
+  // l'affichage, comme n'importe quelle autre source locale.
+  const depuisPhon = (!DEBUG_IGNORER_DICO_PERSO && SYNONYMES_PHONETIQUE) ? SYNONYMES_PHONETIQUE.get(w) : null;
+
+  if (correspondances.length === 0 && !depuisPhon) return null;
+
+  const synonymes = new Set(correspondances.flatMap(e => e.synonymes || []));
+  const antonymes = new Set(correspondances.flatMap(e => e.antonymes || []));
+  if (depuisPhon) {
+    depuisPhon.synonymes.forEach(s => synonymes.add(s.mot));
+    depuisPhon.antonymes.forEach(a => antonymes.add(a.mot));
+  }
+  return { mot: correspondances[0] ? correspondances[0].mot : motSaisi, synonymes: [...synonymes], antonymes: [...antonymes] };
 }
 
 /* =========================================================
@@ -1472,7 +1486,23 @@ async function chercheSynonymesWiktionnaire(mot){
   const data = reponse.json;
   if (!data || data.error || !data.parse) return { synonymes: [], antonymes: [], trouve: false };
 
-  const wikitext = (data.parse.wikitext && data.parse.wikitext['*']) || '';
+  const wikitextComplet = (data.parse.wikitext && data.parse.wikitext['*']) || '';
+
+  // La page Wiktionnaire d'un mot couvre TOUTES les langues qui l'utilisent
+  // (ex. "rage" existe aussi en néerlandais, en anglais...), chacune dans sa
+  // propre section "== {{langue|xx}} ==". Sans ce découpage, une recherche
+  // de "{{S|synonymes}}" sur le texte entier pouvait remonter la section
+  // d'une tout autre langue si le français n'a pas cette sous-section.
+  const isoleSectionLangue = (wikitext, langue) => {
+    const m = new RegExp('==\\s*\\{\\{langue\\|' + langue + '\\}\\}\\s*==', 'i').exec(wikitext);
+    if (!m) return wikitext; // repli : découpage par langue introuvable, on garde tout comme avant
+    const debut = m.index + m[0].length;
+    const suite = wikitext.slice(debut);
+    const finMatch = suite.match(/\n==[^=]/); // prochain titre de niveau 2 = langue suivante
+    return finMatch ? suite.slice(0, finMatch.index) : suite;
+  };
+
+  const wikitext = isoleSectionLangue(wikitextComplet, 'fr');
 
   const extraitSection = (nomSection) => {
     const regexDebut = new RegExp('\\{\\{S\\|' + nomSection + '[^}]*\\}\\}', 'i');
@@ -1627,14 +1657,38 @@ async function chercheCnrtl(mot){
 /* =========================================================
    RIMES SOLIDES (source de rimes en ligne complémentaire)
    ========================================================= */
+/* Message d'erreur clair pour une source en ligne en échec, distinguant
+   les cas HTTP courants (429 = trop de requêtes, 403 = bloqué, 5xx = souci
+   côté site) d'un simple problème réseau/timeout — plus utile que le
+   générique "voir la console" pour savoir quoi faire (réessayer tout de
+   suite ou plus tard). */
+function messageErreurSource(err, nomSource){
+  const msg = (err && err.message) || '';
+  const mHttp = /^HTTP (\d+)$/.exec(msg);
+  if (mHttp) {
+    const code = mHttp[1];
+    if (code === '429') return `${nomSource} : trop de requêtes envoyées trop vite (code 429) — réessaie dans une minute.`;
+    if (code === '403') return `${nomSource} : accès refusé (code 403) — le site bloque peut-être temporairement les requêtes automatisées.`;
+    if (code.startsWith('5')) return `${nomSource} : problème du côté du site (code ${code}) — réessaie plus tard.`;
+    return `${nomSource} : réponse inattendue du site (code ${code}) — voir la console.`;
+  }
+  return `${nomSource} : recherche impossible (pas de connexion, site injoignable, ou délai dépassé) — voir la console pour le détail.`;
+}
+
 async function chercheRimesSolides(mot){
   const url = `https://www.rimessolides.com/rime.aspx?m=${encodeURIComponent(mot)}`;
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
   const html = reponse.text || '';
   if (!/rime\.aspx\?m=/i.test(html)) {
+    // Signes typiques d'un blocage anti-bot/rate-limit plutôt que d'un
+    // vrai changement de format de page (utile pour distinguer les deux
+    // la prochaine fois que ça arrive, avant de retoucher le parsing).
+    const indiceBlocage = /captcha|cloudflare|access denied|too many requests|rate limit/i.test(html);
     console.warn('[Carnet du Poète] RimesSolides : page reçue sans résultat reconnaissable pour', JSON.stringify(mot),
-      '— longueur de la réponse :', html.length, '| début :', html.slice(0, 200));
+      '— longueur de la réponse :', html.length,
+      '| indice de blocage anti-bot :', indiceBlocage,
+      '| début :', html.slice(0, 200));
     return { mots: [], trouve: false, url };
   }
 
@@ -1695,6 +1749,17 @@ function genreDuVers(details){
 
 let DICO_PHONETIQUE = null;        // Map: mot (minuscule) -> clé de rime
 let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
+
+/* Format C (dictionnaire phonétique complet + synonymes) : en plus du
+   regroupement par clé de rime ci-dessus (compatible Format B), ce format
+   donne, par mot, sa transcription phonétique complète (alphabet SAMPA-like
+   à un caractère par phonème) et ses synonymes/antonymes — eux-mêmes déjà
+   résolus phonétiquement quand ils font partie du même dictionnaire.
+   PHONETIQUE_MOT sert d'index partagé (Rimes, Syllabes, Synonymes) pour
+   calculer une richesse de rime exacte sur les vrais phonèmes plutôt que
+   sur l'heuristique orthographique, dès que le mot y figure. */
+let PHONETIQUE_MOT = null;         // Map: mot (minuscule) -> transcription phonétique complète
+let SYNONYMES_PHONETIQUE = null;   // Map: mot (minuscule) -> { synonymes: [{mot,phonetique}], antonymes: [...] }
 
 /* Cherche dictionnaire-perso.json à deux endroits, dans l'ordre :
    1. Le dossier technique du plugin (.obsidian/plugins/carnet-du-poete/)
@@ -2260,6 +2325,8 @@ async function chargeDictionnairePerso(plugin, opts){
   reconstruitIndexMotsRares();
   DICO_PHONETIQUE = null;
   DICO_PHONETIQUE_GROUPES = null;
+  PHONETIQUE_MOT = null;
+  SYNONYMES_PHONETIQUE = null;
 
   try {
     const raw = await trouveEtLisDictionnairePerso(plugin);
@@ -2367,20 +2434,28 @@ async function chargeDictionnairePerso(plugin, opts){
     }
 
     // Format B : dictionnaire phonétique complet (objet plat clé -> mots[])
+    // Format C : même principe, mais objet plat clé -> { mot -> {phonetique,
+    // synonymes, antonymes} } — donne en plus la transcription phonétique
+    // complète de chaque mot et ses synonymes/antonymes déjà résolus.
     // (on exclut les clés déjà traitées ci-dessus pour ne pas les confondre
     // avec des groupes de rimes)
     const cles = Object.keys(data).filter(k => k !== 'familles' && k !== 'champsLexicaux' && k !== 'synonymes' && k !== 'motsRares');
-    const clesValides = cles.filter(k => Array.isArray(data[k]));
-    if (clesValides.length === 0) {
+    const clesFormatB = cles.filter(k => Array.isArray(data[k]));
+    const clesFormatC = cles.filter(k => !Array.isArray(data[k]) && data[k] && typeof data[k] === 'object');
+    if (clesFormatB.length === 0 && clesFormatC.length === 0) {
       if (champsCount === 0 && synoCount === 0 && raresCount === 0) {
-        new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme champs lexicaux, ni comme synonymes, ni comme dictionnaire phonétique (objet clé → liste de mots).');
+        new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son format n\'est reconnu ni comme familles personnalisées, ni comme champs lexicaux, ni comme synonymes, ni comme dictionnaire phonétique (objet clé → liste de mots, ou clé → mot → détails).');
       }
       return;
     }
 
     const index = new Map();
+    const groupesPhonetiquesUniquement = {};
     let totalMots = 0;
-    clesValides.forEach(cle => {
+
+    // Format B : chaque clé -> simple liste de mots
+    clesFormatB.forEach(cle => {
+      groupesPhonetiquesUniquement[cle] = data[cle];
       data[cle].forEach(mot => {
         if (typeof mot === 'string' && mot.trim()) {
           index.set(mot.trim().toLowerCase(), cle);
@@ -2389,14 +2464,59 @@ async function chargeDictionnairePerso(plugin, opts){
       });
     });
 
-    const groupesPhonetiquesUniquement = {};
-    clesValides.forEach(cle => { groupesPhonetiquesUniquement[cle] = data[cle]; });
+    // Format C : chaque clé -> { mot -> {phonetique, synonymes, antonymes} }
+    const phonMap = new Map();
+    const synoMap = new Map();
+    let totalMotsPhon = 0;
+    let totalMotsAvecSynonymes = 0;
+
+    const normaliseListeSynAnto = (liste) => (Array.isArray(liste) ? liste : [])
+      .map(item => {
+        if (typeof item === 'string') return { mot: item, phonetique: null };
+        if (item && typeof item === 'object' && item.mot) return { mot: item.mot, phonetique: item.phonetique || null };
+        return null;
+      })
+      .filter(Boolean);
+
+    clesFormatC.forEach(cle => {
+      const mots = Object.keys(data[cle]);
+      groupesPhonetiquesUniquement[cle] = mots; // pour rester compatible avec chercheRimes (Format B)
+      mots.forEach(mot => {
+        const infos = data[cle][mot];
+        if (!infos || typeof infos !== 'object') return;
+        const motNorm = mot.trim().toLowerCase();
+        if (!motNorm) return;
+
+        index.set(motNorm, cle);
+        totalMots++;
+
+        if (typeof infos.phonetique === 'string' && infos.phonetique) {
+          phonMap.set(motNorm, infos.phonetique);
+          totalMotsPhon++;
+        }
+
+        const syn = normaliseListeSynAnto(infos.synonymes);
+        const anto = normaliseListeSynAnto(infos.antonymes);
+        if (syn.length > 0 || anto.length > 0) {
+          synoMap.set(motNorm, { synonymes: syn, antonymes: anto });
+          totalMotsAvecSynonymes++;
+        }
+      });
+    });
 
     DICO_PHONETIQUE = index;
     DICO_PHONETIQUE_GROUPES = groupesPhonetiquesUniquement;
+    if (phonMap.size > 0) PHONETIQUE_MOT = phonMap;
+    if (synoMap.size > 0) SYNONYMES_PHONETIQUE = synoMap;
 
-    new Notice(`Carnet du Poète : dictionnaire de rimes complet chargé — ${clesValides.length} groupes phonétiques, ${totalMots} mots.`);
-    console.log(`[Carnet du Poète] dictionnaire phonétique chargé : ${clesValides.length} groupes, ${totalMots} mots.`);
+    const nbGroupes = clesFormatB.length + clesFormatC.length;
+    let messageCharge = `Carnet du Poète : dictionnaire de rimes complet chargé — ${nbGroupes} groupes phonétiques, ${totalMots} mots`;
+    if (totalMotsPhon > 0) messageCharge += `, ${totalMotsPhon} avec transcription phonétique complète`;
+    if (totalMotsAvecSynonymes > 0) messageCharge += `, ${totalMotsAvecSynonymes} avec synonymes/antonymes`;
+    messageCharge += '.';
+    new Notice(messageCharge);
+    console.log(`[Carnet du Poète] dictionnaire phonétique chargé : ${nbGroupes} groupes, ${totalMots} mots ` +
+      `(${totalMotsPhon} avec phonétique complète, ${totalMotsAvecSynonymes} avec synonymes/antonymes).`);
   } catch (e) {
     console.error('[Carnet du Poète] erreur de chargement du dictionnaire personnel', e);
     new Notice('Carnet du Poète : erreur lors du chargement du dictionnaire personnel (voir la console : Ctrl/Cmd+Maj+I).');
@@ -2587,6 +2707,93 @@ function decoupeSyllabesRime(mot){
   return syllabes;
 }
 
+/* ===== Moteur de rime phonétique (Format C) =====
+   Même principe que le moteur orthographique ci-dessus, mais sur les vrais
+   phonèmes SAMPA-like du dictionnaire complet : plus aucune heuristique à
+   deviner (pas de ê/è/ei/s→z/glide/doublons — le phonème est déjà le bon),
+   utilisé quand les deux mots comparés ont une transcription connue. */
+
+// Voyelles de l'alphabet SAMPA-like utilisé par le dictionnaire (Format C) :
+// a i y u o e É(=ɛ) O(=ɔ) 2(=ø) 9(=œ) °(=ə) puis les 4 nasales @/§/5/1.
+const VOYELLES_PHON = new Set(['a','i','y','u','o','e','E','O','2','9','°','@','§','5','1']);
+// Semi-consonnes : toujours attachées à la voyelle qui suit (jamais coupées).
+const GLIDES_PHON = new Set(['j','w','8']);
+// Groupes obstruante+liquide valides en attaque de syllabe française.
+const CLUSTERS_VALIDES_PHON = new Set(['pl','bl','kl','gl','fl','pR','bR','tR','dR','kR','gR','fR','vR']);
+
+function phonetiqueMot(mot){
+  if (DEBUG_IGNORER_DICO_PERSO || !PHONETIQUE_MOT) return null;
+  const w = normaliseMot(mot);
+  return w ? (PHONETIQUE_MOT.get(w) || null) : null;
+}
+
+function estimeSonsCommunsPhon(phonA, phonB){
+  let i = phonA.length - 1, j = phonB.length - 1, n = 0;
+  while (i >= 0 && j >= 0 && phonA[i] === phonB[j]) { n++; i--; j--; }
+  return n;
+}
+
+/* Combien de phonèmes (en partant de la fin) d'un groupe de consonnes
+   rejoignent l'attaque de la syllabe suivante — même logique que
+   pointDeCoupure ci-dessus, adaptée à l'alphabet phonétique : une semi-
+   consonne finale s'attache toujours à la voyelle suivante. */
+function pointDeCoupurePhon(cons){
+  if (cons.length <= 1) return cons.length;
+  if (GLIDES_PHON.has(cons[cons.length - 1])) return 1;
+  if (CLUSTERS_VALIDES_PHON.has(cons.slice(-2))) return 2;
+  return 1;
+}
+
+/* Découpe une transcription phonétique complète en syllabes { onset, noyau,
+   coda }, un phonème = une unité, sans aucune des approximations requises
+   à l'orthographe (pas de e muet à retirer : un phonème absent de la
+   transcription n'est simplement pas prononcé). */
+function decoupeSyllabesPhonetique(transcription){
+  if (!transcription) return [];
+  const positions = [];
+  for (let i = 0; i < transcription.length; i++) {
+    if (VOYELLES_PHON.has(transcription[i])) positions.push(i);
+  }
+  if (positions.length === 0) return [{ onset: transcription, noyau: '', coda: '' }];
+
+  const n = positions.length;
+  const clusters = [];
+  for (let i = 0; i < n - 1; i++) {
+    clusters.push(transcription.slice(positions[i] + 1, positions[i + 1]));
+  }
+  const coupures = clusters.map(pointDeCoupurePhon);
+
+  const syllabes = [];
+  for (let i = 0; i < n; i++) {
+    const onset = i === 0
+      ? transcription.slice(0, positions[0])
+      : clusters[i - 1].slice(clusters[i - 1].length - coupures[i - 1]);
+    const coda = i === n - 1
+      ? transcription.slice(positions[n - 1] + 1)
+      : clusters[i].slice(0, clusters[i].length - coupures[i]);
+    syllabes.push({ onset, noyau: transcription[positions[i]], coda });
+  }
+  return syllabes;
+}
+
+/* Même barème à 5 niveaux que classeRimeOrthographique, mais calculé sur
+   les vrais phonèmes plutôt que sur une approximation orthographique. */
+function classeRimePhonetique(phonA, phonB){
+  const n = estimeSonsCommunsPhon(phonA, phonB);
+  if (n <= 1) return 'pauvre';
+  if (n === 2) return 'suffisante';
+
+  const sa = decoupeSyllabesPhonetique(phonA), sb = decoupeSyllabesPhonetique(phonB);
+  if (sa.length === 0 || sb.length === 0) return 'riche';
+  const finA = sa[sa.length - 1], finB = sb[sb.length - 1];
+  const syllabeFinaleComplete = finA.onset === finB.onset && finA.coda === finB.coda;
+  if (!syllabeFinaleComplete || sa.length < 2 || sb.length < 2) return 'riche';
+
+  const prevA = sa[sa.length - 2], prevB = sb[sb.length - 2];
+  if (prevA.noyau !== prevB.noyau) return 'riche';
+  return (prevA.onset === prevB.onset && prevA.coda === prevB.coda) ? 'leonine' : 'tresriche';
+}
+
 /* Classe une rime en 5 niveaux, du plus faible au plus fort :
    - pauvre      : 1 seul son commun (la voyelle finale)
    - suffisante  : 2 sons communs
@@ -2598,7 +2805,7 @@ function decoupeSyllabesRime(mot){
                    les deux intégralement identiques
    Très riche et léonine ne sont que des affinements de "riche" : le seuil
    pauvre/suffisante/riche reste le comptage additif ci-dessus. */
-function classeRime(motA, motB){
+function classeRimeOrthographique(motA, motB){
   const n = estimeSonsCommuns(motA, motB);
   if (n <= 1) return 'pauvre';
   if (n === 2) return 'suffisante';
@@ -2612,6 +2819,16 @@ function classeRime(motA, motB){
   const prevA = sa[sa.length - 2], prevB = sb[sb.length - 2];
   if (prevA.noyau !== prevB.noyau) return 'riche';
   return (prevA.onset === prevB.onset && prevA.coda === prevB.coda) ? 'leonine' : 'tresriche';
+}
+
+/* Point d'entrée unique utilisé partout ailleurs dans le fichier : bascule
+   automatiquement sur le moteur phonétique (Format C) quand les DEUX mots
+   comparés ont une transcription connue — bien plus fiable, aucune
+   approximation — et retombe sur l'heuristique orthographique sinon. */
+function classeRime(motA, motB){
+  const phonA = phonetiqueMot(motA), phonB = phonetiqueMot(motB);
+  if (phonA && phonB) return classeRimePhonetique(phonA, phonB);
+  return classeRimeOrthographique(motA, motB);
 }
 
 /* Bucket d'affichage/filtrage regroupant très riche et léonine sous
@@ -2646,7 +2863,7 @@ function chercheRimes(motSaisi){
   const motLower = (motSaisi || '').trim().toLowerCase();
   const motNorm = normaliseMot(motSaisi);
 
-  if (DICO_PHONETIQUE && DICO_PHONETIQUE.has(motLower)) {
+  if (!DEBUG_IGNORER_DICO_PERSO && DICO_PHONETIQUE && DICO_PHONETIQUE.has(motLower)) {
     const cle = DICO_PHONETIQUE.get(motLower);
     const tousLesMots = (DICO_PHONETIQUE_GROUPES[cle] || [])
       .filter(m => m.toLowerCase() !== motLower)
@@ -2859,7 +3076,7 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
       }
     }).catch(err => {
       console.error('[Carnet du Poète] erreur RimesSolides', err);
-      statut.setText('Recherche impossible sur RimesSolides (voir la console).');
+      statut.setText(messageErreurSource(err, 'RimesSolides'));
     });
   }
 }
@@ -2937,32 +3154,87 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives,
       });
     }).catch(err => {
       console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
-      statut.setText(`Recherche impossible sur ${source.nom} (voir la console).`);
+      statut.setText(messageErreurSource(err, source.nom));
     });
   });
 }
 
-/* Rendu partagé des résultats de synonymes/antonymes. */
-function buildGroupeMots(container, titre, liste, cls){
+/* Rendu partagé des résultats de synonymes/antonymes. motRimeRef (optionnel)
+   : mot par rapport auquel afficher un badge de qualité de rime sur chaque
+   chip qui rime VRAIMENT avec lui (le mot de départ par défaut, ou le mot
+   de la case "Rime avec" quand elle est renseignée — auquel cas la liste
+   est déjà filtrée en amont pour ne garder que ces mots-là). classeRime
+   seul ne suffit pas comme garde-fou : il renvoie toujours un niveau (même
+   "pauvre") pour n'importe quelle paire de mots, y compris ceux qui ne
+   riment pas du tout — d'où le badge qui semblait s'afficher partout. */
+function buildGroupeMots(container, titre, liste, cls, motRimeRef){
   if (!liste || liste.length === 0) return;
   const g = container.createDiv({ cls: 'cp-groupe' });
   g.createDiv({ cls: 'cp-titre', text: titre });
   const motsDiv = g.createDiv({ cls: 'cp-mots' });
-  liste.forEach(m => { motsDiv.createSpan({ cls: cls, text: m }); });
+  liste.forEach(m => {
+    const span = motsDiv.createSpan({ cls: cls, text: m });
+    if (motRimeRef && memeRime(motRimeRef, m)) badgeQualite(span, m, motRimeRef);
+  });
 }
 
-async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActives){
+/* Variante de buildGroupeMots où chaque chip est cliquable pour l'exclure
+   (grisé/barré) avant sauvegarde dans le dictionnaire personnel — utile
+   quand une source en ligne renvoie de mauvaises entrées (ex. une page
+   Wiktionnaire mêlant plusieurs langues) qu'on ne veut pas polluer son
+   dictionnaire perso avec. `exclus` est un Set partagé, rempli/vidé par le
+   clic, relu par le bouton "Enregistrer" au moment de sauvegarder. */
+function buildGroupeMotsExcluable(container, titre, liste, cls, motRimeRef, exclus){
+  if (!liste || liste.length === 0) return;
+  const g = container.createDiv({ cls: 'cp-groupe' });
+  g.createDiv({ cls: 'cp-titre', text: titre });
+  const motsDiv = g.createDiv({ cls: 'cp-mots' });
+  liste.forEach(m => {
+    const span = motsDiv.createSpan({ cls: cls, text: m });
+    span.setAttr('title', 'Clique pour exclure ce mot avant de l\'enregistrer dans ton dictionnaire personnel (reclique pour annuler).');
+    span.addClass('cp-mot-excluable');
+    span.addEventListener('click', () => {
+      if (exclus.has(m)) { exclus.delete(m); span.removeClass('cp-mot-exclu'); }
+      else { exclus.add(m); span.addClass('cp-mot-exclu'); }
+    });
+    if (motRimeRef && memeRime(motRimeRef, m)) badgeQualite(span, m, motRimeRef);
+  });
+}
+
+/* Filtre une liste de mots pour ne garder que ceux qui riment réellement
+   avec la cible (utilisé par la case "Rime avec" de l'onglet Synonymes) —
+   s'appuie sur memeRime, donc sur le même critère strict que l'onglet Rimes
+   (et bascule automatiquement en phonétique quand les deux mots sont dans
+   le dictionnaire complet). */
+function filtreParRime(liste, cible){
+  if (!cible) return liste || [];
+  return (liste || []).filter(m => memeRime(cible, m));
+}
+
+async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActives, motRimeCible){
   container.empty();
   const saisie = (motSaisi || '').trim();
   if (!saisie) return;
+  const cible = (motRimeCible || '').trim();
+  // Sans cible, le badge affiché sur chaque chip porte sur le mot de départ
+  // lui-même (utile pour repérer un écho synonyme/rime providentiel) ; avec
+  // une cible, la liste est filtrée pour ne garder QUE ce qui rime avec
+  // elle, et le badge porte alors sur cette cible (c'est la contrainte active).
+  const motRimeRef = cible || saisie;
 
   // --- dictionnaire local (toujours vérifié en premier, instantané) ---
   const blocLocal = container.createDiv({ cls: 'cp-groupe' });
   blocLocal.createDiv({ cls: 'cp-son-label', text: `${saisie} — dictionnaire local` });
   const entree = chercheSynonymes(saisie);
   if (entree) {
-    buildGroupeMots(blocLocal, 'Synonymes', entree.synonymes, 'cp-mot cp-mot-syno');
-    buildGroupeMots(blocLocal, 'Antonymes', entree.antonymes, 'cp-mot cp-mot-anto');
+    const syn = filtreParRime(entree.synonymes, cible);
+    const anto = filtreParRime(entree.antonymes, cible);
+    if (cible && syn.length === 0 && anto.length === 0) {
+      blocLocal.createEl('p', { cls: 'cp-vide', text: `Aucun synonyme/antonyme local de « ${saisie} » ne rime avec « ${cible} ».` });
+    } else {
+      buildGroupeMots(blocLocal, 'Synonymes', syn, 'cp-mot cp-mot-syno', motRimeRef);
+      buildGroupeMots(blocLocal, 'Antonymes', anto, 'cp-mot cp-mot-anto', motRimeRef);
+    }
   } else {
     blocLocal.createEl('p', { cls: 'cp-vide', text: 'Pas d\'entrée locale pour ce mot.' });
   }
@@ -2980,21 +3252,32 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
         bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
         return;
       }
-      buildGroupeMots(bloc, 'Synonymes', resultat.synonymes, 'cp-mot cp-mot-syno');
-      buildGroupeMots(bloc, 'Antonymes', resultat.antonymes, 'cp-mot cp-mot-anto');
+      const synEnLigne = filtreParRime(resultat.synonymes, cible);
+      const antoEnLigne = filtreParRime(resultat.antonymes, cible);
+      if (cible && synEnLigne.length === 0 && antoEnLigne.length === 0) {
+        bloc.createEl('p', { cls: 'cp-vide', text: `Aucun résultat ${source.nom} ne rime avec « ${cible} ».` });
+        return;
+      }
+      const exclusSyn = new Set();
+      const exclusAnto = new Set();
+      buildGroupeMotsExcluable(bloc, 'Synonymes', synEnLigne, 'cp-mot cp-mot-syno', motRimeRef, exclusSyn);
+      buildGroupeMotsExcluable(bloc, 'Antonymes', antoEnLigne, 'cp-mot cp-mot-anto', motRimeRef, exclusAnto);
 
-      if (plugin && (resultat.synonymes.length > 0 || resultat.antonymes.length > 0)) {
+      if (plugin && (synEnLigne.length > 0 || antoEnLigne.length > 0)) {
         const btnSauver = bloc.createEl('button', { cls: 'cp-link-btn', text: `💾 Enregistrer dans mon dictionnaire personnel` });
+        btnSauver.setAttr('title', 'Enregistre tout ce qui est affiché ci-dessus, sauf les mots grisés/barrés (clique sur un mot pour l\'exclure).');
         btnSauver.addEventListener('click', async () => {
           btnSauver.disabled = true;
           btnSauver.setText('Enregistrement…');
-          await enregistreSynonymePerso(plugin, saisie, resultat.synonymes, resultat.antonymes);
+          const synARetenir = synEnLigne.filter(m => !exclusSyn.has(m));
+          const antoARetenir = antoEnLigne.filter(m => !exclusAnto.has(m));
+          await enregistreSynonymePerso(plugin, saisie, synARetenir, antoARetenir);
           btnSauver.setText('Enregistré ✓');
         });
       }
     }).catch(err => {
       console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
-      statut.setText(`Recherche impossible sur ${source.nom} (pas de connexion, ou le site a changé — voir la console).`);
+      statut.setText(messageErreurSource(err, source.nom));
     });
   });
 }
@@ -3056,6 +3339,7 @@ class CarnetView extends ItemView {
       panelHasard.toggleClass('active', which === 'hasard');
       panelNotes.toggleClass('active', which === 'notes');
       if (which === 'notes' && this._rafraichitPanelNotes) this._rafraichitPanelNotes();
+      if (which === 'rimes' && this._rafraichitAssonanceRimes) this._rafraichitAssonanceRimes();
     };
     tabSyl.addEventListener('click', () => switchTab('syl'));
     tabRimes.addEventListener('click', () => switchTab('rimes'));
@@ -3202,6 +3486,10 @@ class CarnetView extends ItemView {
       totalBar.createEl('strong', { text: `${total} syllabes` });
       totalBar.createSpan({ text: `≈ ${(total / nb).toFixed(1)} / vers` });
     };
+    // Exposé pour pouvoir forcer un recalcul depuis l'extérieur (ex. le
+    // toggle debug "ignorer le dictionnaire personnel" dans Settings, qui
+    // change le comportement des rimes sans que le brouillon ait changé).
+    this._renderAnalyseSyllabes = renderAnalyse;
 
     btnExport.addEventListener('click', () => {
       const poeme = analysePoeme(textarea.value);
@@ -3322,6 +3610,11 @@ class CarnetView extends ItemView {
       await this.plugin.saveData(data);
       chercher();
     });
+    // Le réglage global (Settings → Carnet du Poète) peut changer
+    // MODE_ASSONANCE pendant qu'on est sur un autre onglet ; on resynchronise
+    // la case visuellement à chaque retour sur l'onglet Rimes plutôt que de
+    // la figer à l'ouverture initiale du panneau.
+    this._rafraichitAssonanceRimes = () => { inputModeAssonance.checked = MODE_ASSONANCE; };
 
     const lireFiltres = () => ({
       lettre: lettreInput.value.trim(),
@@ -3332,6 +3625,9 @@ class CarnetView extends ItemView {
     const sourcesActives = () => (inputRimesSolides.checked ? ['rimessolides'] : []);
 
     const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value, lireFiltres(), this.plugin, sourcesActives());
+    // Même raison que _renderAnalyseSyllabes : permettre un recalcul externe
+    // (toggle debug dico perso) sans avoir à retaper la recherche.
+    this._rechercherRimes = chercher;
 
     btnChercher.addEventListener('click', chercher);
     motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
@@ -3498,6 +3794,11 @@ class CarnetView extends ItemView {
     const form = panelSyno.createDiv({ cls: 'cp-rime-form' });
     const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. beau, triste, lumière)' } });
     const btnChercher = form.createEl('button', { text: 'Chercher' });
+
+    const rimeCibleDiv = panelSyno.createDiv({ cls: 'cp-filtres' });
+    const rimeCibleInput = rimeCibleDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', placeholder: 'Rime avec… (optionnel)', style: 'width:180px' } });
+    rimeCibleInput.setAttr('title', 'Optionnel : ne garder que les synonymes/antonymes qui riment aussi avec ce second mot — utile quand tu cherches un synonyme de X contraint par une rime déjà fixée par un autre vers.');
+
     const resultatsDiv = panelSyno.createDiv({ cls: 'cp-resultats' });
 
     const sourcesActives = () => SOURCES_EN_LIGNE_ORDRE.filter(id => cases[id].checked);
@@ -3516,10 +3817,13 @@ class CarnetView extends ItemView {
 
     Object.values(cases).forEach(c => c.addEventListener('change', sauvePreferenceSources));
 
-    const chercher = () => renderResultatsSynonymes(resultatsDiv, motInput.value, this.plugin, sourcesActives());
+    const chercher = () => renderResultatsSynonymes(resultatsDiv, motInput.value, this.plugin, sourcesActives(), rimeCibleInput.value);
+    this._rechercherSynonymes = chercher;
 
     btnChercher.addEventListener('click', chercher);
     motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+    rimeCibleInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+    rimeCibleInput.addEventListener('input', chercher);
 
     this._prefillSynoInput = (mot) => {
       motInput.value = mot;
@@ -4245,6 +4549,8 @@ const CARNET_CSS = `
 .cp-mot{ display:inline-block; font-family: var(--font-monospace); font-size: 0.84em; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); border-left: 3px solid var(--text-accent); padding: 4px 8px; border-radius: 3px; color: var(--text-normal); }
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
 .cp-mot-syno{ border-left-color: var(--text-accent); }
+.cp-mot-excluable{ cursor:pointer; }
+.cp-mot-exclu{ opacity:0.4; text-decoration: line-through; }
 .cp-mot-anto{ border-left-color: var(--text-muted); opacity: 0.85; }
 .cp-mot-assonance{ border-left-style: dashed; border-left-color: var(--text-faint); opacity: 0.8; }
 .cp-label-assonance{ color: var(--text-faint); font-style: italic; }
@@ -4408,6 +4714,25 @@ class CarnetSettingTab extends PluginSettingTab {
       });
 
     containerEl.createEl('h3', { text: 'Dictionnaire personnel' });
+
+    new Setting(containerEl)
+      .setName('🔧 Debug : ignorer le dictionnaire personnel')
+      .setDesc('Désactive temporairement le dictionnaire personnel (Formats B/C) partout où il serait normalement consulté — pour comparer avec/sans lui (rimes, richesse, synonymes) sans avoir à le retirer du vault. Redémarrer Obsidian (ou recharger le plugin) le réactive automatiquement : ce n\'est pas un réglage persistant.')
+      .addToggle(toggle => {
+        toggle.setValue(DEBUG_IGNORER_DICO_PERSO);
+        toggle.onChange((value) => {
+          DEBUG_IGNORER_DICO_PERSO = value;
+          // Le changement affecte le calcul des rimes, pas le texte/la
+          // recherche déjà saisis : sans ça, il fallait vider et retaper
+          // le brouillon (ou relancer une recherche) pour voir la différence.
+          this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach(leaf => {
+            const view = leaf.view;
+            if (view && view._renderAnalyseSyllabes) view._renderAnalyseSyllabes();
+            if (view && view._rechercherRimes) view._rechercherRimes();
+            if (view && view._rechercherSynonymes) view._rechercherSynonymes();
+          });
+        });
+      });
 
     let inputChemin;
     new Setting(containerEl)

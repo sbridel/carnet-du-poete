@@ -172,6 +172,8 @@
 }
 
 .cp-mot-syno{ border-left-color: var(--text-accent); }
+.cp-mot-excluable{ cursor:pointer; }
+.cp-mot-exclu{ opacity:0.4; text-decoration: line-through; }
 .cp-mot-anto{ border-left-color: var(--text-muted); opacity: 0.85; }
 .cp-guide-titre{ font-family: var(--font-text); font-style: italic; font-weight: 500; font-size: 1.05em; margin: 22px 0 8px; color: var(--text-accent); }
 .cp-guide-titre:first-child{ margin-top: 0; }

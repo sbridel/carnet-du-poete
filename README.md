@@ -239,6 +239,35 @@ fine performance-wise). Tags added from the UI during a session live temporarily
 plugin data, not in this file — use the "💾 Graver" button (per word, Hasard tab) or "Graver en
 masse" (Settings, all at once) to commit them here permanently.
 
+**F) Extended phonetic dictionary** (a richer variant of format B, informally called "Format
+C" in the changelog — can coexist with format B keys in the same file): instead of a flat
+list of words, each key maps to an object of `word → details`, giving the word's full
+phonetic transcription and its own synonyms/antonyms:
+
+```json
+{
+  "sE": {
+    "abaissai": {
+      "phonetique": "abEsE",
+      "synonymes": [{ "mot": "baisser", "phonetique": "bese" }],
+      "antonymes": []
+    }
+  }
+}
+```
+
+The phonetic alphabet is SAMPA-like, one character per phoneme (vowels: `a i y u o e E O 2 9
+° @ § 5 1` — `E`=[ɛ], `O`=[ɔ], `2`=[ø], `9`=[œ], `°`=[ə], `@ § 5 1`=the four nasal vowels
+[ɑ̃ ɔ̃ ɛ̃ œ̃]; consonants use their usual letter, `R`=[ʁ], `S`=[ʃ], `Z`=[ʒ], `N`=[ɲ], and `j`/`w`/`8`
+for the semi-vowels [j]/[w]/[ɥ] — this matches the phonetic column exported by
+[Lexique383](http://www.lexique.org/)-based tools). `synonymes`/`antonymes` entries can be
+plain strings or, better, `{"mot": "...", "phonetique": "..."}` objects — when the phonetic
+field is filled in (because that synonym is itself a key elsewhere in the same dictionary),
+rhyme quality between it and any other word becomes exact rather than approximated.
+Whenever both words being compared (for rhyme quality, or in the Synonyms tab's "Rime avec…"
+field) have a known phonetic transcription, the plugin uses it instead of the orthographic
+heuristic — see [Known limitations](#known-limitations).
+
 ## Online sources
 
 Several tabs can query external sites live, directly from your device (the plugin uses
@@ -290,12 +319,14 @@ Definitions tab may need an update.
 - The built-in rhyme, vocabulary and synonym dictionaries are hand-curated, not exhaustive; a
   rare word may not be recognised. The optional complete phonetic rhyme dictionary (format B
   above) largely closes that gap for rhymes specifically.
-- Rhyme quality (*pauvre* / *suffisante* / *riche* / *très riche* / *léonine*) is a phonetic
-  heuristic, not a real IPA transcription — it handles common spelling/sound mismatches
-  (-tion≈-ssion, doubled letters, i/y semi-consonant, ê/è/ei/circumflex, intervocalic "s"→[z]...)
-  but isn't infallible, especially on rare or irregular words. The très riche/léonine distinction
-  relies on an approximate French syllabification (valid onset clusters, e.g. "pl", "tr"); very
-  unusual consonant clusters may still be split incorrectly.
+- Rhyme quality (*pauvre* / *suffisante* / *riche* / *très riche* / *léonine*) is exact when
+  both compared words have a known transcription in an extended phonetic dictionary (format F
+  above) — real phonemes, no guessing. Otherwise it falls back to a spelling-based heuristic
+  that handles common mismatches (-tion≈-ssion, doubled letters, i/y semi-consonant,
+  ê/è/ei/circumflex, intervocalic "s"→[z]...) but isn't infallible, especially on rare or
+  irregular words. The très riche/léonine distinction (both engines) relies on an approximate
+  syllabification (valid onset clusters, e.g. "pl", "tr"); very unusual consonant clusters may
+  still be split incorrectly.
 - The online sources depend on third-party websites staying reachable and structurally
   unchanged; treat them as a bonus on top of, not a replacement for, the offline dictionaries.
 - Rhyme-pair colour-coding applies to the rendered analysis below the text box, not to the raw
@@ -303,6 +334,19 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.10.0** — New "Format C" for `dictionnaire-perso.json`: an object nested one level
+  deeper than Format B (`group → word → {phonetique, synonymes, antonymes}`), giving each
+  word its full phonetic transcription (SAMPA-like, one character per phoneme) plus its own
+  synonyms/antonyms, each already phonetically resolved when they're part of the same
+  dictionary. Both formats can coexist in the same file. When a word has a known phonetic
+  transcription, rhyme quality (pauvre/suffisante/riche/très riche/léonine) is now computed on
+  the real phonemes instead of the orthographic approximation — a genuinely reliable result
+  for anything covered by the phonetic dictionary, with the existing heuristic still used as a
+  fallback for everything else. The Synonyms tab now also merges in synonyms/antonyms coming
+  from this new format, shows a rhyme-quality badge on every synonym/antonym chip (relative to
+  the word you searched), and gained an optional "Rime avec…" field to narrow the list down to
+  only the synonyms/antonyms that also rhyme with a second word of your choice — handy when a
+  rhyme is already fixed by another line and you need a synonym that still fits it.
 - **2.9.0** — Rhyme quality is now a 5-level scale (*pauvre* / *suffisante* / *riche* / *très
   riche* / *léonine*) instead of 3, with **Très riche** and **Léonine** as optional sub-filters
   narrowing the new "Riche+" filter bucket. The two extra levels rely on a syllable-aware check
