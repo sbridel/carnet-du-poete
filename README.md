@@ -41,7 +41,10 @@ side panel, no internet connection required for the core features.
   per quality) and every word chip carries a matching coloured border and badge, with a tooltip
   explaining the criterion, for a quick visual read of the list. You can also tick
   **RimesSolides** to pull in additional live results from
-  [rimessolides.com](https://www.rimessolides.com). A global **"Mode assonance"**
+  [rimessolides.com](https://www.rimessolides.com) — and every filter above (letter, syllable
+  count, quality) applies to those results too, on top of the site's own pagination, so you can
+  narrow down a 4000+-word RimesSolides list the same way you'd narrow the local dictionary,
+  something the site's own interface doesn't offer. A global **"Mode assonance"**
   toggle (off by default — strict rhymes only) additionally surfaces words that share the same
   vowel but differ in what follows it (e.g. *ombre*/*montre* — same nasal vowel, but "b" vs "t"
   right before the final "r"), shown in a clearly separate, dashed-border section so they're
