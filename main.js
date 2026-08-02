@@ -1325,7 +1325,7 @@ function tagsDuMot(mot){
    une nouvelle. "exclu" garde toujours son rouge dédié (cohérent avec
    l'icône 🚫), les autres tags piochent dans la palette par hash du nom. */
 function couleurTag(tag){
-  if (tag === TAG_EXCLU) return '#c0392b';
+  if (tag === TAG_EXCLU) return '#a3831f';
   let hash = 0;
   for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
   return PALETTE_RIMES[hash % PALETTE_RIMES.length];
@@ -1358,7 +1358,40 @@ function creeChipTag(container, tag, onRemove){
    toggleBtn : bouton "Voir tous les tags (N)" déjà créé par l'appelant.
    getTags : () => string[] tags actuellement proposables.
    onPick : (tag) => void, appelé au clic sur une pastille. */
-function creePanneauTousTags(container, toggleBtn, getTags, onPick){
+// Registre partagé des panneaux "voir tous les tags" actuellement instanciés
+// (inclusion + exclusion du Hasard) : en ouvrir un ferme les autres, pour
+// ne jamais avoir deux longues grilles de tags affichées en même temps —
+// source de confusion (laquelle est "inclure", laquelle est "exclure" ?).
+const PANNEAUX_TOUS_TAGS = [];
+
+/* Section repliable générique (titre cliquable + badge de compte quand
+   replié + corps masqué par défaut) — utilisée pour "Filtrer par tags" et
+   "Exclure des tags" dans le Hasard, pour que la page reste épurée tant
+   qu'on n'a pas besoin d'aller au-delà des raccourcis rapides, SANS pour
+   autant perdre de vue qu'un filtre est actif (le badge reste visible même
+   replié, contrairement à un simple accordéon classique). */
+function creeSectionRepliable(container, titre, classeCouleur){
+  const wrap = container.createDiv({ cls: 'cp-hasard-section-repliable' + (classeCouleur ? ' ' + classeCouleur : '') });
+  const header = wrap.createDiv({ cls: 'cp-hasard-section-header' });
+  const caretEl = header.createSpan({ cls: 'cp-hasard-section-caret', text: '▸' });
+  header.createSpan({ cls: 'cp-hasard-section-titre', text: titre });
+  const badgeEl = header.createSpan({ cls: 'cp-hasard-section-badge' });
+  const body = wrap.createDiv({ cls: 'cp-hasard-section-body' });
+  body.style.display = 'none';
+  let ouvert = false;
+  let compteBadge = () => 0;
+  const render = () => {
+    const n = compteBadge();
+    badgeEl.setText(n > 0 ? `· ${n} actif${n > 1 ? 's' : ''}` : '');
+    caretEl.setText(ouvert ? '▾' : '▸');
+    body.style.display = ouvert ? 'block' : 'none';
+  };
+  header.addEventListener('click', () => { ouvert = !ouvert; render(); });
+  return { body, render, setCompteBadge: (fn) => { compteBadge = fn; } };
+}
+
+function creePanneauTousTags(container, toggleBtn, getTags, onPick, libelle){
+  libelle = libelle || 'Voir tous les tags';
   let ouvert = false;
   const boxDiv = container.createDiv({ cls: 'cp-hasard-tous-tags-box' });
   boxDiv.style.display = 'none';
@@ -1386,12 +1419,20 @@ function creePanneauTousTags(container, toggleBtn, getTags, onPick){
   const render = () => {
     const tags = getTags();
     toggleBtn.style.display = tags.length > 0 ? 'inline-block' : 'none';
-    toggleBtn.setText(ouvert ? 'Masquer les autres tags' : `Voir tous les tags (${tags.length})`);
+    toggleBtn.setText(ouvert ? 'Masquer les autres tags' : `${libelle} (${tags.length})`);
     boxDiv.style.display = ouvert ? 'block' : 'none';
     if (ouvert) renderGrille();
   };
-  toggleBtn.addEventListener('click', () => { ouvert = !ouvert; render(); });
-  return { render };
+  const fermer = () => { if (ouvert) { ouvert = false; render(); } };
+  toggleBtn.addEventListener('click', () => {
+    const prochainEtat = !ouvert;
+    if (prochainEtat) PANNEAUX_TOUS_TAGS.forEach(p => { if (p.fermer !== fermer) p.fermer(); });
+    ouvert = prochainEtat;
+    render();
+  });
+  const api = { render, fermer };
+  PANNEAUX_TOUS_TAGS.push(api);
+  return api;
 }
 
 function estExclu(mot){
@@ -1458,31 +1499,63 @@ function tagsParFrequence(){
 let HISTORIQUE_TIRAGE = [];
 const HISTORIQUE_MAX = 40;
 
-function motAuHasard(tagsActifs, masquerConnus, masquerTagues){
-  tagsActifs = tagsActifs || new Set();
-  let pool;
-  if (tagsActifs.has(TAG_EXCLU)) {
-    // Mode revue : on tire uniquement parmi les mots exclus, pour les
-    // retrouver et éventuellement les réintégrer (retirer le tag depuis
-    // les chips affichées) — remplace l'ancien panel dédié.
-    pool = MOTS_RARES.filter(e => estExclu(e.mot));
-  } else {
-    pool = MOTS_RARES.filter(e => !estExclu(e.mot));
-    if (tagsActifs.size > 0) {
-      pool = pool.filter(e => tagsDuMot(e.mot).some(t => tagsActifs.has(t)));
+/* Tags "significatifs" d'un mot : tous les tags sauf le marqueur réservé
+   "exclu" (qui répond à une question différente — dans quel bassin on
+   pioche — pas "à quelle catégorie appartient ce mot"). Sert de base
+   commune à masquerTagues, modeMultiTagues, et aux statistiques. */
+function tagsSignificatifs(mot){
+  return tagsDuMot(mot).filter(t => t !== TAG_EXCLU);
+}
+
+/* Filtre MOTS_RARES selon les mêmes critères que motAuHasard, mais renvoie
+   la liste entière plutôt qu'un tirage — réutilisé à la fois pour le
+   tirage lui-même et pour afficher la taille du pool en direct avant de
+   tirer. */
+function filtrePoolMots(options){
+  const { tagsActifs = new Set(), modeET = false, modePlusUnAutre = false, tagsExclus = new Set(),
+    masquerTagues = false, modeMultiTagues = false, modeRevueExclus = false } = options || {};
+  // "exclu" décide dans QUEL bassin on pioche (mots mis de côté vs actifs),
+  // les tags décident QUELS mots dans ce bassin — les deux se combinent
+  // naturellement (ex. revoir "les mots exclus tagués méral").
+  let pool = MOTS_RARES.filter(e => estExclu(e.mot) === modeRevueExclus);
+  if (tagsActifs.size > 0) {
+    pool = pool.filter(e => {
+      const tags = tagsDuMot(e.mot);
+      return modeET
+        ? [...tagsActifs].every(t => tags.includes(t))
+        : tags.some(t => tagsActifs.has(t));
+    });
+    if (modePlusUnAutre) {
+      // En plus du tag (ou des tags) coché(s) : au moins UN tag
+      // supplémentaire, quel qu'il soit — "méral ET n'importe quel autre
+      // tag", "femme + autre", sans avoir à coder un cas par tag.
+      pool = pool.filter(e => tagsSignificatifs(e.mot).some(t => !tagsActifs.has(t)));
     }
   }
-  if (masquerConnus) {
-    // Filtre AND indépendant du mode (thème ou revue des exclus) : sert à
-    // se concentrer sur ce qui n'est pas encore acquis, même en explorant
-    // un thème ou en triant les exclus.
-    pool = pool.filter(e => !tagsDuMot(e.mot).includes('connu'));
+  if (tagsExclus.size > 0) {
+    // Exclusion générique (NOT/NOR) : retranche tout mot portant AU MOINS
+    // UN des tags de cette liste — "masquer les mots connus" en est
+    // maintenant un raccourci (équivalent à exclure juste "connu"), plutôt
+    // qu'un booléen séparé codé en dur.
+    pool = pool.filter(e => !tagsDuMot(e.mot).some(t => tagsExclus.has(t)));
   }
   if (masquerTagues) {
-    // Filtre AND : ne garde que les mots jamais touchés (aucun tag), pour
-    // se concentrer sur du contenu totalement neuf.
-    pool = pool.filter(e => tagsDuMot(e.mot).length === 0);
+    // Ne garde que les mots SANS AUCUN tag significatif (0) — contenu
+    // totalement neuf, jamais catégorisé.
+    pool = pool.filter(e => tagsSignificatifs(e.mot).length === 0);
   }
+  if (modeMultiTagues) {
+    // Miroir de masquerTagues : ne garde que les mots avec 2 tags
+    // significatifs ou plus — utile pour repérer les mots déjà bien
+    // recoupés (plusieurs catégories à la fois), plutôt que ceux qui
+    // n'ont qu'une étiquette isolée.
+    pool = pool.filter(e => tagsSignificatifs(e.mot).length >= 2);
+  }
+  return pool;
+}
+
+function motAuHasard(options){
+  const pool = filtrePoolMots(options);
   if (pool.length === 0) return null;
 
   const fenetre = Math.min(HISTORIQUE_MAX, Math.floor(pool.length / 2));
@@ -2319,6 +2392,20 @@ async function nettoieEtFusionneDictionnairePerso(plugin){
   if (Array.isArray(data.motsRares)) {
     raresAvant = data.motsRares.length;
     const fusion = [];
+    // Ne perd jamais une note au profit d'une autre : la première note
+    // rencontrée n'est plus "gagnante" par défaut (c'était le cas avant,
+    // et pouvait écraser silencieusement une note plus riche venue d'un
+    // import ultérieur, ex. Méral). Si l'une contient déjà l'autre, on
+    // garde la plus complète ; sinon, contenu vraiment différent des deux
+    // côtés, on agrège au lieu de choisir arbitrairement.
+    const fusionneNotes = (a, b) => {
+      const notA = (a || '').trim(), notB = (b || '').trim();
+      if (!notA) return notB;
+      if (!notB) return notA;
+      if (notA === notB || notA.includes(notB)) return notA;
+      if (notB.includes(notA)) return notB;
+      return notA + '\n\n---\n\n' + notB;
+    };
     data.motsRares.forEach(m => {
       if (!m || !m.mot) return;
       const mNorm = normaliseMot(m.mot);
@@ -2327,7 +2414,7 @@ async function nettoieEtFusionneDictionnairePerso(plugin){
         cible = { mot: m.mot, note: m.note || '', tags: Array.isArray(m.tags) ? [...m.tags] : [] };
         fusion.push(cible);
       } else {
-        if (!cible.note && m.note) cible.note = m.note;
+        cible.note = fusionneNotes(cible.note, m.note);
         cible.tags = [...new Set([...(cible.tags || []), ...(Array.isArray(m.tags) ? m.tags : [])])];
       }
     });
@@ -4076,12 +4163,13 @@ class CarnetView extends ItemView {
     // Repliées par défaut en bas de l'onglet (cf. plus bas) pour ne pas
     // surcharger le haut du panel ; statsDiv est assigné après coup.
     let statsDiv = null;
+    let compteurPoolEl = null;
     const renderStats = () => {
       if (!statsDiv) return;
       statsDiv.empty();
       const total = MOTS_RARES.length;
       const exclus = MOTS_RARES.filter(e => estExclu(e.mot)).length;
-      const sansTag = MOTS_RARES.filter(e => tagsDuMot(e.mot).length === 0).length;
+      const sansTag = MOTS_RARES.filter(e => tagsSignificatifs(e.mot).length === 0).length;
       const vus = total - sansTag;
       const pct = total > 0 ? Math.round((vus / total) * 100) : 0;
       const item = (texte, cls) => statsDiv.createSpan({ cls: 'cp-hasard-stat ' + cls, text: texte });
@@ -4089,104 +4177,182 @@ class CarnetView extends ItemView {
       item(`${exclus} exclu(s)`, 'cp-hasard-stat-exclus');
       item(`${sansTag} sans tag`, 'cp-hasard-stat-sanstag');
       item(`${pct}% déjà vu(s)`, 'cp-hasard-stat-vu');
+
+      // Détail par tag et par combinaison de tags RÉELLEMENT observée
+      // (pas toutes les combinaisons théoriques, qui exploseraient très
+      // vite — seulement celles qui existent dans le dictionnaire).
+      const parTag = new Map();
+      const parCombo = new Map();
+      MOTS_RARES.forEach(e => {
+        const tags = tagsSignificatifs(e.mot);
+        tags.forEach(t => parTag.set(t, (parTag.get(t) || 0) + 1));
+        if (tags.length > 0) {
+          const cle = [...tags].sort().join(' + ');
+          parCombo.set(cle, (parCombo.get(cle) || 0) + 1);
+        }
+      });
+
+      const detailsDiv = statsDiv.createDiv({ cls: 'cp-hasard-stats-detail' });
+      const blocTags = detailsDiv.createDiv({ cls: 'cp-hasard-stats-bloc' });
+      blocTags.createDiv({ cls: 'cp-titre', text: 'Par tag' });
+      const listeTags = blocTags.createDiv({ cls: 'cp-hasard-stats-liste' });
+      [...parTag.entries()].sort((a, b) => b[1] - a[1]).forEach(([tag, n]) => {
+        const chip = listeTags.createSpan({ cls: 'cp-hasard-stats-chip' });
+        const c = couleurTag(tag);
+        chip.style.borderColor = c; chip.style.color = c;
+        chip.setText(`${tag} · ${n}`);
+      });
+
+      const combosMultiples = [...parCombo.entries()].filter(([cle]) => cle.includes(' + '));
+      if (combosMultiples.length > 0) {
+        const blocCombos = detailsDiv.createDiv({ cls: 'cp-hasard-stats-bloc' });
+        blocCombos.createDiv({ cls: 'cp-titre', text: 'Combinaisons observées' });
+        const listeCombos = blocCombos.createDiv({ cls: 'cp-hasard-stats-liste' });
+        combosMultiples.sort((a, b) => b[1] - a[1]).forEach(([cle, n]) => {
+          listeCombos.createSpan({ cls: 'cp-hasard-stats-chip', text: `${cle} · ${n}` });
+        });
+      }
     };
 
     // --- filtres par tags (élargissent le pool ; OU logique). "exclu"
     // bascule en mode revue : ne tire QUE parmi les mots exclus. ---
     const filtresDiv = panelHasard.createDiv({ cls: 'cp-hasard-filtres' });
-    // Une seule rangée pour tous les raccourcis de tirage : les boutons
-    // "Explorer..." et les cases "Masquer..." forment un même ensemble
-    // ergonomique (tous des raccourcis rapides avant de creuser plus loin
-    // via le champ texte), donc un seul conteneur flex-wrap plutôt que
-    // deux blocs empilés sur des lignes séparées. filtresRapidesDiv reste
-    // un conteneur à part (il est entièrement vidé/reconstruit à chaque
-    // rafraîchissement) mais vit comme élément frère des cases, dans le
-    // même parent flex, pour rester visuellement sur la même ligne.
-    const ligneRaccourcisDiv = filtresDiv.createDiv({ cls: 'cp-hasard-ligne-raccourcis' });
-    const filtresRapidesDiv = ligneRaccourcisDiv.createDiv({ cls: 'cp-hasard-filtres-rapides' });
 
-    // "connu" n'apparaît que si ce tag a déjà été utilisé au moins une
-    // fois — pas de case sans effet avant que l'utilisateur s'en serve.
-    const masquerConnusLabel = ligneRaccourcisDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    masquerConnusLabel.style.display = 'none';
-    const masquerConnusCase = masquerConnusLabel.createEl('input', { attr: { type: 'checkbox' } });
-    masquerConnusLabel.createSpan({ text: 'Masquer les mots connus' });
+    // --- Bandeau de raccourcis rapides : toujours visible, 3 pilules de
+    // même forme (auparavant "Masquer les mots déjà tagués" était une
+    // case à cocher isolée, visuellement différente des deux boutons
+    // "Explorer") ---
+    const bandeauDiv = filtresDiv.createDiv({ cls: 'cp-hasard-bandeau' });
+    bandeauDiv.createDiv({ cls: 'cp-titre', text: 'Tirage rapide' });
+    const filtresRapidesDiv = bandeauDiv.createDiv({ cls: 'cp-hasard-filtres-rapides' });
 
-    // "déjà tagués" est toujours visible : se concentrer sur du contenu
-    // totalement neuf, peu importe le tag posé dessus.
-    const masquerTaguesLabel = ligneRaccourcisDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const masquerTaguesCase = masquerTaguesLabel.createEl('input', { attr: { type: 'checkbox' } });
-    masquerTaguesLabel.createSpan({ text: 'Masquer les mots déjà tagués' });
-
-    const filtresChipsDiv = filtresDiv.createDiv({ cls: 'cp-hasard-filtres-chips' });
-    const filtresFormDiv = filtresDiv.createDiv({ cls: 'cp-hasard-filtres-form' });
+    // --- Section "Filtrer par tags" (inclusion, OU par défaut, bascule ET
+    // possible) : repliée par défaut ---
+    const sectionInclusion = creeSectionRepliable(filtresDiv, 'Filtrer par tags', 'cp-hasard-section-inclusion');
+    const ligneFormInclusion = sectionInclusion.body.createDiv({ cls: 'cp-hasard-ligne-form' });
     const datalistId = 'cp-hasard-taglist-' + Math.random().toString(36).slice(2, 8);
-    const filtreInput = filtresFormDiv.createEl('input', { attr: { type: 'text', placeholder: 'ou saisir un autre tag…', list: datalistId } });
-    const filtreDatalist = filtresFormDiv.createEl('datalist', { attr: { id: datalistId } });
-    const btnAjouterFiltre = filtresFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ filtre' });
-
-    // Même problème que pour l'ajout de tag : le datalist natif devient
-    // illisible avec beaucoup de tags (liste plate, non colorée). Panneau
-    // dépliable de secours, avec recherche en direct (câblé plus bas,
-    // une fois activeFiltre défini).
-    const btnTousTagsFiltre = filtresDiv.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags' });
+    const filtreInput = ligneFormInclusion.createEl('input', { attr: { type: 'text', placeholder: 'un tag (ou clique plusieurs pastilles ci-dessous)…', list: datalistId } });
+    const filtreDatalist = ligneFormInclusion.createEl('datalist', { attr: { id: datalistId } });
+    const btnAjouterFiltre = ligneFormInclusion.createEl('button', { cls: 'cp-link-btn', text: '+ ajouter tag' });
+    const btnTousTagsFiltre = ligneFormInclusion.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags' });
     btnTousTagsFiltre.style.display = 'none';
+    // Bascule OU (au moins un tag coché) / ET (tous les tags cochés) —
+    // utile dès qu'un tag a un volume disproportionné par rapport aux
+    // autres (ex. un import en masse) : en OU, le cocher avec un autre tag
+    // revient presque à ne cocher que lui, il faut le mode ET pour une
+    // vraie intersection.
+    const modeETLabel = sectionInclusion.body.createEl('label', { cls: 'cp-hasard-mode-et' });
+    const modeETCase = modeETLabel.createEl('input', { attr: { type: 'checkbox' } });
+    modeETLabel.createSpan({ text: ' Tous les tags cochés (ET) plutôt qu\'au moins un (OU)' });
+    // Générique plutôt que codé pour un tag précis : "méral" + n'importe
+    // quel autre tag, ou "femme" + n'importe quel autre — même mécanique,
+    // s'applique à ce qui est coché ci-dessus, quel que soit le tag.
+    const modePlusUnAutreLabel = sectionInclusion.body.createEl('label', { cls: 'cp-hasard-mode-et' });
+    const modePlusUnAutreCase = modePlusUnAutreLabel.createEl('input', { attr: { type: 'checkbox' } });
+    modePlusUnAutreLabel.createSpan({ text: ' + au moins un tag en plus de ceux cochés' });
+    const filtresChipsDiv = sectionInclusion.body.createDiv({ cls: 'cp-hasard-filtres-chips' });
 
+    // --- Section "Exclure des tags" (NOT/NOR) : symétrique, repliée par
+    // défaut. "Masquer les mots connus" est un raccourci compact sur la
+    // même ligne que le formulaire plutôt qu'un gros bouton à part —
+    // c'est probablement l'action la plus utilisée de la zone, donc
+    // gardée à taille normale (juste alignée avec le reste, pas réduite
+    // à une mini-puce). "Masquer les mots déjà tagués" reste dans le
+    // bandeau du haut : sémantique différente (AUCUN tag, pas "pas tel
+    // tag précis"), pas pliable dans cette exclusion générique. ---
+    const sectionExclusion = creeSectionRepliable(filtresDiv, 'Exclure des tags', 'cp-hasard-section-exclusion');
+    const ligneFormExclusion = sectionExclusion.body.createDiv({ cls: 'cp-hasard-ligne-form' });
+    const exclusionRapidesDiv = ligneFormExclusion.createDiv({ cls: 'cp-hasard-filtres-rapides cp-hasard-filtres-rapides-inline' });
+    const exclusionDatalistId = 'cp-hasard-exclutaglist-' + Math.random().toString(36).slice(2, 8);
+    const exclusionInput = ligneFormExclusion.createEl('input', { attr: { type: 'text', placeholder: 'un tag à exclure (ou clique plusieurs pastilles)…', list: exclusionDatalistId } });
+    const exclusionDatalist = ligneFormExclusion.createEl('datalist', { attr: { id: exclusionDatalistId } });
+    const btnAjouterExclusion = ligneFormExclusion.createEl('button', { cls: 'cp-link-btn', text: '+ exclure' });
+    const btnTousTagsExclusion = ligneFormExclusion.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags à exclure' });
+    btnTousTagsExclusion.style.display = 'none';
+    const exclusionChipsDiv = sectionExclusion.body.createDiv({ cls: 'cp-hasard-filtres-chips' });
+
+    const filtresExclus = new Set();
     const filtresActifs = new Set();
+    // Mode revue des exclus : un booléen À PART, plus un pseudo-tag dans
+    // filtresActifs comme avant — "exclu" décide dans QUEL bassin on
+    // pioche (les mis de côté, plutôt que les actifs), les tags normaux
+    // décident QUELS mots dans ce bassin. Les deux se combinent maintenant
+    // naturellement (revoir "les mots exclus tagués méral", par exemple),
+    // sans le bricolage d'exclusivité qu'il fallait avant pour éviter
+    // qu'un filtre "actif" silencieusement ignoré ne prête à confusion.
+    let modeRevueExclus = false;
     // Datalist du champ "ajouter un tag" (créé plus bas dans le DOM) —
     // référence assignée après coup, mais rafraîchie depuis ici pour rester
     // synchronisée avec la liste des tags à chaque changement.
     let tagAjoutDatalist = null;
 
-    // "exclu" (mode revue) et les autres tags sont mutuellement exclusifs :
-    // les combiner n'a pas de sens pratique (les mots exclus ne portent
-    // en général pas d'autre tag), et ça créait une confusion silencieuse
-    // (le second filtre semblait actif sans influencer le tirage).
-    const activeFiltre = (tag) => {
-      if (tag === TAG_EXCLU) filtresActifs.clear();
-      else filtresActifs.delete(TAG_EXCLU);
-      filtresActifs.add(tag);
-      renderFiltresTags();
-    };
-    const desactiveFiltre = (tag) => {
-      filtresActifs.delete(tag);
-      renderFiltresTags();
-    };
+    sectionInclusion.setCompteBadge(() => filtresActifs.size);
+    sectionExclusion.setCompteBadge(() => filtresExclus.size);
+
+    // "déjà tagués" et "multi-tagués" (0 vs 2+ tags significatifs) sont
+    // deux booléens à part, miroirs l'un de l'autre, affichés comme
+    // pilules du bandeau, harmonisées avec les deux "Explorer".
+    const masquerTaguesCase = { checked: false };
+    const multiTaguesCase = { checked: false };
+    let btnMasquerTagues = null;
+
+    const activeFiltre = (tag) => { filtresActifs.add(tag); renderFiltresTags(); };
+    const desactiveFiltre = (tag) => { filtresActifs.delete(tag); renderFiltresTags(); };
     const panneauTousTagsFiltre = creePanneauTousTags(
-      filtresDiv,
+      sectionInclusion.body,
       btnTousTagsFiltre,
-      () => tousLesTagsUtilises().filter(t => !filtresActifs.has(t)),
+      () => tousLesTagsUtilises().filter(t => t !== TAG_EXCLU && !filtresActifs.has(t)),
       activeFiltre
     );
+    modeETCase.addEventListener('change', () => { renderFiltresTags(); });
+    modePlusUnAutreCase.addEventListener('change', () => { renderFiltresTags(); });
 
-    // Raccourcis toujours visibles : "exclu" (revue des exclus) + le tag
-    // le plus utilisé (souvent "like" ou équivalent), sans avoir à taper
-    // son nom. Basculent juste on/off au clic (pas besoin du champ texte).
+    // Raccourcis toujours visibles dans le bandeau du haut : "exclu" (mode
+    // revue, booléen à part désormais — voir plus haut), "like" (fixe, pas
+    // "le tag le plus utilisé" — un import en masse comme méral peut
+    // largement dépasser en volume les tags qu'on pose soi-même, sans que
+    // ça les rende plus pertinents comme raccourci rapide), "masquer déjà
+    // tagués" et son miroir "multi-tagués" (2+ tags significatifs, plutôt
+    // que 0 — pour repérer les mots déjà bien recoupés).
     const renderFiltresRapides = () => {
       filtresRapidesDiv.empty();
-      const topTag = tagsParFrequence()[0] || null;
-      const rapides = [TAG_EXCLU, ...(topTag ? [topTag] : [])];
-      rapides.forEach(tag => {
-        const actif = filtresActifs.has(tag);
-        const label = tag === TAG_EXCLU ? '🚫 Explorer les exclus' : `☆ Explorer « ${tag} »`;
+      const rapides = [
+        { tag: TAG_EXCLU, label: '🚫 Explorer les exclus', actif: modeRevueExclus,
+          toggle: () => { modeRevueExclus = !modeRevueExclus; renderFiltresTags(); }, couleur: couleurTag(TAG_EXCLU) },
+        ...(tousLesTagsUtilises().includes('like') ? [{ tag: 'like', label: '☆ Explorer « like »', actif: filtresActifs.has('like'),
+          toggle: () => { filtresActifs.has('like') ? desactiveFiltre('like') : activeFiltre('like'); }, couleur: couleurTag('like') }] : []),
+        { tag: '__masquerTagues', label: '📭 Masquer les mots déjà tagués', actif: masquerTaguesCase.checked,
+          toggle: () => { masquerTaguesCase.checked = !masquerTaguesCase.checked; renderFiltresTags(); }, couleur: 'var(--text-muted)' },
+        { tag: '__multiTagues', label: '🏷️ Explorer les multi-tagués', actif: multiTaguesCase.checked,
+          toggle: () => { multiTaguesCase.checked = !multiTaguesCase.checked; renderFiltresTags(); }, couleur: 'var(--text-muted)' },
+      ];
+      rapides.forEach(r => {
         const btn = filtresRapidesDiv.createEl('button', {
-          cls: 'cp-hasard-filtre-rapide' + (actif ? ' cp-hasard-filtre-rapide-actif' : ''),
-          text: label
+          cls: 'cp-hasard-filtre-rapide' + (r.actif ? ' cp-hasard-filtre-rapide-actif' : ''),
+          text: r.label
         });
-        const c = couleurTag(tag);
-        btn.style.borderColor = c;
-        if (actif) { btn.style.background = c; btn.style.color = '#fff'; }
-        else { btn.style.color = c; }
-        btn.addEventListener('click', () => {
-          if (filtresActifs.has(tag)) desactiveFiltre(tag); else activeFiltre(tag);
-        });
+        btn.style.borderColor = r.couleur;
+        if (r.actif) { btn.style.background = r.couleur; btn.style.color = '#fff'; }
+        else { btn.style.color = r.couleur; }
+        btn.addEventListener('click', r.toggle);
+        if (r.tag === '__masquerTagues') btnMasquerTagues = btn;
       });
     };
 
     const renderFiltresTags = () => {
       renderStats();
       renderFiltresRapides();
-      const tags = tousLesTagsUtilises();
+      sectionInclusion.render();
+      sectionExclusion.render();
+      if (compteurPoolEl) {
+        const n = filtrePoolMots({
+          tagsActifs: filtresActifs, modeET: modeETCase.checked, modePlusUnAutre: modePlusUnAutreCase.checked,
+          tagsExclus: filtresExclus, masquerTagues: masquerTaguesCase.checked, modeMultiTagues: multiTaguesCase.checked,
+          modeRevueExclus,
+        }).length;
+        compteurPoolEl.setText(n === 0 ? 'Aucun mot ne correspond à ces filtres' : `${n} mot${n > 1 ? 's' : ''} correspond${n > 1 ? 'ent' : ''} à ces filtres`);
+      }
+      const tags = tousLesTagsUtilises().filter(t => t !== TAG_EXCLU);
       filtreDatalist.empty();
       tags.forEach(tag => {
         if (filtresActifs.has(tag)) return;
@@ -4197,7 +4363,6 @@ class CarnetView extends ItemView {
         tags.forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
       }
       panneauTousTagsFiltre.render();
-      masquerConnusLabel.style.display = tags.includes('connu') ? 'inline-flex' : 'none';
       filtresChipsDiv.empty();
       if (filtresActifs.size === 0) return;
       filtresChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Filtres actifs : ' });
@@ -4216,14 +4381,89 @@ class CarnetView extends ItemView {
     btnAjouterFiltre.addEventListener('click', ajouterFiltre);
     filtreInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouterFiltre(); } });
 
-    const tagsActifs = () => filtresActifs;
+    // --- Exclusion (NOT/NOR) : symétrique de l'inclusion ci-dessus ---
+    const activeExclusion = (tag) => { filtresExclus.add(tag); renderExclusionTags(); };
+    const desactiveExclusion = (tag) => { filtresExclus.delete(tag); renderExclusionTags(); };
+    const panneauTousTagsExclusion = creePanneauTousTags(
+      sectionExclusion.body,
+      btnTousTagsExclusion,
+      () => tousLesTagsUtilises().filter(t => t !== TAG_EXCLU && !filtresExclus.has(t)),
+      activeExclusion,
+      'Voir tous les tags à exclure'
+    );
 
-    const btnTirerWrap = panelHasard.createDiv({ cls: 'cp-hasard-bouton-wrap' });
-    const btnTirer = btnTirerWrap.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
+    const renderExclusionRapides = () => {
+      exclusionRapidesDiv.empty();
+      if (!tousLesTagsUtilises().includes('connu')) return;
+      const actif = filtresExclus.has('connu');
+      const btn = exclusionRapidesDiv.createEl('button', {
+        cls: 'cp-hasard-filtre-rapide' + (actif ? ' cp-hasard-filtre-rapide-actif' : ''),
+        text: '🚫 Masquer les mots connus'
+      });
+      const c = couleurTag('connu');
+      btn.style.borderColor = c;
+      if (actif) { btn.style.background = c; btn.style.color = '#fff'; } else { btn.style.color = c; }
+      btn.addEventListener('click', () => { actif ? desactiveExclusion('connu') : activeExclusion('connu'); });
+    };
+
+    const renderExclusionTags = () => {
+      renderFiltresTags(); // rafraîchit aussi les badges/bandeau partagés
+      renderExclusionRapides();
+      const tags = tousLesTagsUtilises().filter(t => t !== TAG_EXCLU);
+      exclusionDatalist.empty();
+      tags.forEach(tag => {
+        if (filtresExclus.has(tag)) return;
+        exclusionDatalist.createEl('option', { attr: { value: tag } });
+      });
+      panneauTousTagsExclusion.render();
+      exclusionChipsDiv.empty();
+      if (filtresExclus.size === 0) return;
+      exclusionChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Exclus : ' });
+      [...filtresExclus].forEach(tag => {
+        creeChipTag(exclusionChipsDiv, tag, () => desactiveExclusion(tag));
+      });
+    };
+    renderExclusionTags();
+
+    const ajouterExclusion = () => {
+      const tag = exclusionInput.value.trim().toLowerCase();
+      if (!tag) return;
+      activeExclusion(tag);
+      exclusionInput.value = '';
+    };
+    btnAjouterExclusion.addEventListener('click', ajouterExclusion);
+    exclusionInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouterExclusion(); } });
+
+
 
     const zone = panelHasard.createDiv({ cls: 'cp-hasard-zone' });
+    compteurPoolEl = zone.createDiv({ cls: 'cp-hasard-compteur-pool' });
+    const btnTirerWrap = zone.createDiv({ cls: 'cp-hasard-bouton-wrap' });
+    const btnTirer = btnTirerWrap.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
+    renderFiltresTags(); // calcule le compteur maintenant qu'il existe (il n'existait pas au tout premier appel plus haut)
     const motEl = zone.createEl('div', { cls: 'cp-hasard-mot' });
-    const noteEl = zone.createEl('p', { cls: 'cp-hasard-note' });
+    const noteEl = zone.createDiv({ cls: 'cp-hasard-note' });
+    // Affiche une note en gérant le séparateur de fusion ("---" inséré par
+    // nettoieEtFusionneDictionnairePerso quand deux notes différentes sont
+    // agrégées) avec un espacement compact et maîtrisé, plutôt que de
+    // dépendre du nombre de retours à la ligne bruts stockés dans le texte
+    // — corrige aussi les notes déjà fusionnées sans avoir à les retoucher.
+    const afficheNoteHasard = (texte) => {
+      noteEl.empty();
+      const parties = (texte || '').split(/\n*\s*---\s*\n*/)
+        // Les "\n" internes viennent souvent d'une mise en page à largeur
+        // fixe dans la source scannée (retour à la ligne arbitraire au
+        // milieu d'une phrase, pas un vrai saut de paragraphe) — on les
+        // aplati en simples espaces pour laisser le texte s'enchaîner
+        // naturellement, et laisser le CSS (justify) gérer le retour à la
+        // ligne proprement plutôt que de cumuler les deux.
+        .map(p => p.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+      parties.forEach((partie, i) => {
+        if (i > 0) noteEl.createDiv({ cls: 'cp-hasard-note-sep', text: '· · ·' });
+        noteEl.createDiv({ cls: 'cp-hasard-note-partie', text: partie });
+      });
+    };
     const chipsDiv = zone.createDiv({ cls: 'cp-hasard-tags' });
 
     // actions de navigation (définition, rimes, exclusion) — séparées de
@@ -4233,11 +4473,6 @@ class CarnetView extends ItemView {
     const btnDefs = actions.createEl('button', { cls: 'cp-link-btn', text: 'Voir sa définition (CNRTL) →' });
     const btnRimes = actions.createEl('button', { cls: 'cp-link-btn', text: 'Chercher ses rimes →' });
     const btnExclure = actions.createEl('button', { cls: 'cp-link-btn cp-btn-exclure', text: '🚫 Ne plus tirer ce mot' });
-
-    // gravure : sa propre zone, séparée visuellement du tagging par un filet
-    const graverWrap = zone.createDiv({ cls: 'cp-hasard-graver-wrap' });
-    graverWrap.style.display = 'none';
-    const btnGraver = graverWrap.createEl('button', { cls: 'cp-hasard-graver-btn', text: '💾 Graver dans dictionnaire-perso.json' });
 
     // boutons de tag rapide (presets dynamiques, les plus utilisés en
     // premier) + accès à la liste complète, colorée et cliquable, plutôt
@@ -4281,6 +4516,13 @@ class CarnetView extends ItemView {
     tousLesTagsUtilises().forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
     const btnAjouterTag = tagFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ tag' });
 
+    // gravure : tout en bas, APRÈS le tagging — on tague d'abord ce que le
+    // mot évoque, on grave ensuite pour committer ça dans le fichier, pas
+    // l'inverse. Sa propre zone, séparée visuellement par un filet.
+    const graverWrap = zone.createDiv({ cls: 'cp-hasard-graver-wrap' });
+    graverWrap.style.display = 'none';
+    const btnGraver = graverWrap.createEl('button', { cls: 'cp-hasard-graver-btn', text: '💾 Graver dans dictionnaire-perso.json' });
+
     let motCourant = null;
     let noteCourante = '';
 
@@ -4298,10 +4540,18 @@ class CarnetView extends ItemView {
     };
 
     const tirer = () => {
-      const entree = motAuHasard(tagsActifs(), masquerConnusCase.checked, masquerTaguesCase.checked);
+      const entree = motAuHasard({
+        tagsActifs: filtresActifs,
+        modeET: modeETCase.checked,
+        modePlusUnAutre: modePlusUnAutreCase.checked,
+        tagsExclus: filtresExclus,
+        masquerTagues: masquerTaguesCase.checked,
+        modeMultiTagues: multiTaguesCase.checked,
+        modeRevueExclus,
+      });
       if (!entree) {
         motEl.setText('Aucun mot disponible avec ces filtres.');
-        noteEl.setText('');
+        afficheNoteHasard('');
         chipsDiv.empty();
         presetsDiv.empty();
         actions.style.display = 'none';
@@ -4313,7 +4563,7 @@ class CarnetView extends ItemView {
       motCourant = entree.mot;
       noteCourante = entree.note || '';
       motEl.setText(entree.mot);
-      noteEl.setText(noteCourante);
+      afficheNoteHasard(noteCourante);
       renderChips();
       renderPresets();
       actions.style.display = 'flex';
@@ -4563,47 +4813,84 @@ const CARNET_CSS = `
 .cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-schema-rimes{ margin-top:8px; }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
-.cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-top:18px; }
-.cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.05em; font-weight:500; background:#c0392b; color:#fff; border:none; border-radius:24px; cursor:pointer; }
-.cp-hasard-bouton:hover{ opacity:0.9; }
-.cp-hasard-zone{ margin-top:22px; text-align:center; padding: 10px 0 4px; }
-.cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:600; font-size:1.7em; color: var(--text-normal); margin-bottom:10px; }
+.cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-bottom:20px; }
+.cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.1em; font-weight:600; background: var(--background-primary) !important; color: var(--text-muted) !important; border:1.5px solid var(--text-faint) !important; border-radius:24px; cursor:pointer; transition: background 0.15s, border-color 0.15s, transform 0.1s; }
+.cp-hasard-bouton:hover{ border-color: var(--text-muted) !important; color: var(--text-normal) !important; transform: translateY(-1px); }
+.cp-hasard-zone{ margin-top:22px; text-align:center; padding:24px 20px; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:12px; }
+.cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:700; font-size:2em; color:#c0392b; margin-bottom:10px; }
 .cp-hasard-note{ font-size:0.9em; color: var(--text-muted); max-width:44ch; margin:0 auto 16px; line-height:1.6; }
+.cp-hasard-note-partie{ white-space:pre-line; text-align:justify; }
+.cp-hasard-note-partie + .cp-hasard-note-partie{ margin-top:8px; }
+.cp-hasard-note-sep{ font-size:0.8em; opacity:0.45; margin:6px 0; letter-spacing:0.2em; }
 .cp-hasard-actions{ display:flex; justify-content:center; gap:18px; flex-wrap:wrap; }
 .cp-hasard-stats{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.cp-hasard-compteur-pool{ font-size:0.78em; color: var(--text-faint); margin-bottom:8px; }
+.cp-hasard-stats-detail{ display:flex; flex-direction:column; gap:10px; margin-top:12px; width:100%; }
+.cp-hasard-stats-bloc .cp-titre{ font-size:0.7em; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-faint); margin-bottom:4px; }
+.cp-hasard-stats-liste{ display:flex; flex-wrap:wrap; gap:4px; }
+.cp-hasard-stats-chip{ font-size:0.72em; border:1px solid; border-radius:8px; padding:1px 8px; }
 .cp-hasard-stats-details{ margin-top:20px; font-size:0.85em; }
 .cp-hasard-stats-details summary{ cursor:pointer; color: var(--text-muted); }
 .cp-hasard-stat{ font-size:0.75em; font-weight:600; border-radius:10px; padding:2px 10px; border:1px solid; }
 .cp-hasard-stat-total{ color: var(--text-muted); background: var(--background-primary-alt); border-color: var(--background-modifier-border); }
-.cp-hasard-stat-exclus{ color:#c0392b; background: rgba(192,57,43,0.12); border-color:#c0392b; }
+.cp-hasard-stat-exclus{ color:#a3831f; background: rgba(212,175,55,0.15); border-color:#a3831f; }
 .cp-hasard-stat-sanstag{ color:#d68910; background: rgba(214,137,16,0.12); border-color:#d68910; }
 .cp-hasard-stat-vu{ color:#27ae60; background: rgba(39,174,96,0.12); border-color:#27ae60; }
 .cp-hasard-filtres{ font-size:0.82em; margin-bottom:4px; }
+
+/* Bandeau de raccourcis toujours visible : boîte titrée, pilules centrées */
+.cp-hasard-bandeau{ padding:10px 12px; border-radius:8px; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); margin-bottom:10px; }
+.cp-hasard-bandeau .cp-titre{ font-size:0.72em; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-faint); margin-bottom:8px; text-align:center; }
+.cp-hasard-bandeau .cp-hasard-filtres-rapides{ justify-content:center; }
+
+/* Section repliable (Filtrer / Exclure) */
+.cp-hasard-section-repliable{ border-radius:8px; margin-bottom:10px; overflow:hidden; }
+.cp-hasard-section-header{ display:flex; align-items:center; gap:6px; padding:8px 12px; cursor:pointer; user-select:none; }
+.cp-hasard-section-caret{ font-size:0.75em; color: var(--text-faint); width:1em; }
+.cp-hasard-section-titre{ font-size:0.78em; text-transform:uppercase; letter-spacing:0.05em; font-weight:700; }
+.cp-hasard-section-badge{ font-size:0.78em; font-weight:600; opacity:0.85; }
+.cp-hasard-section-body{ padding:0 12px 12px; }
+.cp-hasard-section-inclusion{ background: rgba(142,68,173,0.06); border:1px solid rgba(142,68,173,0.25); }
+.cp-hasard-section-inclusion .cp-hasard-section-titre, .cp-hasard-section-inclusion .cp-hasard-section-badge{ color:#8e44ad; }
+.cp-hasard-section-inclusion .cp-hasard-tous-tags-box{ border-color: rgba(142,68,173,0.25); }
+.cp-hasard-section-exclusion{ background: rgba(212,175,55,0.08); border:1px solid rgba(212,175,55,0.35); }
+.cp-hasard-section-exclusion .cp-hasard-section-titre, .cp-hasard-section-exclusion .cp-hasard-section-badge{ color:#a3831f; }
+.cp-hasard-section-exclusion .cp-hasard-tous-tags-box{ border-color: rgba(212,175,55,0.35); }
+
+/* Formulaire sur une seule ligne : champ + bouton d'ajout + voir tous les
+   tags, tous alignés plutôt qu'empilés sur des lignes séparées */
+.cp-hasard-ligne-form{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.cp-hasard-mode-et{ display:flex; align-items:center; gap:6px; font-size:0.8em; color: var(--text-muted); cursor:pointer; margin-top:8px; }
+.cp-hasard-mode-et input{ cursor:pointer; }
+.cp-hasard-ligne-form input{ font-size:0.85em; flex:1; min-width:140px; }
+.cp-hasard-filtres-rapides-inline{ flex:0 0 auto; }
+
 .cp-hasard-filtres-rapides{ display:flex; flex-wrap:wrap; gap:8px; }
 .cp-hasard-filtre-rapide{ font-size:0.8em; font-weight:500; background:transparent; border:1.5px solid; border-radius:14px; padding:4px 12px; cursor:pointer; transition: background 0.15s, color 0.15s; }
 .cp-hasard-filtre-rapide-actif{ font-weight:700; }
-.cp-hasard-filtres-chips{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:6px; }
-.cp-hasard-filtres-form{ display:flex; align-items:center; gap:6px; }
-.cp-hasard-filtres-form input{ font-size:0.85em; flex:1; max-width:220px; }
+.cp-hasard-filtres-chips{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px; }
 .cp-hasard-tags{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
-.cp-hasard-graver-wrap{ display:flex; justify-content:center; margin-top:16px; padding-top:16px; border-top:1px dashed var(--background-modifier-border); }
+.cp-hasard-graver-wrap{ display:flex; justify-content:center; margin-top:18px; padding-top:18px; border-top:1.5px solid var(--text-faint); }
 .cp-hasard-graver-btn{ font-size:0.82em; font-weight:500; background:transparent; border:1.5px solid var(--text-accent); color: var(--text-accent); border-radius:14px; padding:6px 16px; cursor:pointer; }
 .cp-hasard-graver-btn:hover{ background: var(--text-accent); color:#fff; }
-.cp-hasard-tag-presets{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:14px; margin-bottom:6px; }
-.cp-hasard-voir-tous-tags{ display:block; font-size:0.78em; margin-top:4px; }
+.cp-hasard-tag-presets{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-top:18px; padding-top:18px; margin-bottom:6px; border-top:1.5px solid var(--text-faint); }
+.cp-hasard-voir-tous-tags{ font-size:0.78em; flex:0 0 auto; }
 .cp-hasard-preset-btn{ font-size:0.75em; background:transparent; border:1.5px solid var(--background-modifier-border); border-radius:10px; padding:2px 10px; cursor:pointer; }
-.cp-hasard-tous-tags-box{ margin-top:8px; padding:10px; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:8px; }
+/* Panneau "tous les tags" aplati : plus de boîte-dans-la-boîte quand il vit
+   dans une section déjà colorée — un simple séparateur suffit */
+.cp-hasard-tous-tags-box{ margin-top:10px; padding-top:10px; background:transparent; border:none; border-top:1px solid var(--background-modifier-border); border-radius:0; }
 .cp-hasard-tous-tags-filtre{ width:100%; font-size:0.82em; margin-bottom:8px; }
 .cp-hasard-tous-tags-grille{ display:flex; flex-wrap:wrap; gap:4px; max-height:160px; overflow-y:auto; }
 .cp-hasard-preset-btn-mini{ font-size:0.72em; background: var(--background-primary); border:1px solid var(--background-modifier-border); border-radius:8px; padding:1px 8px; cursor:pointer; }
 .cp-hasard-preset-btn-mini:hover{ opacity:0.75; }
 .cp-hasard-preset-btn:hover{ opacity:0.75; }
 .cp-tag-chip{ display:inline-flex; align-items:center; gap:2px; font-size:0.72em; font-weight:500; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:10px; padding:2px 8px; color: var(--text-muted); }
-.cp-tag-chip-exclu{ background:#c0392b; border-color:#c0392b; color:#fff; }
+.cp-tag-chip-exclu{ background:#a3831f; border-color:#a3831f; color:#fff; }
 .cp-tag-chip-x{ cursor:pointer; opacity:0.75; }
 .cp-tag-chip-x:hover{ opacity:1; }
-.cp-btn-exclure{ color:#c0392b; }
+.cp-btn-exclure{ color:#a3831f; }
 .cp-hasard-tag-ajout{ display:flex; justify-content:center; gap:8px; margin-top:12px; }
+.cp-hasard-tag-ajout input{ background: var(--background-primary); border:1px solid var(--background-modifier-border); }
 .cp-hasard-tag-ajout input{ font-size:0.8em; width:180px; }
 .cp-hasard-exclus, .cp-hasard-ajout{ margin-top:20px; font-size:0.85em; }
 .cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; color: var(--text-muted); }

@@ -79,29 +79,48 @@ side panel, no internet connection required for the core features.
   automatically.
 - **Hasard** — one button, one rare or forgotten French word at random (*smaragdin*,
   *coruscant*, *pétrichor*, *s'ennuiter*...), with a short gloss and quick links to look it up
-  in the Definitions or Rhymes tab. Every word can carry free-form **tags** (désuet, savant,
-  poétique...), each with its own stable colour (reused everywhere the tag appears), addable/
-  removable on the fly from the drawn word — via dynamic preset buttons (your most-used tags
-  first) or a free-text field with autocomplete. Tags widen the draw pool (checking several is
-  OR logic). "exclu" is a reserved tag — a "🚫 Ne plus tirer ce mot" shortcut applies it, and two
-  always-visible quick-filter buttons ("🚫 Explorer les exclus" / "☆ Explorer «
-  most-used-tag »") let you toggle a review mode that draws *only* from that subset; picking one
-  clears the other, since combining them silently ignored the second filter. A "💾 Graver dans
-  dictionnaire-perso.json" button commits the currently-drawn word (with its tags) permanently
-  into your personal dictionary and clears its temporary tag record from Obsidian's plugin data
-  — a lightweight staging area for tags added mid-session, not meant to accumulate forever
-  (a bulk "Graver en masse" version of the same action lives in Settings, for after a big
-  tagging session). A collapsible stats panel at the bottom shows total word count, how many are
-  excluded, how many have no tag yet, and the resulting "% already seen" — handy for deciding
-  when it's time to import a fresh batch of words. An optional "Masquer les mots connus"
-  checkbox (appears once you've used a "connu" tag) subtracts from the draw pool regardless of
-  any other active filter — useful for treating "connu" as a personal already-mastered marker.
-  Tags can also be declared directly in
-  `dictionnaire-perso.json` (see below) — useful for pre-tagging a bulk import — and merge with
-  tags added from the UI. The draw itself avoids repeating recently-shown words (a rolling
-  window that adapts to the size of the current filtered pool, so a narrow tag filter never gets
-  stuck empty). A small form lets you add a rare word manually (word, optional gloss, optional
-  tags) straight into your personal dictionary without going through an external source.
+  in the Definitions or Rhymes tab. A live counter above the button shows how many words match
+  the current filters *before* you draw. Every word can carry free-form **tags** (désuet,
+  savant, poétique...), each with its own stable colour (reused everywhere the tag appears),
+  addable/removable on the fly from the drawn word — via dynamic preset buttons (your most-used
+  tags first) or a free-text field with autocomplete (or click straight through several pills in
+  the "voir tous les tags" panel, no need to re-type one at a time).
+  - **Filtrer par tags** (collapsible, purple) — checking several tags is **OR by default**
+    (any word carrying *at least one* of them): fine on its own, but if one tag has a much
+    bigger volume than the others (e.g. after a bulk import), combining it with a smaller one
+    in OR mostly just gives you the big one back. Tick **"Tous les tags cochés (ET)"** to
+    require *every* checked tag at once instead — that's how you get a real intersection
+    (e.g. "méral" + "poésie" together, not either). A further **"+ au moins un tag en plus de
+    ceux cochés"** toggle asks for one checked tag (or an ET combination) *plus* any other tag
+    on top — handy for "this tag, but already categorised further", without hardcoding which
+    tag or which other one.
+  - **Exclure des tags** (collapsible, gold) — the mirror, NOT/NOR logic: subtracts any word
+    carrying at least one of the checked tags, regardless of the include filters above. A
+    compact "🚫 Masquer les mots connus" shortcut lives here (toggles the reserved "connu" tag
+    into this same exclusion set).
+  - Always-visible shortcuts: "🚫 Explorer les exclus" (review mode: draws *only* from words
+    you've excluded — combines properly with the tag filters above now, e.g. review just the
+    excluded words also tagged "méral"), "☆ Explorer « like »" (fixed to your "like" tag, not
+    "whichever tag is most common" — a bulk import can otherwise dwarf your own tags in
+    frequency), "📭 Masquer les mots déjà tagués" (0 tags) and its mirror "🏷️ Explorer les
+    multi-tagués" (2+ tags at once).
+  - A "💾 Graver dans dictionnaire-perso.json" button (now placed *after* the tagging controls,
+    not before — tag first, commit second) writes the currently-drawn word's tags permanently
+    into your personal dictionary and clears its temporary session record (a bulk "Graver en
+    masse" version lives in Settings). Merging (via that button, or the "🧹 Nettoyer et
+    fusionner" Settings action) never silently drops one note in favour of another anymore: if
+    the two differ and neither contains the other, both are kept, joined by a visible "· · ·"
+    separator.
+  - A collapsible stats panel at the bottom shows total word count, excluded/untagged counts,
+    "% already seen", a per-tag breakdown, and every tag *combination* actually observed in
+    your dictionary (not all theoretically possible combinations, just the ones that exist) —
+    handy for deciding when it's time to import a fresh batch of words, or spotting an
+    over-used tag. Tags can also be declared directly in `dictionnaire-perso.json` (see below)
+    — useful for pre-tagging a bulk import — and merge with tags added from the UI. The draw
+    itself avoids repeating recently-shown words (a rolling window that adapts to the size of
+    the current filtered pool, so a narrow filter never gets stuck empty). A small form lets you
+    add a rare word manually (word, optional gloss, optional tags) straight into your personal
+    dictionary without going through an external source.
 - **Notes** — a maintenance tab: lists every rare word and every lexical-field word that's
   missing a definition (typically after a bulk import, or a word added from an online source
   with no gloss available), each with an inline text field to write one by hand — saved directly
@@ -344,6 +363,44 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.13.0** — Large rework of the Hasard tab's tag filtering, prompted by importing a big
+  batch of words (the classic "one tag now dwarfs every other in volume" problem) and by a
+  visual redesign pass on the whole filter area:
+  - **Filtering semantics, please read if combining tags**: checking several tags is **OR by
+    default** (matches *any* of them) — with an uneven tag distribution, OR-combining a huge
+    tag with a small one mostly just gives the huge one back. A new **"Tous les tags cochés
+    (ET)"** toggle switches to requiring *every* checked tag at once for a real intersection.
+    A further **"+ au moins un tag en plus de ceux cochés"** toggle asks for the checked
+    tag(s) plus *any* other tag on top, generic rather than hardcoded to one specific tag.
+  - **Fixed**: the live pool counter used the new ET/"+1 tag" options, but the actual draw
+    button forgot to pass them along and used the old OR-only logic — the counter said one
+    number, the draw came from a bigger pool. Both now share the exact same filtering call.
+  - The exclusion review mode ("🚫 Explorer les exclus") is no longer a pseudo-tag mutually
+    exclusive with everything else — it's its own toggle now, and combines properly with tag
+    filters (e.g. review just the excluded words also tagged "méral").
+  - New "🏷️ Explorer les multi-tagués" shortcut (2+ tags at once), the mirror of the existing
+    "📭 Masquer les mots déjà tagués" (0 tags) — both now based on a shared helper that
+    excludes the reserved "exclu" tag from the count, so review mode doesn't skew it.
+  - The "☆ Explorer" bandeau shortcut is now fixed to your "like" tag specifically, instead of
+    "whichever tag is used most" — a bulk import's tag can otherwise dwarf your own in raw
+    count without being more useful as a shortcut.
+  - Stats panel gained a per-tag breakdown and every tag combination actually observed in your
+    dictionary (not all theoretically possible ones, just the real ones).
+  - **Fixed**: merging two notes for the same word (via "🧹 Nettoyer et fusionner" in Settings,
+    or a re-import) used to silently keep whichever note was seen first, discarding the other
+    even if it was richer. Now: if one note fully contains the other, the more complete one
+    wins; if they genuinely differ, both are kept, joined by a compact "· · ·" separator at
+    render time (works retroactively on already-merged notes too, no data migration needed).
+  - **Fixed**: notes imported from OCR'd/scanned sources often have arbitrary mid-sentence line
+    breaks (fixed-width original page layout) — now flattened to normal flowing text instead of
+    rendering as ragged short lines.
+  - Visual pass on the whole filter area: harmonised pill shapes for the top shortcuts, two
+    colour-coded collapsible sections (violet = include, gold = exclude — freeing up red to
+    mean only "the drawn word" and "Graver"), badges showing active-filter counts even while
+    collapsed, mutually-exclusive "voir tous les tags" panels (opening one closes the other),
+    and the draw button/word card restructured into a single visual block (button now above
+    the result, definition text justified instead of centered, "Graver" moved after the
+    tagging controls since you tag first and commit second).
 - **2.12.0** — Several more spelling/sound equivalences added to the **orthographic heuristic**
   used by rhyme detection and quality (pauvre/suffisante/riche/très riche/léonine) — see the
   important scope note below before reading the list.
