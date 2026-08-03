@@ -335,7 +335,11 @@ Definitions tab may need an update.
 
 - Syllable counting is a spelling-based heuristic (like most free online tools), not a full
   phonetic transcription: very irregular cases (complex liaisons, rare words, Latinate or
-  Greek-derived words) may need manual judgement.
+  Greek-derived words) may need manual judgement. One specific ambiguity — whether a word
+  ending in "-ent" is a silent 3rd-person-plural verb form (*pleurent*) or a genuinely
+  pronounced noun/adjective (*récent*, *argent*, *président*...) — is resolved exactly against
+  the extended phonetic dictionary when the word is covered by one, and falls back to a curated
+  list of ~70 common exceptions otherwise (not exhaustive).
 - Whether a silent *e* elides before a word starting with a vowel follows the classic
   versification rule, but some other online tools don't apply this consistently — expect
   occasional differences with them, especially on free verse. The full syllable breakdown is
@@ -363,6 +367,21 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.14.0** — Two fixes to the **syllable counter** specifically (Syllabes tab / `analyseLigne`
+  — a separate engine from the rhyme one, they'd never shared any logic before this):
+  - **Fixed**: a verse ending on a 3rd-person-plural verb ("...qu'elles pleurent") was counted
+    one syllable too many. The mute-e detection only recognised a literal final "e" (rose,
+    chante) — never the "-ent" of "ils/elles pleurent, chantent...", which is the exact same
+    silent sound, just spelled differently. Classical versification confirms this ending never
+    counts at the end of a line, same as any other mute e (checked against several current
+    French versification references while fixing this).
+  - Since "-ent" is genuinely ambiguous from spelling alone (silent 3rd-plural verb ending in
+    *pleurent*, but a real pronounced [ɑ̃] in nouns/adjectives like *récent*, *argent*,
+    *moment*, *président*...), the fix now checks the extended phonetic dictionary first when
+    available — exact, no guessing (a transcription ending in a consonant means the "-ent"
+    added no sound at all; ending in the nasal vowel means it's genuinely pronounced) — and
+    falls back to a curated list of ~70 common non-verb exceptions only for words outside the
+    dictionary, so the fix still helps even without one configured.
 - **2.13.0** — Large rework of the Hasard tab's tag filtering, prompted by importing a big
   batch of words (the classic "one tag now dwarfs every other in volume" problem) and by a
   visual redesign pass on the whole filter area:

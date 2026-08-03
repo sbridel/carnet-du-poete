@@ -80,10 +80,70 @@ function detecteHiatus(w, groupes){
   return count;
 }
 
+/* PARTIE 1 — vérification phonétique (prioritaire, si le mot est dans le
+   dictionnaire complet) : le "-ent" est prononcé si la transcription se
+   termine par une voyelle (ex. président → pRezid@, @ = voyelle), muet si
+   elle se termine par une consonne (ex. pleurent → pl9R, R = consonne).
+   Exact, aucune supposition. Renvoie true/false si le mot est connu,
+   null sinon (mot absent du dictionnaire — voir PARTIE 3). Définie ici
+   mais s'appuie sur phonetiqueMot/VOYELLES_PHON, déclarés plus bas dans
+   ce fichier (sans souci : ni l'un ni l'autre n'est évalué avant qu'un
+   appel réel n'ait lieu, bien après le chargement complet du module). */
+function finMuetteEnEntPhonetique(mot){
+  const phon = typeof phonetiqueMot === 'function' ? phonetiqueMot(mot) : null;
+  if (!phon) return null;
+  const dernier = phon[phon.length - 1];
+  return !VOYELLES_PHON.has(dernier);
+}
+
+/* PARTIE 2 — repli heuristique (utilisé uniquement quand le mot est
+   absent du dictionnaire phonétique, y compris pour quelqu'un qui
+   n'en a pas du tout configuré) : mots courants en "-ent" où ce n'est
+   PAS la terminaison verbale muette de 3e personne du pluriel (ils/elles
+   parl-ent, comme "pleurent"), mais un nom/adjectif/adverbe où le son
+   [ɑ̃] est réellement prononcé (récent, argent, moment...) — même
+   principe que les exceptions -er/-ez pour les rimes plus bas dans ce
+   fichier : liste non exhaustive, à compléter au fil des cas rencontrés.
+   Ne concerne que la forme se terminant EXACTEMENT par "ent" — un
+   pluriel en "-ents" ne peut de toute façon jamais être une forme
+   verbale, donc ne pose pas cette ambiguïté. */
+const EXCEPTIONS_ENT_PRONONCE = new Set([
+  'lent', 'cent', 'gent', 'dent', 'vent', 'absent', 'présent', 'décent', 'indécent',
+  'récent', 'urgent', 'ardent', 'prudent', 'imprudent', 'innocent', 'excellent',
+  'intelligent', 'conséquent', 'inconséquent', 'fréquent', 'infréquent', 'éloquent',
+  'éminent', 'imminent', 'permanent', 'patient', 'impatient', 'client', 'agent',
+  'régent', 'sergent', 'moment', 'élément', 'document', 'instrument', 'gouvernement',
+  'département', 'appartement', 'événement', 'mouvement', 'changement', 'jugement',
+  'sentiment', 'testament', 'firmament', 'tourment', 'ciment', 'aliment', 'piment',
+  'froment', 'serment', 'sarment', 'président', 'différent', 'indifférent',
+  'équivalent', 'violent', 'réticent', 'latent', 'virulent', 'opulent', 'indolent',
+  'somnolent', 'truculent', 'féculent', 'turbulent', 'pertinent', 'impertinent',
+  'continent', 'incontinent', 'contingent', 'tangent', 'diligent', 'négligent',
+  'intransigent', 'indigent', 'talent', 'accent', 'comment', 'souvent', 'orient',
+]);
+
+/* PARTIE 3 — point d'entrée unique, utilisé par estMuetFinal/
+   syllabifieMot/compteSyllabesMot : consulte le dictionnaire phonétique
+   en priorité (exact), et ne retombe sur la liste d'exceptions ci-dessus
+   que si le mot en est absent — garde-fou qui reste utile même pour
+   quelqu'un qui teste le plugin sans avoir configuré de dictionnaire
+   personnel du tout. */
+function finMuetteEnEnt(w){
+  if (!w.endsWith('ent')) return false;
+  const viaPhon = finMuetteEnEntPhonetique(w);
+  if (viaPhon !== null) return viaPhon;
+  return !EXCEPTIONS_ENT_PRONONCE.has(w);
+}
+
 function estMuetFinal(w){
   let base = w;
   if (base.endsWith('s') && !base.endsWith('ss') && base.length > 2) base = base.slice(0, -1);
-  return base.endsWith('e');
+  // Deux graphies pour le même "e" caduc : "e" simple (rose, chante) ou
+  // "-ent" verbal (pleurent, chantent) — sans cette seconde branche, un
+  // vers finissant par un verbe conjugué à la 3e personne du pluriel
+  // comptait toujours une syllabe de trop (le muet n'étant reconnu que
+  // sous sa forme "e" simple).
+  return base.endsWith('e') || finMuetteEnEnt(base);
 }
 
 /* Découpage des consonnes entre deux noyaux vocaliques en (coda de la
@@ -126,8 +186,12 @@ function syllabifieMot(motBrut, finalEPrononce, diereseIndices){
     const estDernierGroupe = i === groupes.length - 1;
     const finDeMotAvecS = w.endsWith('s') && !w.endsWith('ss') && g.fin === w.length - 1;
     const finDeMotSansS = g.fin === w.length;
+    // "-ent" verbal (pleurent, chantent...) : le "e" n'est pas la toute
+    // dernière lettre (il reste "nt" après), donc ni finDeMotAvecS ni
+    // finDeMotSansS ne le détectaient — troisième cas de figure explicite.
+    const finDeMotEnt = g.fin === w.length - 2 && finMuetteEnEnt(w) && !finalEPrononce;
     const estMuetADroper = estDernierGroupe && g.texte === 'e' && estMuetFinal(w)
-      && !finalEPrononce && (finDeMotAvecS || finDeMotSansS);
+      && !finalEPrononce && (finDeMotAvecS || finDeMotSansS || finDeMotEnt);
 
     if (diereseIndices.has(i) && g.texte.length >= 2) {
       const partie1 = g.texte.slice(0, 1);
@@ -135,11 +199,13 @@ function syllabifieMot(motBrut, finalEPrononce, diereseIndices){
       syllabes.push(prefixe + partie1);
       syllabes.push(partie2);
     } else if (estMuetADroper) {
-      const sFinal = finDeMotAvecS ? 's' : '';
+      // Ce qui suit le "e" muet (rien, "s" pluriel, ou "nt" verbal) rejoint
+      // la syllabe précédente plutôt que de former sa propre syllabe.
+      const queueFinale = w.slice(g.fin);
       if (syllabes.length > 0) {
-        syllabes[syllabes.length - 1] += prefixe + g.texte + sFinal;
+        syllabes[syllabes.length - 1] += prefixe + g.texte + queueFinale;
       } else {
-        syllabes.push(prefixe + g.texte + sFinal);
+        syllabes.push(prefixe + g.texte + queueFinale);
       }
     } else {
       syllabes.push(prefixe + g.texte);
@@ -187,10 +253,12 @@ function compteSyllabesMot(motBrut, finalEPrononce){
     // soit une vraie consonne, ou un "u" muet de qu/gu).
     const precedeParConsonne = idxDernier > 0;
     // le e n'est un "e caduc" muet que s'il est la toute dernière lettre du
-    // mot (ex. "rose", "chante") — pas quand il est suivi de m/n formant une
-    // voyelle nasale suivie d'une consonne (ex. "temps", "m'attend")
-    const estDerniereLettre = w.endsWith('e');
-    if (dernier === 'e' && precedeParConsonne && estDerniereLettre && !finalEPrononce) {
+    // mot (ex. "rose", "chante"), ou fait partie d'un "-ent" verbal muet
+    // (ex. "pleurent" — voir finMuetteEnEnt) — pas quand il est suivi de
+    // m/n formant une voyelle nasale suivie d'une consonne dans un mot qui
+    // n'est ni l'un ni l'autre cas (ex. "temps", "m'attend").
+    const finMuetteGraphie = w.endsWith('e') || finMuetteEnEnt(w);
+    if (dernier === 'e' && precedeParConsonne && finMuetteGraphie && !finalEPrononce) {
       compte -= 1;
     }
   }
