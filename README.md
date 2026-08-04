@@ -19,7 +19,10 @@ side panel, no internet connection required for the core features.
   "Variante diérèse" checkbox if you'd rather keep the view lighter.
   - **Rhyme scheme detection** — the poem is split into stanzas (blank-line separated); each
     stanza's end-rhymes are grouped and labelled A/B/C..., and a 4-line stanza matching AABB,
-    ABAB or ABBA is named accordingly, shown just below the syllable counts.
+    ABAB or ABBA is named accordingly, shown just below the syllable counts. By default each
+    stanza restarts its own lettering from A; toggle "Rimes continues entre strophes" to keep
+    the lettering going across the whole poem instead (e.g. a sonnet's two tercets labelled
+    CCD/EED following on from the quatrains' ABBA/ABBA, rather than restarting at AAB/AAB).
   - **Rhyme colour-coding** — toggle "Couleurs de rimes" to give each line a coloured badge and
     border matching its rhyme group, making rhyme pairs easy to spot at a glance in the analysis
     view. (This applies to the rendered analysis, not the raw text box itself — colouring live
@@ -367,6 +370,13 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.15.0** — New "Rimes continues entre strophes" toggle in the Syllabes tab: by default each
+  stanza's rhyme lettering (A, B, C...) restarts at A, which meant a sonnet's tercets always
+  came out as AAB/AAB instead of the conventional CCD/EED continuing on from the quatrains'
+  ABBA/ABBA. Toggling it on shares the lettering across the whole poem instead — now on by
+  default, alongside "Couleurs de rimes" (previously off by default). Also reworked the
+  Syllabes toolbar: the display toggles are now pill-style buttons (matching the Hasard tab's
+  look), and Export/Copy/Clear moved to a compact icon row above the draft box.
 - **2.14.0** — Two fixes to the **syllable counter** specifically (Syllabes tab / `analyseLigne`
   — a separate engine from the rhyme one, they'd never shared any logic before this):
   - **Fixed**: a verse ending on a 3rd-person-plural verb ("...qu'elles pleurent") was counted

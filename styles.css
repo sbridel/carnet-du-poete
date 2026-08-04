@@ -58,6 +58,40 @@
   color: var(--text-faint);
   font-style: italic;
 }
+.cp-toolbar-actions{
+  display:flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items:center;
+  gap: 6px;
+  margin-top: 6px;
+  margin-bottom: 10px;
+}
+.cp-icon-btn{
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  height: 32px;
+  display:inline-flex;
+  align-items:center;
+  gap: 6px;
+  font-size: 1em;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.cp-icon-btn-label{
+  font-size: 0.78em;
+  color: var(--text-muted);
+}
+.cp-icon-btn:hover{
+  background: var(--background-modifier-hover);
+  border-color: var(--text-accent);
+}
+.cp-icon-btn:hover .cp-icon-btn-label{
+  color: var(--text-normal);
+}
 .cp-link-btn{
   background:none; border:none; box-shadow:none;
   color: var(--text-muted);

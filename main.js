@@ -574,6 +574,12 @@ function coeurVocalique(cle){
 // toggle diérèse pour les syllabes. Désactivée par défaut (mode strict).
 let MODE_ASSONANCE = false;
 
+// Bascule globale "rimes continues entre strophes" : par défaut, la
+// nomenclature des rimes (A, B, C...) repart de zéro à chaque strophe.
+// Activée, elle se poursuit d'une strophe à l'autre (utile pour les
+// sonnets : quatrains ABBA ABBA puis tercets CCD EED plutôt que AAB AAB).
+let RIMES_CONTINUES = false;
+
 // Debug uniquement (Settings → Carnet du Poète) : ignore temporairement le
 // dictionnaire personnel (Formats B/C) partout où il serait normalement
 // consulté, pour comparer le comportement avec/sans lui sans avoir à le
@@ -617,19 +623,23 @@ function memeRime(motA, motB){
 const PALETTE_RIMES = ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#d68910', '#16a085', '#c2185b', '#5d4037', '#455a64', '#7f8c8d'];
 
 /* Attribue une lettre A, B, C... à chaque vers d'une strophe selon sa
-   rime (par ordre d'apparition des sons distincts dans la strophe). */
-function calculeSchemaStrophe(derniersMots){
+   rime (par ordre d'apparition des sons distincts dans la strophe).
+   Par défaut, repart de zéro à chaque appel (une strophe = son propre
+   alphabet). Si un `etat` partagé ({ representants, prochaine }) est
+   fourni, il est réutilisé ET mis à jour en place, ce qui permet de
+   poursuivre la nomenclature d'une strophe à l'autre (mode continu). */
+function calculeSchemaStrophe(derniersMots, etat){
   const lettres = [];
-  const representants = []; // { mot, lettre }
-  let prochaine = 0;
+  const representants = etat ? etat.representants : []; // { mot, lettre }
   derniersMots.forEach(mot => {
     if (!mot || !normaliseMot(mot)) { lettres.push(null); return; }
     const rep = representants.find(r => memeRime(r.mot, mot));
     if (rep) {
       lettres.push(rep.lettre);
     } else {
+      const prochaine = etat ? etat.prochaine : representants.length;
       const lettre = String.fromCharCode(65 + (prochaine % 26));
-      prochaine++;
+      if (etat) etat.prochaine++;
       representants.push({ mot, lettre });
       lettres.push(lettre);
     }
@@ -671,12 +681,17 @@ function analysePoeme(texteComplet){
   });
   if (indicesCourants.length > 0) strophes.push(indicesCourants);
 
+  // En mode continu, un seul état (représentants + compteur de lettres)
+  // est partagé et mis à jour au fil des strophes ; sinon chaque strophe
+  // repart de zéro (comportement historique).
+  const etatContinu = RIMES_CONTINUES ? { representants: [], prochaine: 0 } : null;
+
   const schemaStrophes = strophes.map(indices => {
     const derniersMots = indices.map(i => {
       const det = lignes[i].r.details;
       return det.length ? det[det.length - 1].mot : '';
     });
-    const lettres = calculeSchemaStrophe(derniersMots);
+    const lettres = calculeSchemaStrophe(derniersMots, etatContinu);
     const premierMotParLettre = new Map();
     indices.forEach((idx, k) => {
       lignes[idx].lettre = lettres[k];
@@ -3590,21 +3605,38 @@ class CarnetView extends ItemView {
   }
 
   buildPanelSyllabes(panelSyl){
+    const actionsBar = panelSyl.createDiv({ cls: 'cp-toolbar-actions' });
+    const saveState = actionsBar.createEl('span', { cls: 'cp-save-state' });
+    const btnExport = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
+    btnExport.createSpan({ text: '⬇' });
+    btnExport.createSpan({ cls: 'cp-icon-btn-label', text: 'Exporter' });
+    btnExport.setAttr('title', 'Exporter en Markdown');
+    btnExport.setAttr('aria-label', 'Exporter en Markdown');
+    const btnCopierBrouillon = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
+    btnCopierBrouillon.createSpan({ text: '⎘' });
+    btnCopierBrouillon.createSpan({ cls: 'cp-icon-btn-label', text: 'Copier' });
+    btnCopierBrouillon.setAttr('title', 'Copier le brouillon');
+    btnCopierBrouillon.setAttr('aria-label', 'Copier le brouillon');
+    const btnClear = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
+    btnClear.createSpan({ text: '🗑️' });
+    btnClear.createSpan({ cls: 'cp-icon-btn-label', text: 'Effacer' });
+    btnClear.setAttr('title', 'Effacer le brouillon');
+    btnClear.setAttr('aria-label', 'Effacer le brouillon');
     const textarea = panelSyl.createEl('textarea', {
       cls: 'cp-textarea',
       attr: { placeholder: 'Écris ou colle tes vers ici, un vers par ligne…' }
     });
     const toolbar = panelSyl.createDiv({ cls: 'cp-toolbar' });
-    const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-source-toggle' });
+    const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
     const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
     toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
-    const toggleRimesLabel = toolbar.createEl('label', { cls: 'cp-source-toggle' });
+    const toggleRimesLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
     const toggleRimes = toggleRimesLabel.createEl('input', { attr: { type: 'checkbox' } });
     toggleRimesLabel.createSpan({ text: ' Couleurs de rimes' });
-    const saveState = toolbar.createEl('span', { cls: 'cp-save-state' });
-    const btnExport = toolbar.createEl('button', { text: '📋 Exporter en Markdown', cls: 'cp-link-btn' });
-    const btnCopierBrouillon = toolbar.createEl('button', { text: '📄 Copier le brouillon', cls: 'cp-link-btn' });
-    const btnClear = toolbar.createEl('button', { text: 'Effacer le brouillon', cls: 'cp-link-btn' });
+    const toggleContinuLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+    const toggleContinu = toggleContinuLabel.createEl('input', { attr: { type: 'checkbox' } });
+    toggleContinuLabel.createSpan({ text: ' Rimes continues entre strophes' });
+    toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
     const analyseDiv = panelSyl.createDiv({ cls: 'cp-analyse' });
     const schemaDiv = panelSyl.createDiv({ cls: 'cp-schema-rimes' });
     const totalBar = panelSyl.createDiv({ cls: 'cp-total-bar' });
@@ -3613,7 +3645,9 @@ class CarnetView extends ItemView {
     (async () => {
       const data = await this.plugin.loadData();
       toggleDierese.checked = !data || data.afficheDierese !== false; // activé par défaut
-      toggleRimes.checked = !!(data && data.afficheCouleursRimes);
+      toggleRimes.checked = !data || data.afficheCouleursRimes !== false; // activé par défaut
+      toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
+      RIMES_CONTINUES = toggleContinu.checked;
       renderAnalyse();
     })();
     toggleDierese.addEventListener('change', async () => {
@@ -3625,6 +3659,13 @@ class CarnetView extends ItemView {
     toggleRimes.addEventListener('change', async () => {
       const data = (await this.plugin.loadData()) || {};
       data.afficheCouleursRimes = toggleRimes.checked;
+      await this.plugin.saveData(data);
+      renderAnalyse();
+    });
+    toggleContinu.addEventListener('change', async () => {
+      RIMES_CONTINUES = toggleContinu.checked;
+      const data = (await this.plugin.loadData()) || {};
+      data.rimesContinues = toggleContinu.checked;
       await this.plugin.saveData(data);
       renderAnalyse();
     });
@@ -4831,6 +4872,11 @@ const CARNET_CSS = `
 .cp-panel.active{ display:block; }
 .cp-textarea{ width: 100%; min-height: 160px; resize: vertical; font-family: var(--font-monospace); font-size: 0.92em; line-height: 1.8; padding: 10px 12px; border-radius: 4px; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); color: var(--text-normal); }
 .cp-toolbar{ display:flex; flex-wrap: wrap; justify-content: flex-end; align-items:center; gap: 8px 12px; margin-top: 6px; }
+.cp-toolbar-actions{ display:flex; flex-wrap: wrap; justify-content: flex-end; align-items:center; gap: 6px; margin-top: 6px; margin-bottom: 10px; }
+.cp-icon-btn{ background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 8px; height: 32px; display:inline-flex; align-items:center; gap: 6px; font-size: 1em; line-height: 1; cursor: pointer; padding: 0 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.cp-icon-btn-label{ font-size: 0.78em; color: var(--text-muted); }
+.cp-icon-btn:hover{ background: var(--background-modifier-hover); border-color: var(--text-accent); }
+.cp-icon-btn:hover .cp-icon-btn-label{ color: var(--text-normal); }
 .cp-save-state{ font-size: 0.75em; color: var(--text-faint); font-style: italic; }
 .cp-link-btn{ background:none; border:none; box-shadow:none; color: var(--text-muted); text-decoration: underline; font-size: 0.78em; cursor:pointer; padding:0; }
 .cp-link-btn:hover{ color: var(--text-accent); }
@@ -5021,6 +5067,7 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
 
     const data = await this.loadData();
     MODE_ASSONANCE = !!(data && data.modeAssonance);
+    RIMES_CONTINUES = !data || data.rimesContinues !== false; // activé par défaut
     MOTS_RARES_META = (data && data.motsRaresMeta) || {};
 
     this.registerView(VIEW_TYPE, (leaf) => new CarnetView(leaf, this));
