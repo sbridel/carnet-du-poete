@@ -370,6 +370,22 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.16.0** — Rimes tab ergonomics pass and a real filtering bug fix:
+  - **Fixed**: the rhyme-quality filters (Pauvre/Suffisante/Riche+/Très riche/Léonine) had a
+    silent edge case — unchecking every one of the 3 main checkboxes was treated internally as
+    "no filter" instead of "show nothing", and the Très riche/Léonine sub-filters could only
+    narrow *within* Riche+, never exclude the plain "riche" category on their own. Checking
+    just "Léonine", for instance, still silently showed "Suffisante" results too. The 5
+    qualities are now independent, always-applied checkboxes (Riche is no longer a parent that
+    can only be narrowed, it's just one of the five) — unchecking all of them now correctly
+    shows nothing. "Riche+" is kept as a one-click action button that checks/unchecks
+    Riche + Très riche + Léonine together, but it's no longer a piece of state itself, so it
+    can't drift out of sync with the checkboxes it acts on.
+  - The filter checkboxes, the "Toutes syllabes" dropdown, and "Mode assonance" are now
+    pill-style buttons matching the Hasard/Syllabes tabs, coloured to match each quality's
+    badge colour in the results below; "Mode assonance" moved onto the same row as "Compléter
+    en ligne", and the syllable-count dropdown got a small ▾ to signal it opens a menu.
+  - "Pauvre" is now unchecked by default (Suffisante/Riche/Très riche/Léonine still on).
 - **2.15.0** — New "Rimes continues entre strophes" toggle in the Syllabes tab: by default each
   stanza's rhyme lettering (A, B, C...) restarts at A, which meant a sonnet's tercets always
   came out as AAB/AAB instead of the conventional CCD/EED continuing on from the quatrains'

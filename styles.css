@@ -236,6 +236,11 @@
 .cp-filtre-syllabes{ font-size:0.9em; }
 .cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
 .cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
+.cp-qualite-pill{ border-color: var(--qcolor); color: var(--qcolor); }
+.cp-qualite-pill:has(input:checked){ background: var(--qcolor); border-color: var(--qcolor); color:#fff; }
+.cp-select-wrap{ position:relative; display:inline-flex; align-items:center; }
+.cp-select-wrap select{ padding-right:20px; }
+.cp-select-arrow{ position:absolute; right:8px; font-size:0.7em; color: var(--text-muted); pointer-events:none; }
 .cp-qualite{ margin-left:3px; font-weight:700; border-radius:3px; padding:0 3px; cursor:help; }
 .cp-qualite-pauvre{ color: var(--text-faint); }
 .cp-qualite-suffisante{ color: var(--text-muted); }

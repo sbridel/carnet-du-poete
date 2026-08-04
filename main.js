@@ -3071,13 +3071,6 @@ function classeRime(motA, motB){
   return classeRimeOrthographique(motA, motB);
 }
 
-/* Bucket d'affichage/filtrage regroupant très riche et léonine sous
-   "riche" pour les 3 filtres principaux de l'UI (les deux distinctions
-   plus fines restent des sous-filtres optionnels). */
-function classeRimeGroupe(q){
-  return (q === 'tresriche' || q === 'leonine') ? 'riche' : q;
-}
-
 /* Cherche des assonances pour un mot dans TOUT le dictionnaire phonétique
    (pas seulement le groupe auquel le mot appartient) : deux mots peuvent
    avoir la même voyelle porteuse sans partager la même clé externe
@@ -3175,16 +3168,13 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
         return cible === null ? n >= 5 : n === cible;
       });
     }
-    if (filtres.qualites && filtres.qualites.size > 0 && filtres.qualites.size < 3) {
-      l = l.filter(m => filtres.qualites.has(classeRimeGroupe(classeRime(saisie, m))));
-    }
-    if (filtres.sousQualites && filtres.sousQualites.size > 0) {
-      // sous-filtre optionnel : ne restreint que l'intérieur du groupe
-      // "riche+" (très riche / léonine), sans jamais exclure pauvre/suffisante
-      l = l.filter(m => {
-        const q = classeRime(saisie, m);
-        return classeRimeGroupe(q) !== 'riche' || filtres.sousQualites.has(q);
-      });
+    // 5 catégories mutuellement exclusives (pauvre/suffisante/riche/
+    // tresriche/leonine, exactement les valeurs renvoyées par classeRime).
+    // Toujours appliqué : si les 5 sont cochées c'est un no-op, si aucune
+    // ne l'est le résultat est vide à raison — plus de cas particulier
+    // "0 coché = pas de filtre".
+    if (filtres.qualites) {
+      l = l.filter(m => filtres.qualites.has(classeRime(saisie, m)));
     }
     return l;
   };
@@ -3823,41 +3813,47 @@ class CarnetView extends ItemView {
 
     const filtresDiv = panelRimes.createDiv({ cls: 'cp-filtres' });
     const lettreInput = filtresDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
-    const syllabesSelect = filtresDiv.createEl('select', { cls: 'cp-filtre-syllabes' });
+    const syllabesWrap = filtresDiv.createDiv({ cls: 'cp-select-wrap' });
+    const syllabesSelect = syllabesWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
+    syllabesWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
     [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
       .forEach(([val, label]) => syllabesSelect.createEl('option', { attr: { value: val }, text: label }));
 
     const qualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres' });
     const casesQualite = {};
-    [['pauvre','Pauvre'],['suffisante','Suffisante'],['riche','Riche+']].forEach(([id, label]) => {
-      const lbl = qualiteDiv.createEl('label', { cls: 'cp-source-toggle' });
+    // 5 cases indépendantes, toutes de vraies checkbox du DOM — seule
+    // source de vérité, jamais dupliquée ni resynchronisée à la main.
+    [['pauvre','Pauvre'],['suffisante','Suffisante'],['riche','Riche'],['tresriche','Très riche'],['leonine','Léonine']].forEach(([id, label]) => {
+      const lbl = qualiteDiv.createEl('label', { cls: 'cp-hasard-toggle-pool cp-qualite-pill' });
+      lbl.style.setProperty('--qcolor', COULEURS_QUALITE[id]);
       const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
-      c.checked = true;
+      c.checked = (id !== 'pauvre'); // pauvre décochée par défaut
       lbl.createSpan({ text: ' ' + label });
       casesQualite[id] = c;
     });
 
-    // Sous-filtres optionnels, à l'intérieur du groupe "Riche+" : décochés
-    // par défaut (aucune restriction supplémentaire tant que l'un des deux
-    // n'est pas explicitement coché).
-    const sousQualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres cp-qualite-sousfiltres' });
-    const casesSousQualite = {};
-    [['tresriche','Très riche'],['leonine','Léonine']].forEach(([id, label]) => {
-      const lbl = sousQualiteDiv.createEl('label', { cls: 'cp-source-toggle' });
-      const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
-      c.checked = false;
-      lbl.createSpan({ text: ' ' + label });
-      casesSousQualite[id] = c;
+    // "Riche+" n'est qu'un raccourci d'action (pas une case, pas un état
+    // à maintenir) : au clic, il lit l'état actuel de riche/tresriche/
+    // leonine et les coche/décoche tous les 3 ensemble. Aucune duplication
+    // d'état possible puisqu'il ne fait que lire/écrire les 3 vraies cases.
+    const btnRichePlus = filtresDiv.createEl('button', { cls: 'cp-link-btn', text: 'Riche+ (tout / rien)' });
+    btnRichePlus.setAttr('title', 'Coche ou décoche riche + très riche + léonine en une fois.');
+    btnRichePlus.addEventListener('click', () => {
+      const cible = !(casesQualite.riche.checked && casesQualite.tresriche.checked && casesQualite.leonine.checked);
+      casesQualite.riche.checked = cible;
+      casesQualite.tresriche.checked = cible;
+      casesQualite.leonine.checked = cible;
+      chercher();
     });
 
     const sourcesDiv = panelRimes.createDiv({ cls: 'cp-sources' });
     sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
-    const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-source-toggle' });
+    const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
     const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
     caseRimesSolides.createSpan({ text: ' RimesSolides' });
 
-    const modeDiv = panelRimes.createDiv({ cls: 'cp-sources' });
-    const modeLabel = modeDiv.createEl('label', { cls: 'cp-source-toggle' });
+    const modeDiv = sourcesDiv.createDiv({ cls: 'cp-qualite-sousfiltres' });
+    const modeLabel = modeDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
     const inputModeAssonance = modeLabel.createEl('input', { attr: { type: 'checkbox' } });
     modeLabel.createSpan({ text: ' Mode assonance (accepte les rimes approchées)' });
     inputModeAssonance.setAttr('title', 'Rime stricte par défaut : les résultats doivent réellement rimer. Coche pour aussi accepter les assonances (même voyelle, terminaison différente — ex. « ombre »/« montre »), affichées à part.');
@@ -3885,8 +3881,7 @@ class CarnetView extends ItemView {
     const lireFiltres = () => ({
       lettre: lettreInput.value.trim(),
       syllabes: syllabesSelect.value,
-      qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked)),
-      sousQualites: new Set(Object.keys(casesSousQualite).filter(id => casesSousQualite[id].checked))
+      qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
     });
     const sourcesActives = () => (inputRimesSolides.checked ? ['rimessolides'] : []);
 
@@ -3900,7 +3895,6 @@ class CarnetView extends ItemView {
     lettreInput.addEventListener('input', chercher);
     syllabesSelect.addEventListener('change', chercher);
     Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
-    Object.values(casesSousQualite).forEach(c => c.addEventListener('change', chercher));
     inputRimesSolides.addEventListener('change', chercher);
 
     this._prefillRimeInput = (mot) => {
@@ -4915,6 +4909,11 @@ const CARNET_CSS = `
 .cp-filtre-syllabes{ font-size:0.9em; }
 .cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
 .cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
+.cp-qualite-pill{ border-color: var(--qcolor); color: var(--qcolor); }
+.cp-qualite-pill:has(input:checked){ background: var(--qcolor); border-color: var(--qcolor); color:#fff; }
+.cp-select-wrap{ position:relative; display:inline-flex; align-items:center; }
+.cp-select-wrap select{ padding-right:20px; }
+.cp-select-arrow{ position:absolute; right:8px; font-size:0.7em; color: var(--text-muted); pointer-events:none; }
 .cp-qualite{ margin-left:3px; font-weight:700; border-radius:3px; padding:0 3px; cursor:help; }
 .cp-qualite-pauvre{ color: var(--text-faint); }
 .cp-qualite-suffisante{ color: var(--text-muted); }
