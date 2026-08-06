@@ -415,3 +415,14 @@
 
 .cp-son-sauts{ display:flex; flex-wrap:wrap; gap:6px; margin: 8px 0 10px; }
 .cp-son-sauts button{ font-size:0.78em; padding:3px 10px; }
+
+.cp-icon-flip{ display:inline-block; animation: cp-icon-flip-anim 0.6s ease; }
+@keyframes cp-icon-flip-anim{ 0%{ transform: rotateY(0deg); } 100%{ transform: rotateY(360deg); } }
+
+.cp-son-ligne-cliquable{ cursor:pointer; }
+.cp-son-ligne-cliquable:hover{ background: var(--background-modifier-hover); border-radius:6px; }
+.cp-son-ligne-active{ background: var(--background-modifier-hover); border-radius:6px; font-weight:600; }
+.cp-son-brouillon-dim{ opacity:0.3; }
+
+.cp-son-ratio{ font-size:0.72em; color: var(--text-faint); margin-left:8px; white-space:nowrap; }
+.cp-son-ratio-fort{ color: var(--text-accent); font-weight:600; }

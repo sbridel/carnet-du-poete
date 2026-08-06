@@ -370,6 +370,29 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.18.0** — Continued work on the Sonorités panel from 2.17.0:
+  - **New**: a 4th figure, "Trame phonique" (réseau consonantique) — a consonant sound that
+    recurs anywhere in a word (attack, middle, coda), not just word-initial like allitération.
+    Click a sound in its list to spotlight only its occurrences in the draft (everything else
+    dims), rather than adding a permanent 3rd highlight colour to the text.
+  - **New**: a frequency ratio ("×N.N") next to every sound in the three lists (allitérations,
+    assonances, trame phonique), comparing how often it occurs in this poem against its normal
+    frequency in French — sourced from Lexique 3 (New, 2006) via C. dos Santos' thesis (Lyon 2,
+    2007), which breaks consonant frequency down by position in the syllable. Allitération uses
+    the word-initial-position figures specifically, trame phonique the all-positions figures —
+    the two can differ a lot (e.g. /ʁ/ is 3.7% word-initial but 30.4% after a vowel), so using
+    one shared number for both would have been misleading.
+  - **Fixed** several real accuracy issues surfaced while building the above, all confirmed by
+    direct testing: an off-by-N position bug meant highlighted letters could land on the wrong
+    character for any elided word (l'/d'/qu'...); "c"/"g" followed by an *accented* e/i/y (é,
+    è, ê, ë, î, ï) wasn't softened to [s]/[ʒ] — the regex only matched plain unaccented letters,
+    so "Cérynie" was coloured as if it started with [k]; silent final consonants (the "t" in
+    "forêt", "offrant", "chantant"...) were counted as if pronounced — now skipped by default
+    except c/r/f/l ("CaReFuL"), with -er infinitives (r silent) as a further exception to that;
+    "n"/"m" absorbed into a preceding nasal vowel (démente, argentin — neither has an audible
+    [n]) were being counted as their own consonant sound; a word found in the phonetic
+    dictionary could return a consonant found *anywhere* in its transcription as if it were the
+    word-initial sound, even for vowel-initial words like "écrit" or "offrant".
 - **2.17.0** — New "Sonorités" panel in the Syllabes tab (flip the card with the button next to
   Export/Copy/Clear — now a cyan pill on the left): detects allitérations (repeated initial
   consonant sound), internal assonances (repeated vowel, not just end-of-line rhyme), and

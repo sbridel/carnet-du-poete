@@ -3186,6 +3186,12 @@ function soninitial(mot){
   if (!w) return null;
   const phon = phonetiqueMot(mot);
   if (phon) {
+    // Le mot doit VRAIMENT commencer par un son consonne — sinon la
+    // boucle ci-dessous trouvait la première consonne n'importe où dans
+    // la transcription (ex. "écrit" → « ekri » → renvoyait "k", trouvé au
+    // milieu, comme si le mot commençait par lui). Un mot qui commence
+    // par une voyelle n'a par définition aucune allitération possible.
+    if (VOYELLES_PHON.has(phon[0])) return null;
     for (const ch of phon) {
       if (!VOYELLES_PHON.has(ch) && !GLIDES_PHON.has(ch)) return CONSONNE_PHON_VERS_HEURISTIQUE[ch] || ch;
     }
@@ -3200,8 +3206,8 @@ function soninitial(mot){
   if (w2.startsWith('gn')) return 'ɲ';
   if (w2.startsWith('qu')) return 'k';
   if (w2.startsWith('gu') && estVoyelle(w2[2])) return 'g';
-  if (w2[0] === 'c') return /^[eiy]/.test(w2.slice(1)) ? 's' : 'k';
-  if (w2[0] === 'g') return /^[eiy]/.test(w2.slice(1)) ? 'ʒ' : 'g';
+  if (w2[0] === 'c') return /^[eéèêëiîïy]/.test(w2.slice(1)) ? 's' : 'k';
+  if (w2[0] === 'g') return /^[eéèêëiîïy]/.test(w2.slice(1)) ? 'ʒ' : 'g';
   return w2[0];
 }
 
@@ -3338,6 +3344,82 @@ const THEME_VOYELLE = {
   in:'cp-son-c3', an:'cp-son-c3', on:'cp-son-c3', un:'cp-son-c3', 'Nasales':'cp-son-c3'
 };
 
+/* Fréquence de référence des phonèmes dans le français courant — source
+   Lexique 3 (New, 2006 ; 135 000 mots, corpus de romans récents +
+   sous-titres de films), via les calculs de C. dos Santos (thèse Lyon 2,
+   2007) qui décompose la fréquence de chaque consonne SELON SA POSITION
+   dans la syllabe. Bien plus fiable que la première version de cette
+   table (Wioland 1985, fréquence globale toutes positions confondues,
+   sans distinction attaque/coda) — remplacée après vérification des
+   chiffres exacts (merci Alucard d'avoir retrouvé le tableau).
+   La position compte énormément pour certains sons : /ʁ/ (r) n'est qu'à
+   3,7% en attaque de mot mais 30,4% après une voyelle — une différence
+   que la version précédente ignorait complètement. D'où deux tables
+   séparées : ATTAQUE pour l'allitération (qui ne regarde QUE le début du
+   mot), TOUTES_POSITIONS pour la trame phonique (qui regarde tout le
+   mot). Sert à calculer un ratio "ce son est-il plus présent dans CE
+   poème que dans le français en général" plutôt qu'un simple compte
+   brut : un "r" très présent en fin de syllabe est presque toujours
+   normal, un "ʃ" présent dans les mêmes proportions est un vrai
+   sur-usage, beaucoup plus rare par nature.
+   - Sons exacts (consonnes) : correspondance directe et fiable.
+   - Sons exacts (voyelles) : toujours Wioland 1985 faute de mieux — ce
+     tableau-ci ne couvre que les consonnes. Nos symboles voyelles ne
+     collent pas non plus toujours 1:1 aux catégories mesurées (ex.
+     Wioland regroupe é/è/e sous un seul "E") — valeurs réparties de
+     façon raisonnable mais approximative. "un" (son rare, absent des
+     mesures courantes) est une estimation basse, pas une donnée sourcée.
+   - Familles (simplifiées/étendues) : sommes des phonèmes réels qui
+     composent chaque famille, calculées séparément pour chaque table de
+     position — aussi fiables que les sons exacts. */
+const FREQUENCE_BASE_CONSONNES_ATTAQUE = {
+  s:12.2, t:11.5, l:10.9, d:9.6, v:8.4, p:8.1, m:7.5, n:6.9, k:6.4,
+  'ʒ':6.3, r:3.7, f:3.2, b:2.1, 'ʃ':1.3, z:1.2, g:0.8, 'ɲ':0.05,
+  // Familles simplifiées
+  'Sifflantes/chuintantes':21.0, 'Occlusives':38.5, 'Liquides':14.6,
+  'Nasales':14.45, 'Fricatives':11.6,
+  // Familles étendues
+  'Occlusives sourdes':26.0, 'Occlusives sonores':12.5,
+  'Fricatives sourdes':16.7, 'Fricatives sonores':15.9
+};
+const FREQUENCE_BASE_CONSONNES_TOUTES = {
+  r:13.1, l:12.8, t:11.4, s:11.3, d:7.6, m:6.5, n:6.5, v:6.4, p:6.0,
+  k:5.8, 'ʒ':4.9, f:2.4, b:1.9, z:1.4, 'ʃ':1.2, g:0.7, 'ɲ':0.1,
+  // Familles simplifiées
+  'Sifflantes/chuintantes':18.8, 'Occlusives':33.4, 'Liquides':25.9,
+  'Nasales':13.1, 'Fricatives':8.8,
+  // Familles étendues
+  'Occlusives sourdes':23.2, 'Occlusives sonores':10.2,
+  'Fricatives sourdes':14.9, 'Fricatives sonores':12.7
+};
+const FREQUENCE_BASE_VOYELLES = {
+  a:8.55, i:5.12, 'é':6.4, e:4.2, ai:4.2, ei:4.2, y:1.9, u:1.9,
+  o:3.36, ou:2.43, eu:4.31, oi:8.55, ui:5.12,
+  an:3.09, on:2.25, in:1.84, un:0.2,
+  // Familles simplifiées
+  'Voyelles claires':17.62, 'Voyelles sombres':10.10, 'Voyelle ouverte':8.55,
+  // Familles étendues ("Nasales" partagée avec les consonnes ci-dessus
+  // n'est jamais lue depuis cette table-ci, les deux restent séparées)
+  'Voyelles fermées':12.14, 'Voyelles moyennes/ouvertes':21.05
+};
+// Les tables "Nasales" (consonnes m/n/ɲ vs voyelles an/in/on/un) sont
+// homonymes mais désignent des sons différents — jamais mélangées, la
+// bonne table est choisie selon qu'on regarde une allitération/trame
+// (consonnes) ou une assonance (voyelles), exactement comme pour les
+// couleurs (THEME_CONSONNE/THEME_VOYELLE).
+FREQUENCE_BASE_VOYELLES['Nasales'] = 3.09 + 2.25 + 1.84 + 0.2;
+
+/* Ratio d'usage par rapport à la fréquence normale du français, pour un
+   son/famille donné. `pourcentageObserve` = compte de ce son / total de
+   tous les sons de cette catégorie dans le poème (pas juste ceux qui
+   passent le seuil). Retourne null si aucune donnée de référence
+   n'existe pour ce son (jamais le cas pour nos tables, garde-fou). */
+function ratioFrequence(table, son, pourcentageObserve){
+  const base = table[son];
+  if (!base) return null;
+  return pourcentageObserve / base;
+}
+
 /* Analyse un poème entier : regroupe les mots par son initial partagé
    (allitérations) et par voyelle interne partagée (assonances). Ignore
    les mots outils si demandé, ne garde que les sons apparaissant au
@@ -3378,12 +3460,135 @@ function analyseSonorites(texteComplet, opts){
     });
   });
 
-  const versListe = (map) => Array.from(map.entries())
-    .map(([son, occurrences]) => ({ son, occurrences, count: occurrences.length }))
+  // Total tous sons confondus (avant filtrage par seuil) : nécessaire pour
+  // calculer un pourcentage d'usage réel, comparable à la fréquence de
+  // référence du français courant (voir FREQUENCE_BASE_CONSONNES/VOYELLES).
+  const totalAllit = Array.from(allit.values()).reduce((n, l) => n + l.length, 0);
+  const totalAsson = Array.from(asson.values()).reduce((n, l) => n + l.length, 0);
+
+  const versListe = (map, total, table) => Array.from(map.entries())
+    .map(([son, occurrences]) => ({
+      son, occurrences, count: occurrences.length,
+      ratio: total > 0 ? ratioFrequence(table, son, (occurrences.length / total) * 100) : null
+    }))
     .filter(e => e.count >= seuilMin)
     .sort((a, b) => b.count - a.count);
 
-  return { alliterations: versListe(allit), assonances: versListe(asson) };
+  return {
+    alliterations: versListe(allit, totalAllit, FREQUENCE_BASE_CONSONNES_ATTAQUE),
+    assonances: versListe(asson, totalAsson, FREQUENCE_BASE_VOYELLES)
+  };
+}
+
+/* Trame phonique (réseau consonantique) : un même son consonne qui
+   revient n'importe où dans le mot — attaque, milieu, coda — pas
+   seulement en début de mot comme l'allitération classique. Généralise
+   les règles de soninitial() (digraphes ch/ph/gn/qu/gu, c/g contextuels)
+   à toutes les positions plutôt qu'à la seule première lettre. Toujours
+   calculé par voie orthographique (comme pour les assonances) : seule
+   source qui donne des positions exploitables pour le surlignage. */
+// Mnémonique "CaReFuL" : en position finale de mot, ces 4 consonnes se
+// prononcent presque toujours ; les autres (b, d, g, p, q, s, t, x, z...)
+// sont muettes par défaut en finale. Beaucoup d'exceptions existent des
+// deux côtés (net, ouest, fils, plus...) — non couvertes, heuristique
+// volontairement simple comme le reste du plugin.
+const CONSONNES_FINALES_PRONONCEES = new Set(['c', 'r', 'f', 'l']);
+// Cas particulier fréquent qui inverse la règle CaReFuL pour "r" : les
+// infinitifs et noms en "-er" ont un r muet (parler, boulanger, léger),
+// contrairement à la plupart des autres mots finissant en "-er" (mer,
+// cher, fer, hiver, fier...) — liste d'exceptions courtes qui gardent le
+// r prononcé malgré la terminaison "-er".
+const EXCEPTIONS_ER_R_PRONONCE = new Set([
+  'mer','cher','fer','fier','hier','hiver','ver','enfer','éther','cancer',
+  'super','revolver','amer'
+]);
+
+function consonnesInternesMot(mot){
+  const brut = nettoieMot(mot);
+  const prefixe = brut.match(/^[ldtsqcnm]'/);
+  const decalage = prefixe ? prefixe[0].length : 0; // pour renvoyer des positions relatives à `brut` (ce que l'appelant attend), pas à la version tronquée de l'élision
+  const w = brut.slice(decalage);
+  if (!w) return [];
+  const resultats = [];
+  let i = 0;
+  while (i < w.length) {
+    const ch = w[i];
+    if (ch === "'" || ch === 'h' || estVoyelle(ch)) { i++; continue; }
+
+    // n/m après une voyelle, non doublé et non suivi d'une autre voyelle :
+    // absorbé dans la voyelle nasale précédente (an, in, on, un...), donc
+    // pas un vrai son consonne à part entière — même règle que celle déjà
+    // utilisée côté assonances (normaliseGroupeInterne) pour ne pas
+    // compter deux fois le même phénomène. "couronne" (nn doublé) garde
+    // bien son n prononcé ; "argentin" n'en a aucun (les deux nasalisent).
+    if ((ch === 'n' || ch === 'm') && i > 0 && estVoyelle(w[i - 1])) {
+      const nasalise = /^[mn](?![mnaeiouyàâäéèêëîïôöùûüÿœ])/.test(w.slice(i));
+      if (nasalise) { i++; continue; }
+    }
+
+    const suite = w.slice(i);
+    let son, longueur;
+    if (suite.startsWith('ch')) { son = 'ʃ'; longueur = 2; }
+    else if (suite.startsWith('ph')) { son = 'f'; longueur = 2; }
+    else if (suite.startsWith('gn')) { son = 'ɲ'; longueur = 2; }
+    else if (suite.startsWith('qu')) { son = 'k'; longueur = 2; }
+    else if (suite.startsWith('gu') && estVoyelle(w[i + 2])) { son = 'g'; longueur = 2; }
+    else if (ch === 'c') { son = /^[eéèêëiîïy]/.test(w.slice(i + 1)) ? 's' : 'k'; longueur = 1; }
+    else if (ch === 'g') { son = /^[eéèêëiîïy]/.test(w.slice(i + 1)) ? 'ʒ' : 'g'; longueur = 1; }
+    else { son = ch; longueur = 1; }
+
+    const finAbs = i + longueur;
+    const estFinaleMot = finAbs === w.length;
+    // "-er" final : r muet par défaut (infinitifs/noms en -er), sauf la
+    // courte liste d'exceptions ci-dessus qui le garde prononcé.
+    const finEnEr = ch === 'r' && estFinaleMot && i > 0 && w[i - 1] === 'e';
+    const rExceptionPrononce = finEnEr && EXCEPTIONS_ER_R_PRONONCE.has(w);
+    const muette = estFinaleMot && (
+      finEnEr ? !rExceptionPrononce : !CONSONNES_FINALES_PRONONCEES.has(ch)
+    );
+
+    if (!muette) resultats.push({ son, debut: decalage + i, fin: decalage + finAbs });
+    i += longueur;
+  }
+  return resultats;
+}
+
+/* Analyse un poème entier pour la trame phonique. Compte TOUTES les
+   occurrences d'un son (attaque comprise) — contrairement à
+   l'allitération, qui reste une figure à part entière centrée sur la
+   seule position initiale. Même regroupement par familles que pour les
+   allitérations (mêmes tables, mêmes sons). */
+function analyseTramePhonique(texteComplet, opts){
+  const exclureMotsOutils = !opts || opts.exclureMotsOutils !== false;
+  const seuilMin = (opts && opts.seuilMin) || 2;
+  const famillesConsonnes = opts && opts.famillesConsonnes;
+  const lignes = (texteComplet || '').split('\n');
+  const parSon = new Map();
+
+  lignes.forEach((ligne, idxLigne) => {
+    const mots = ligne.split(/\s+/).filter(Boolean);
+    mots.forEach(motBrut => {
+      const mot = nettoieMot(motBrut);
+      if (!mot || (exclureMotsOutils && MOTS_OUTILS.has(mot))) return;
+      const vus = new Set(); // un mot ne compte qu'une fois par son, même répété dedans
+      consonnesInternesMot(mot).forEach(occ => {
+        const cle = famillesConsonnes ? (famillesConsonnes[occ.son] || occ.son) : occ.son;
+        if (vus.has(cle)) return;
+        vus.add(cle);
+        if (!parSon.has(cle)) parSon.set(cle, []);
+        parSon.get(cle).push({ mot, ligne: idxLigne + 1 });
+      });
+    });
+  });
+
+  const total = Array.from(parSon.values()).reduce((n, l) => n + l.length, 0);
+  return Array.from(parSon.entries())
+    .map(([son, occurrences]) => ({
+      son, occurrences, count: occurrences.length,
+      ratio: total > 0 ? ratioFrequence(FREQUENCE_BASE_CONSONNES_TOUTES, son, (occurrences.length / total) * 100) : null
+    }))
+    .filter(e => e.count >= seuilMin)
+    .sort((a, b) => b.count - a.count);
 }
 
 /* Homéotéleutes : finales de mots proches, n'importe où dans le vers —
@@ -3883,8 +4088,8 @@ class CarnetView extends ItemView {
   buildPanelSyllabes(panelSyl){
     const actionsBar = panelSyl.createDiv({ cls: 'cp-toolbar-actions' });
     const btnFlip = actionsBar.createEl('button', { cls: 'cp-icon-btn cp-icon-btn-pill cp-icon-btn-cyan' });
-    btnFlip.createSpan({ text: '🔄' });
-    btnFlip.createSpan({ cls: 'cp-icon-btn-label', text: 'Sonorités' });
+    const btnFlipIcone = btnFlip.createSpan({ text: '🔄' });
+    const btnFlipLabel = btnFlip.createSpan({ cls: 'cp-icon-btn-label', text: 'Sonorités' });
     btnFlip.setAttr('title', 'Retourner le volet pour voir les motifs sonores (allitérations, assonances internes)');
     btnFlip.setAttr('aria-label', 'Voir les sonorités');
     const saveState = actionsBar.createEl('span', { cls: 'cp-save-state' });
@@ -3963,7 +4168,7 @@ class CarnetView extends ItemView {
         sectionTitreEls[titre] && sectionTitreEls[titre].scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     };
-    ['Allitérations', 'Assonances internes', 'Homéotéleutes'].forEach(titre => {
+    ['Allitérations', 'Assonances internes', 'Trame phonique', 'Homéotéleutes'].forEach(titre => {
       const btn = sonSautsDiv.createEl('button', { cls: 'cp-hasard-toggle-pool', text: titre.replace(' internes', '') });
       btn.addEventListener('click', (e) => { e.preventDefault(); sauteVers(titre); });
     });
@@ -3971,6 +4176,7 @@ class CarnetView extends ItemView {
 
     const PALETTE_SON = ['cp-son-c1','cp-son-c2','cp-son-c3','cp-son-c4','cp-son-c5','cp-son-c6','cp-son-c7'];
     const couleurParSon = new Map(); // repli dynamique, seulement pour les homéotéleutes (terminaisons arbitraires, hors thème fixe)
+    let spotlightSon = null; // son actif en mode "Trame phonique" (clic pour isoler ses occurrences dans le brouillon)
     const coloreSon = (titre, son) => {
       const table = titre === 'Allitérations' ? THEME_CONSONNE : titre.startsWith('Assonances') ? THEME_VOYELLE : null;
       if (table && table[son]) return table[son];
@@ -4006,7 +4212,7 @@ class CarnetView extends ItemView {
         : resultat;
 
       sonListeDiv.empty();
-      const rendSection = (titre, sousTitre, liste, estFamille) => {
+      const rendSection = (titre, sousTitre, liste, estFamille, onClicEntree) => {
         if (estFamille === undefined) estFamille = parFamilles;
         const h4 = sonListeDiv.createEl('h4', { text: titre });
         sectionTitreEls[titre] = h4;
@@ -4028,10 +4234,40 @@ class CarnetView extends ItemView {
           const prefixe = estFamille ? entree.son + ' — ' : '';
           ligne.createSpan({ cls: 'cp-son-mots', text: prefixe + motsUniques.join(', ') + ' — vers ' + lignesUniques.join(', ') });
           ligne.createSpan({ cls: 'cp-son-count', text: entree.count + ' mots' });
+          if (entree.ratio != null) {
+            const ratioSpan = ligne.createSpan({ cls: 'cp-son-ratio' + (entree.ratio >= 1.5 ? ' cp-son-ratio-fort' : '') });
+            ratioSpan.setText('×' + entree.ratio.toFixed(1));
+            // Deux sources différentes selon la nature du son : les
+            // consonnes (allitérations/trame) viennent de Lexique 3, les
+            // voyelles (assonances) sont toujours sur Wioland 1985 faute
+            // de mieux — jamais mélanger les deux dans la citation.
+            const source = titre.startsWith('Assonances')
+              ? 'étude Wioland, 1985 — la plus récente dont j\'ai pu vérifier les chiffres exacts ; la fréquence des phonèmes évolue très lentement, donc ce classement reste fiable malgré l\'âge de l\'étude'
+              : 'Lexique 3, New 2006, via les calculs de C. dos Santos — thèse Lyon 2, 2007 ; en tenant compte de la position dans le mot';
+            ratioSpan.setAttr('title', `Ce son revient ${entree.ratio.toFixed(1)}× plus souvent dans ce poème que dans le français courant en moyenne (référence : ${source}).`);
+          }
+          if (onClicEntree) {
+            ligne.addClass('cp-son-ligne-cliquable');
+            ligne.setAttr('title', 'Clique pour isoler ce son dans le brouillon ci-dessus.');
+            if (entree.son === spotlightSon) ligne.addClass('cp-son-ligne-active');
+            ligne.addEventListener('click', () => onClicEntree(entree.son));
+          }
         });
       };
       rendSection('Allitérations', 'Son répété en début de mot', resultat.alliterations);
       rendSection('Assonances internes', 'Voyelle qui revient dans le corps des mots, hors rimes finales', resultat.assonances);
+      const trame = analyseTramePhonique(texte, { exclureMotsOutils: toggleMotsOutils.checked, seuilMin: parseInt(seuilInput.value, 10) || 3, famillesConsonnes });
+      rendSection('Trame phonique', 'Réseau consonantique — un même son revient partout dans le mot (attaque, milieu, coda), pas seulement au début. Clique un son pour l\'isoler dans le brouillon.', trame, undefined, (son) => {
+        spotlightSon = spotlightSon === son ? null : son;
+        renderSonorites();
+        syncFlipHeight();
+        // Remonte directement au début du brouillon surligné, plutôt que
+        // de laisser l'utilisateur scroller à la main depuis la liste
+        // (souvent plus bas dans le volet, voire dans le détail replié).
+        if (spotlightSon) {
+          requestAnimationFrame(() => sonBrouillonDiv.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        }
+      });
       const homeoteleutes = analyseHomeoteleutes(texte, toggleMotsOutils.checked);
       rendSection('Homéotéleutes', 'Finales proches hors rime — au moins un mot en milieu de vers, sinon c\'est déjà ta rime de fin de vers', homeoteleutes, false);
 
@@ -4073,9 +4309,34 @@ class CarnetView extends ItemView {
           if (!fragment.trim()) { ligneEl.createSpan({ text: fragment }); return; }
           const mot = nettoieMot(fragment);
           if (!mot || (toggleMotsOutils.checked && MOTS_OUTILS.has(mot))) {
-            ligneEl.createSpan({ text: fragment });
+            ligneEl.createSpan({ cls: spotlightSon ? 'cp-son-brouillon-dim' : '', text: fragment });
             return;
           }
+
+          // Mode spotlight (clic sur un son de la Trame phonique) : on
+          // n'affiche QUE ce son-là, partout où il tombe dans le mot ; le
+          // reste du texte est grisé. Remplace entièrement le rendu
+          // allitération/assonance habituel pendant que le spotlight est
+          // actif, pour ne jamais mélanger les deux logiques de surlignage.
+          if (spotlightSon) {
+            const cleTrameMot = (son) => famillesConsonnes ? (famillesConsonnes[son] || son) : son;
+            const occsSpot = consonnesInternesMot(mot).filter(o => cleTrameMot(o.son) === spotlightSon);
+            const offsetSpot = fragment.toLowerCase().indexOf(mot);
+            if (occsSpot.length === 0 || offsetSpot < 0) {
+              ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment });
+              return;
+            }
+            let curseurSpot = 0;
+            occsSpot.forEach(o => {
+              const debutAbs = offsetSpot + o.debut, finAbs = offsetSpot + o.fin;
+              if (debutAbs > curseurSpot) ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment.slice(curseurSpot, debutAbs) });
+              ligneEl.createSpan({ cls: 'cp-son-surligne-init ' + coloreSon('Trame phonique', spotlightSon), text: fragment.slice(debutAbs, finAbs) });
+              curseurSpot = finAbs;
+            });
+            if (curseurSpot < fragment.length) ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment.slice(curseurSpot) });
+            return;
+          }
+
           const si = soninitial(mot);
           const alliRetenue = si && resultatSurlignage.alliterations.some(e => e.son === cleAllit(si));
           const groupes = groupesVoyellesMot(mot);
@@ -4121,8 +4382,18 @@ class CarnetView extends ItemView {
 
     btnFlip.addEventListener('click', () => {
       flipZone.classList.toggle('flipped');
-      if (flipZone.classList.contains('flipped')) renderSonorites();
+      const surLaFaceArriere = flipZone.classList.contains('flipped');
+      if (surLaFaceArriere) renderSonorites();
       syncFlipHeight();
+      // Le libellé annonce la destination, pas la face actuelle : "Sonorités"
+      // pour y aller, "Structure" pour revenir aux syllabes/schéma de rimes.
+      btnFlipLabel.setText(surLaFaceArriere ? 'Structure' : 'Sonorités');
+      btnFlip.setAttr('title', surLaFaceArriere
+        ? 'Retourner le volet pour revenir aux syllabes et au schéma de rimes'
+        : 'Retourner le volet pour voir les motifs sonores (allitérations, assonances internes)');
+      // Le bouton lui-même fait un petit flip, en écho à la carte.
+      btnFlipIcone.addClass('cp-icon-flip');
+      setTimeout(() => btnFlipIcone.removeClass('cp-icon-flip'), 600);
     });
     toggleMotsOutils.checked = true;
     modeSonSelect.value = 'simple';
@@ -4696,15 +4967,16 @@ class CarnetView extends ItemView {
           { titre:'Rime normande ou approximative', texte:'certains poètes jouent volontairement avec des rimes approchantes (assonances) plutôt que des rimes strictes, notamment en poésie moderne et en chanson.' }
         ]);
       }},
-      { id:'sonorites', titre:'Les sonorités : allitérations, assonances, homéotéleutes', build:(c) => {
+      { id:'sonorites', titre:'Les sonorités : allitérations, assonances, trame phonique, homéotéleutes', build:(c) => {
         para(c, 'Contrairement à la rime, qui ne concerne que la fin du vers, les sonorités sont des échos de son qui courent dans le corps des mots, n\'importe où dans le vers ou d\'un vers à l\'autre.');
         liste(c, [
           { titre:'Allitération', texte:'répétition d\'un même son consonne en début de mots rapprochés — ex. « Pour qui sont ces serpents qui sifflent sur vos têtes » (Racine), tissé de [s].' },
           { titre:'Assonance', texte:'répétition d\'une même voyelle à l\'intérieur de plusieurs mots proches, indépendamment de la rime finale — à ne pas confondre avec une « rime par assonance » (voir la nuance « Rime normande » ci-dessus), qui elle concerne la fin du vers.' },
+          { titre:'Trame phonique (réseau consonantique)', texte:'un même son consonne qui revient dans un mot quelle que soit sa position — attaque, milieu ou fin —, pas seulement en début de mot comme l\'allitération classique. Une consonne qui « arme » discrètement tout un passage, même quand elle n\'est jamais en tête de mot.' },
           { titre:'Homéotéleute', texte:'répétition d\'une finale de mot proche, ailleurs que la rime de fin de vers — un mot en milieu de vers qui fait écho à une terminaison utilisée ailleurs dans le poème.' }
         ]);
-        para(c, 'L\'onglet Syllabes propose un volet dédié (bouton Sonorités, sous le brouillon) qui détecte ces échos automatiquement : liste par son avec ses occurrences, et surlignage directement dans le texte pour les deux premières. Les homéotéleutes n\'apparaissent que dans la liste (pas de surlignage dans le brouillon pour l\'instant, pour ne pas surcharger le texte d\'un 3e code couleur) — et seulement quand au moins un des mots concernés est en milieu de vers, sinon ce ne serait qu\'une redite du schéma de rimes déjà affiché.');
-        para(c, 'Trois niveaux de regroupement, au choix, dans ce volet (pour les allitérations et assonances ; les homéotéleutes restent toujours sur leur terminaison exacte) :');
+        para(c, 'L\'onglet Syllabes propose un volet dédié (bouton Sonorités, sous le brouillon) qui détecte ces échos automatiquement : liste par son avec ses occurrences, et surlignage directement dans le texte pour les allitérations et assonances. La trame phonique reste en liste (cliquer un son l\'isole dans le brouillon et grise le reste, plutôt qu\'un 3e code couleur permanent) ; les homéotéleutes n\'apparaissent qu\'en liste — et seulement quand au moins un des mots concernés est en milieu de vers, sinon ce ne serait qu\'une redite du schéma de rimes déjà affiché.');
+        para(c, 'Trois niveaux de regroupement, au choix, dans ce volet (pour les allitérations, la trame phonique et les assonances ; les homéotéleutes restent toujours sur leur terminaison exacte) :');
         liste(c, [
           { titre:'Sons exacts', texte:'chaque symbole phonétique distinct a sa propre couleur (ex. [s] et [ʃ] séparés) — le plus précis, mais potentiellement beaucoup de couleurs sur un poème riche en sonorités.' },
           { titre:'Familles simplifiées', texte:'peu de groupes, pour repérer un motif d\'ensemble d\'un coup d\'œil. Consonnes : Sifflantes/chuintantes (s, ʃ, ʒ, z) · Occlusives (p, t, k, b, d, g) · Liquides (l, r) · Nasales (m, n, ɲ) · Fricatives (f, v). Voyelles : Voyelles claires (i, y, é, e, ai, ei) · Voyelles sombres (u, o, ou, eu) · Voyelle ouverte (a) · Nasales (in, an, on, un).' },
@@ -5427,6 +5699,8 @@ const CARNET_CSS = `
 .cp-icon-btn-cyan{ color: #2aa198; border-color: #2aa198; background: rgba(42,161,152,0.1); }
 .cp-icon-btn-cyan .cp-icon-btn-label{ color: #2aa198; }
 .cp-icon-btn-cyan:hover{ background: rgba(42,161,152,0.18); }
+.cp-icon-flip{ display:inline-block; animation: cp-icon-flip-anim 0.6s ease; }
+@keyframes cp-icon-flip-anim{ 0%{ transform: rotateY(0deg); } 100%{ transform: rotateY(360deg); } }
 .cp-son-mode-select{ font-size:0.85em; }
 .cp-save-state{ font-size: 0.75em; color: var(--text-faint); font-style: italic; }
 .cp-link-btn{ background:none; border:none; box-shadow:none; color: var(--text-muted); text-decoration: underline; font-size: 0.78em; cursor:pointer; padding:0; }
@@ -5611,6 +5885,12 @@ const CARNET_CSS = `
 .cp-son-liste-details{ margin-top:10px; }
 .cp-son-liste-details summary{ cursor:pointer; font-size:0.85em; color: var(--text-muted); }
 .cp-son-liste-details .cp-son-liste{ margin-top:10px; }
+.cp-son-ligne-cliquable{ cursor:pointer; }
+.cp-son-ligne-cliquable:hover{ background: var(--background-modifier-hover); border-radius:6px; }
+.cp-son-ligne-active{ background: var(--background-modifier-hover); border-radius:6px; font-weight:600; }
+.cp-son-brouillon-dim{ opacity:0.3; }
+.cp-son-ratio{ font-size:0.72em; color: var(--text-faint); margin-left:8px; white-space:nowrap; }
+.cp-son-ratio-fort{ color: var(--text-accent); font-weight:600; }
 .cp-son-sauts{ display:flex; flex-wrap:wrap; gap:6px; margin: 8px 0 10px; }
 .cp-son-sauts button{ font-size:0.78em; padding:3px 10px; }
 .cp-hasard-exclus, .cp-hasard-ajout{ margin-top:16px; font-size:0.85em; color: var(--text-muted); }
