@@ -3145,6 +3145,279 @@ function badgeQualite(badgeMot, mot, saisie){
   return q;
 }
 
+/* =========================================================
+   MOTEUR D'ANALYSE SONORE (allitérations / assonances internes)
+   ========================================================= */
+
+const MOTS_OUTILS = new Set([
+  'le','la','les','un','une','des','du','de','au','aux','ce','ces','cet','cette',
+  'je','tu','il','elle','on','nous','vous','ils','elles','me','te','se','lui','leur',
+  'mon','ma','mes','ton','ta','tes','son','sa','ses','notre','votre','leurs',
+  'et','ou','mais','donc','or','ni','car','que','qui','quoi','dont',
+  'à','en','dans','sur','sous','par','pour','avec','sans','vers','chez','entre',
+  'ne','pas','plus','y','si','est','sont'
+]);
+
+// Combien de lettres orthographiques correspondent au son consonantique
+// initial, pour savoir quoi souligner dans le brouillon (indépendant de
+// la source du son lui-même — dico ou heuristique).
+function longueurSonInitial(mot){
+  const w = nettoieMot(mot).replace(/^[l dtsqcnm]'/, ''); // retire une élision (l'humus → humus)
+  const digraphes = ['ch','ph','gn','qu','gu'];
+  for (const d of digraphes) if (w.startsWith(d)) return d.length;
+  return 1;
+}
+
+/* Alphabet du dictionnaire phonétique (type X-SAMPA) → symboles utilisés
+   par le repli heuristique et les tables de familles/thèmes. Sans ce
+   passage, un mot trouvé dans le dico (ex. transcrit avec R/S/Z/J
+   majuscules) formait sa propre "famille" à un seul membre au lieu de
+   rejoindre r/ʃ/ʒ/ɲ — visible dans la légende comme un symbole isolé à
+   côté des vrais noms de familles. */
+const CONSONNE_PHON_VERS_HEURISTIQUE = { R:'r', S:'ʃ', Z:'ʒ', J:'ɲ' };
+
+/* Son initial d'un mot (pour allitérations). Mode dico prioritaire via
+   phonetiqueMot (transcription complète déjà utilisée pour le e muet),
+   repli sur une petite table orthographique sinon. Ignore les mots
+   commençant par une voyelle (pas d'allitération consonantique claire) et
+   le h muet. */
+function soninitial(mot){
+  const w = nettoieMot(mot).replace(/^[ldtsqcnm]'/, '');
+  if (!w) return null;
+  const phon = phonetiqueMot(mot);
+  if (phon) {
+    for (const ch of phon) {
+      if (!VOYELLES_PHON.has(ch) && !GLIDES_PHON.has(ch)) return CONSONNE_PHON_VERS_HEURISTIQUE[ch] || ch;
+    }
+    return null; // transcription entière en voyelles/semi-consonnes
+  }
+  let w2 = w;
+  if (w2[0] === 'h') w2 = w2.slice(1); // h muet, le plus souvent
+  if (!w2) return null;
+  if (estVoyelle(w2[0])) return null;
+  if (w2.startsWith('ch')) return 'ʃ';
+  if (w2.startsWith('ph')) return 'f';
+  if (w2.startsWith('gn')) return 'ɲ';
+  if (w2.startsWith('qu')) return 'k';
+  if (w2.startsWith('gu') && estVoyelle(w2[2])) return 'g';
+  if (w2[0] === 'c') return /^[eiy]/.test(w2.slice(1)) ? 's' : 'k';
+  if (w2[0] === 'g') return /^[eiy]/.test(w2.slice(1)) ? 'ʒ' : 'g';
+  return w2[0];
+}
+
+// Normalise un groupe de voyelles interne à un mot, en tenant compte du
+// contexte (dernier groupe ? nasalisation ?) — contrairement à la version
+// précédente, purement textuelle, qui confondait par exemple "chien"
+// (nasal [j̃ɛ̃]) avec "miel"/"dernier" (non nasal [jɛ]), et le "-ie" final
+// de "poésie"/"cérynie" (i réel + e muet) avec le "ie" glissant de
+// "miel" (semi-consonne + e).
+function normaliseGroupeInterne(w, g, estDernier){
+  let texte = g.texte;
+
+  // "-ie" final après une consonne (poésie, cérynie, vie...) : le e est
+  // muet, seul le "i" est réellement prononcé — à distinguer du "ie"
+  // glissant de "miel"/"dernier" (semi-consonne + e), traité plus bas.
+  if (estDernier && g.fin === w.length && texte.length > 1 && texte.endsWith('e')) {
+    texte = texte.slice(0, -1);
+  } else if (estDernier && texte === 'e' && g.fin === w.length) {
+    return null; // e muet seul (tombe, orage...) : rien à garder
+  }
+
+  // Nasalisation : un m/n juste après ce groupe, non suivi d'une voyelle
+  // (ni d'un autre m/n), nasalise la voyelle. Vérifié sur le texte BRUT
+  // (avant de retirer la semi-consonne i/y ci-dessous), car "ien"/"yen"
+  // (chien, bien, moyen...) est une exception connue : toujours [j̃ɛ̃],
+  // jamais la famille "an" qu'on attendrait d'un "en" nasalisé isolé.
+  const suite = w.slice(g.fin);
+  const nasalise = /^[mn](?![mnaeiouyàâäéèêëîïôöùûüÿœ])/.test(suite);
+  if (nasalise) {
+    if (/^[iy]en?$/.test(texte)) texte = 'in'; // chien, bien, moyen — exception
+    else {
+      const NASAL_MAP = { a:'an', e:'an', ai:'in', ei:'in', i:'in', y:'in', o:'on', u:'un' };
+      if (NASAL_MAP[texte]) texte = NASAL_MAP[texte];
+    }
+  }
+
+  // Semi-consonne i/y en attaque devant une autre voyelle du même groupe
+  // (chien, miel, pierre...) : ce n'est pas la voyelle porteuse du son.
+  texte = texte.replace(/^[iy](?=[aeiouyàâäéèêëîïôöùûüÿœ])/, '');
+  if (!texte) return null;
+
+  // Équivalences sans condition de position (toujours vraies, qu'on soit
+  // en fin de mot ou non). "eau"/"au" se prononcent [o] de façon fiable
+  // quelle que soit la position (contrairement au "o" seul, qui peut être
+  // ouvert ou fermé selon le mot) — contrairement aux autres règles de
+  // normaliseSonsFinal, celle-ci ne dépend pas de ce qui suit.
+  texte = texte
+    .replace(/î/g, 'i').replace(/â/g, 'a').replace(/û/g, 'u')
+    .replace(/^œu/, 'eu').replace(/^oeu/, 'eu')
+    .replace(/^ê/, 'e').replace(/^è/, 'e')
+    .replace(/^eau/, 'o').replace(/^au/, 'o');
+  return texte || null;
+}
+
+/* Tous les groupes de voyelles d'un mot, normalisés pour repérer les
+   échos internes (assonances). Toujours calculé par voie orthographique
+   (trouveGroupesAvecPositions) : c'est la seule source qui donne des
+   positions exploitables pour le surlignage dans le brouillon — le dico
+   phonétique n'offre qu'une chaîne à plat, sans correspondance fiable
+   avec les lettres d'origine. */
+function groupesVoyellesMot(mot){
+  const w = nettoieMot(mot);
+  const groupes = trouveGroupesAvecPositions(w);
+  return groupes
+    .map((g, idx) => {
+      const son = normaliseGroupeInterne(w, g, idx === groupes.length - 1);
+      return son ? { son, debut: g.debut, fin: g.fin } : null;
+    })
+    .filter(Boolean);
+}
+
+/* Regroupement optionnel par familles de sons, pour réduire le nombre de
+   couleurs distinctes à l'écran. Deux logiques différentes : les
+   consonnes (allitérations) se regroupent par mode d'articulation, les
+   voyelles (assonances) par timbre. Un son non couvert par la table
+   reste affiché sous son symbole exact (pas de perte silencieuse).
+   Deux granularités : "simplifiée" (peu de familles, priorité à la
+   lisibilité) et "étendue" (classification phonétique plus complète —
+   sourdes/sonores séparées pour les consonnes notamment — au prix de
+   davantage de couleurs). */
+const FAMILLES_CONSONNES_SIMPLE = {
+  s:'Sifflantes/chuintantes', 'ʃ':'Sifflantes/chuintantes', 'ʒ':'Sifflantes/chuintantes', z:'Sifflantes/chuintantes',
+  p:'Occlusives', t:'Occlusives', k:'Occlusives', b:'Occlusives', d:'Occlusives', g:'Occlusives',
+  l:'Liquides', r:'Liquides',
+  m:'Nasales', n:'Nasales', 'ɲ':'Nasales',
+  f:'Fricatives', v:'Fricatives'
+};
+const FAMILLES_VOYELLES_SIMPLE = {
+  i:'Voyelles claires', y:'Voyelles claires', 'é':'Voyelles claires', e:'Voyelles claires', ai:'Voyelles claires', ei:'Voyelles claires', ui:'Voyelles claires',
+  u:'Voyelles sombres', o:'Voyelles sombres', ou:'Voyelles sombres', eu:'Voyelles sombres',
+  a:'Voyelle ouverte', oi:'Voyelle ouverte',
+  in:'Nasales', an:'Nasales', on:'Nasales', un:'Nasales'
+};
+const FAMILLES_CONSONNES_ETENDU = {
+  p:'Occlusives sourdes', t:'Occlusives sourdes', k:'Occlusives sourdes',
+  b:'Occlusives sonores', d:'Occlusives sonores', g:'Occlusives sonores',
+  f:'Fricatives sourdes', s:'Fricatives sourdes', 'ʃ':'Fricatives sourdes',
+  v:'Fricatives sonores', z:'Fricatives sonores', 'ʒ':'Fricatives sonores',
+  m:'Nasales', n:'Nasales', 'ɲ':'Nasales',
+  l:'Liquides', r:'Liquides'
+};
+const FAMILLES_VOYELLES_ETENDU = {
+  i:'Voyelles fermées', y:'Voyelles fermées', u:'Voyelles fermées', ou:'Voyelles fermées', ui:'Voyelles fermées',
+  e:'Voyelles moyennes/ouvertes', 'é':'Voyelles moyennes/ouvertes', ai:'Voyelles moyennes/ouvertes', ei:'Voyelles moyennes/ouvertes', o:'Voyelles moyennes/ouvertes', eu:'Voyelles moyennes/ouvertes', a:'Voyelles moyennes/ouvertes', oi:'Voyelles moyennes/ouvertes',
+  in:'Nasales', an:'Nasales', on:'Nasales', un:'Nasales'
+};
+
+/* Couleur fixe par thème plutôt que par ordre d'apparition : "Occlusives"
+   (familles simplifiées) et "Occlusives sourdes" (familles étendues)
+   doivent rester dans la même teinte, puisque c'est le même thème vu à
+   deux granularités — sinon la différence entre les deux modes n'est
+   visible que dans les libellés, jamais dans le surlignage lui-même.
+   Deux tables séparées (consonnes / voyelles) : "Nasales" désigne un
+   thème différent selon le cas et ne doit pas partager sa couleur. */
+const THEME_CONSONNE = {
+  p:'cp-son-c1', t:'cp-son-c1', k:'cp-son-c1', 'Occlusives':'cp-son-c1', 'Occlusives sourdes':'cp-son-c1',
+  b:'cp-son-c2', d:'cp-son-c2', g:'cp-son-c2', 'Occlusives sonores':'cp-son-c2',
+  s:'cp-son-c3', 'ʃ':'cp-son-c3', f:'cp-son-c3', 'Sifflantes/chuintantes':'cp-son-c3', 'Fricatives sourdes':'cp-son-c3',
+  z:'cp-son-c4', 'ʒ':'cp-son-c4', v:'cp-son-c4', 'Fricatives':'cp-son-c4', 'Fricatives sonores':'cp-son-c4',
+  m:'cp-son-c5', n:'cp-son-c5', 'ɲ':'cp-son-c5', 'Nasales':'cp-son-c5',
+  l:'cp-son-c6', r:'cp-son-c6', 'Liquides':'cp-son-c6',
+  // Le mode dico (transcription complète, alphabet type X-SAMPA) peut
+  // renvoyer des symboles différents de ceux du repli heuristique pour un
+  // même son : R (majuscule) = r français, S = ʃ, Z = ʒ, J = ɲ. Sans ce
+  // mapping ils tombaient hors table et redevenaient leur propre
+  // "famille" à un seul membre (bug visible dans la légende : "S" et "R"
+  // affichés à côté de "Occlusives"/"Liquides").
+  R:'cp-son-c6', S:'cp-son-c3', Z:'cp-son-c4', J:'cp-son-c5'
+};
+const THEME_VOYELLE = {
+  i:'cp-son-c1', y:'cp-son-c1', 'é':'cp-son-c1', e:'cp-son-c1', ai:'cp-son-c1', ei:'cp-son-c1', ui:'cp-son-c1', 'Voyelles claires':'cp-son-c1', 'Voyelles fermées':'cp-son-c1',
+  u:'cp-son-c2', o:'cp-son-c2', ou:'cp-son-c2', eu:'cp-son-c2', 'Voyelles sombres':'cp-son-c2', 'Voyelles moyennes/ouvertes':'cp-son-c2',
+  a:'cp-son-c7', oi:'cp-son-c7', 'Voyelle ouverte':'cp-son-c7',
+  in:'cp-son-c3', an:'cp-son-c3', on:'cp-son-c3', un:'cp-son-c3', 'Nasales':'cp-son-c3'
+};
+
+/* Analyse un poème entier : regroupe les mots par son initial partagé
+   (allitérations) et par voyelle interne partagée (assonances). Ignore
+   les mots outils si demandé, ne garde que les sons apparaissant au
+   moins `seuilMin` fois. Si `famillesConsonnes`/`famillesVoyelles` sont
+   fournies, regroupe par famille plutôt que par son exact. */
+function analyseSonorites(texteComplet, opts){
+  const exclureMotsOutils = !opts || opts.exclureMotsOutils !== false;
+  const seuilMin = (opts && opts.seuilMin) || 2;
+  const famillesConsonnes = opts && opts.famillesConsonnes;
+  const famillesVoyelles = opts && opts.famillesVoyelles;
+  const lignes = (texteComplet || '').split('\n');
+
+  const allit = new Map(); // clé (son ou famille) -> [{mot, ligne}]
+  const asson = new Map();
+
+  lignes.forEach((ligne, idxLigne) => {
+    const mots = ligne.split(/\s+/).filter(Boolean);
+    mots.forEach(motBrut => {
+      const mot = nettoieMot(motBrut);
+      if (!mot) return;
+      if (exclureMotsOutils && MOTS_OUTILS.has(mot)) return;
+
+      const si = soninitial(mot);
+      if (si) {
+        const cle = famillesConsonnes ? (famillesConsonnes[si] || si) : si;
+        if (!allit.has(cle)) allit.set(cle, []);
+        allit.get(cle).push({ mot, ligne: idxLigne + 1 });
+      }
+
+      const vus = new Set(); // un même mot ne compte qu'une fois par son, même répété dedans
+      groupesVoyellesMot(mot).forEach(g => {
+        const cle = famillesVoyelles ? (famillesVoyelles[g.son] || g.son) : g.son;
+        if (vus.has(cle)) return;
+        vus.add(cle);
+        if (!asson.has(cle)) asson.set(cle, []);
+        asson.get(cle).push({ mot, ligne: idxLigne + 1 });
+      });
+    });
+  });
+
+  const versListe = (map) => Array.from(map.entries())
+    .map(([son, occurrences]) => ({ son, occurrences, count: occurrences.length }))
+    .filter(e => e.count >= seuilMin)
+    .sort((a, b) => b.count - a.count);
+
+  return { alliterations: versListe(allit), assonances: versListe(asson) };
+}
+
+/* Homéotéleutes : finales de mots proches, n'importe où dans le vers —
+   pas juste la rime de fin de vers. Réutilise cleFinApprox (déjà utilisée
+   par le moteur de rimes), toujours disponible sans dépendre du
+   dictionnaire phonétique. Seuil fixe à 2 (figure assez rare, pas besoin
+   d'un réglage dédié) et ne garde que les groupes impliquant au moins un
+   mot en milieu de vers — sinon ce ne serait qu'une redite du schéma de
+   rimes déjà affiché dans l'onglet Syllabes. */
+function analyseHomeoteleutes(texteComplet, exclureMotsOutils){
+  const lignes = (texteComplet || '').split('\n');
+  const parCle = new Map(); // clé de fin -> [{mot, ligne, finDeVers}]
+
+  lignes.forEach((ligne, idxLigne) => {
+    const mots = ligne.split(/\s+/).filter(Boolean).map(nettoieMot).filter(Boolean);
+    mots.forEach((mot, idxMot) => {
+      if (exclureMotsOutils && MOTS_OUTILS.has(mot)) return;
+      const cle = cleFinApprox(mot);
+      if (!cle) return;
+      if (!parCle.has(cle)) parCle.set(cle, []);
+      parCle.get(cle).push({ mot, ligne: idxLigne + 1, finDeVers: idxMot === mots.length - 1 });
+    });
+  });
+
+  return Array.from(parCle.entries())
+    .map(([son, occurrences]) => ({ son, occurrences, count: occurrences.length }))
+    // Un homéotéleute relie des mots DIFFÉRENTS qui sonnent pareil en fin —
+    // le même mot répété plusieurs fois n'en est pas un (c'est une
+    // répétition/anaphore, une autre figure).
+    .filter(e => new Set(e.occurrences.map(o => o.mot)).size >= 2)
+    .filter(e => e.count >= 2 && e.occurrences.some(o => !o.finDeVers))
+    .sort((a, b) => b.count - a.count);
+}
+
 /* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
    filtres : { lettre, syllabes, qualites: Set } — tous optionnels. */
 function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActives){
@@ -3404,6 +3677,7 @@ function buildGroupeMots(container, titre, liste, cls, motRimeRef){
   const motsDiv = g.createDiv({ cls: 'cp-mots' });
   liste.forEach(m => {
     const span = motsDiv.createSpan({ cls: cls, text: m });
+    span.createEl('sup', { text: String(compteSyllabesMot(m, false).min) });
     if (motRimeRef && memeRime(motRimeRef, m)) badgeQualite(span, m, motRimeRef);
   });
 }
@@ -3421,6 +3695,7 @@ function buildGroupeMotsExcluable(container, titre, liste, cls, motRimeRef, excl
   const motsDiv = g.createDiv({ cls: 'cp-mots' });
   liste.forEach(m => {
     const span = motsDiv.createSpan({ cls: cls, text: m });
+    span.createEl('sup', { text: String(compteSyllabesMot(m, false).min) });
     span.setAttr('title', 'Clique pour exclure ce mot avant de l\'enregistrer dans ton dictionnaire personnel (reclique pour annuler).');
     span.addClass('cp-mot-excluable');
     span.addEventListener('click', () => {
@@ -3441,7 +3716,18 @@ function filtreParRime(liste, cible){
   return (liste || []).filter(m => memeRime(cible, m));
 }
 
-async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActives, motRimeCible){
+/* Filtre par nombre de syllabes exact (ou "5+"), même logique que le
+   filtre syllabes de l'onglet Rimes — valeur vide = pas de filtre. */
+function filtreParSyllabes(liste, syllabes){
+  if (!syllabes) return liste || [];
+  const cible = syllabes === '5+' ? null : parseInt(syllabes, 10);
+  return (liste || []).filter(m => {
+    const n = compteSyllabesMot(m, false).min;
+    return cible === null ? n >= 5 : n === cible;
+  });
+}
+
+async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActives, motRimeCible, filtreSyllabes){
   container.empty();
   const saisie = (motSaisi || '').trim();
   if (!saisie) return;
@@ -3457,10 +3743,10 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
   blocLocal.createDiv({ cls: 'cp-son-label', text: `${saisie} — dictionnaire local` });
   const entree = chercheSynonymes(saisie);
   if (entree) {
-    const syn = filtreParRime(entree.synonymes, cible);
-    const anto = filtreParRime(entree.antonymes, cible);
-    if (cible && syn.length === 0 && anto.length === 0) {
-      blocLocal.createEl('p', { cls: 'cp-vide', text: `Aucun synonyme/antonyme local de « ${saisie} » ne rime avec « ${cible} ».` });
+    const syn = filtreParSyllabes(filtreParRime(entree.synonymes, cible), filtreSyllabes);
+    const anto = filtreParSyllabes(filtreParRime(entree.antonymes, cible), filtreSyllabes);
+    if (syn.length === 0 && anto.length === 0) {
+      blocLocal.createEl('p', { cls: 'cp-vide', text: `Aucun synonyme/antonyme local de « ${saisie} » ne correspond à ces filtres.` });
     } else {
       buildGroupeMots(blocLocal, 'Synonymes', syn, 'cp-mot cp-mot-syno', motRimeRef);
       buildGroupeMots(blocLocal, 'Antonymes', anto, 'cp-mot cp-mot-anto', motRimeRef);
@@ -3482,10 +3768,10 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
         bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
         return;
       }
-      const synEnLigne = filtreParRime(resultat.synonymes, cible);
-      const antoEnLigne = filtreParRime(resultat.antonymes, cible);
-      if (cible && synEnLigne.length === 0 && antoEnLigne.length === 0) {
-        bloc.createEl('p', { cls: 'cp-vide', text: `Aucun résultat ${source.nom} ne rime avec « ${cible} ».` });
+      const synEnLigne = filtreParSyllabes(filtreParRime(resultat.synonymes, cible), filtreSyllabes);
+      const antoEnLigne = filtreParSyllabes(filtreParRime(resultat.antonymes, cible), filtreSyllabes);
+      if (synEnLigne.length === 0 && antoEnLigne.length === 0) {
+        bloc.createEl('p', { cls: 'cp-vide', text: `Aucun résultat ${source.nom} ne correspond à ces filtres.` });
         return;
       }
       const exclusSyn = new Set();
@@ -3596,6 +3882,11 @@ class CarnetView extends ItemView {
 
   buildPanelSyllabes(panelSyl){
     const actionsBar = panelSyl.createDiv({ cls: 'cp-toolbar-actions' });
+    const btnFlip = actionsBar.createEl('button', { cls: 'cp-icon-btn cp-icon-btn-pill cp-icon-btn-cyan' });
+    btnFlip.createSpan({ text: '🔄' });
+    btnFlip.createSpan({ cls: 'cp-icon-btn-label', text: 'Sonorités' });
+    btnFlip.setAttr('title', 'Retourner le volet pour voir les motifs sonores (allitérations, assonances internes)');
+    btnFlip.setAttr('aria-label', 'Voir les sonorités');
     const saveState = actionsBar.createEl('span', { cls: 'cp-save-state' });
     const btnExport = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
     btnExport.createSpan({ text: '⬇' });
@@ -3616,7 +3907,13 @@ class CarnetView extends ItemView {
       cls: 'cp-textarea',
       attr: { placeholder: 'Écris ou colle tes vers ici, un vers par ligne…' }
     });
-    const toolbar = panelSyl.createDiv({ cls: 'cp-toolbar' });
+
+    const flipZone = panelSyl.createDiv({ cls: 'cp-flip-zone' });
+    const flipCard = flipZone.createDiv({ cls: 'cp-flip-card' });
+    const flipFront = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-front' });
+    const flipBack = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-back' });
+
+    const toolbar = flipFront.createDiv({ cls: 'cp-toolbar' });
     const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
     const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
     toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
@@ -3627,10 +3924,214 @@ class CarnetView extends ItemView {
     const toggleContinu = toggleContinuLabel.createEl('input', { attr: { type: 'checkbox' } });
     toggleContinuLabel.createSpan({ text: ' Rimes continues entre strophes' });
     toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
-    const analyseDiv = panelSyl.createDiv({ cls: 'cp-analyse' });
-    const schemaDiv = panelSyl.createDiv({ cls: 'cp-schema-rimes' });
-    const totalBar = panelSyl.createDiv({ cls: 'cp-total-bar' });
+    const analyseDiv = flipFront.createDiv({ cls: 'cp-analyse' });
+    const schemaDiv = flipFront.createDiv({ cls: 'cp-schema-rimes' });
+    const totalBar = flipFront.createDiv({ cls: 'cp-total-bar' });
     totalBar.style.display = 'none';
+
+    // --- Face arrière : réglages + listes + brouillon surligné ---
+    const sonToolbar = flipBack.createDiv({ cls: 'cp-toolbar' });
+    const modeSonWrap = sonToolbar.createDiv({ cls: 'cp-select-wrap' });
+    const modeSonSelect = modeSonWrap.createEl('select', { cls: 'cp-son-mode-select' });
+    modeSonSelect.createEl('option', { attr: { value: 'exact' }, text: 'Sons exacts' });
+    modeSonSelect.createEl('option', { attr: { value: 'simple' }, text: 'Familles simplifiées' });
+    modeSonSelect.createEl('option', { attr: { value: 'etendu' }, text: 'Familles étendues' });
+    modeSonWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
+    modeSonSelect.setAttr('title', 'Sons exacts : chaque symbole phonétique distinct. Familles simplifiées : peu de groupes, priorité à la lisibilité. Familles étendues : classification plus complète (ex. occlusives sourdes/sonores séparées) — plus fidèle, avec davantage de couleurs.');
+    const seuilLabel = sonToolbar.createDiv({ cls: 'cp-son-seuil' });
+    seuilLabel.createSpan({ text: 'Seuil ' });
+    const seuilInput = seuilLabel.createEl('input', { attr: { type: 'number', min: '2', max: '9', value: '3' } });
+    const toggleMotsOutilsLabel = sonToolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+    const toggleMotsOutils = toggleMotsOutilsLabel.createEl('input', { attr: { type: 'checkbox' } });
+    toggleMotsOutilsLabel.createSpan({ text: ' Exclure mots outils' });
+    const toggleDominantsLabel = sonToolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+    const toggleDominants = toggleDominantsLabel.createEl('input', { attr: { type: 'checkbox' } });
+    toggleDominantsLabel.createSpan({ text: ' Surligner seulement les 3 plus fréquents' });
+    toggleDominants.setAttr('title', 'La liste reste complète ; seul le surlignage dans le brouillon se limite aux 3 allitérations et 3 assonances les plus fréquentes, pour un texte moins chargé visuellement.');
+    const sonLegendeDiv = flipBack.createDiv({ cls: 'cp-son-legende' });
+    const sonBrouillonDiv = flipBack.createDiv({ cls: 'cp-son-brouillon' });
+    // Raccourcis toujours visibles (même volet replié) : ouvrent le détail
+    // et sautent directement à la section visée.
+    const sonSautsDiv = flipBack.createDiv({ cls: 'cp-son-sauts' });
+    const sonListeDetails = flipBack.createEl('details', { cls: 'cp-son-liste-details' });
+    sonListeDetails.createEl('summary', { text: 'Voir le détail par son' });
+    const sectionTitreEls = {}; // rempli par rendSection() à chaque rendu
+    const sauteVers = (titre) => {
+      sonListeDetails.setAttr('open', 'true');
+      requestAnimationFrame(() => {
+        syncFlipHeight();
+        sectionTitreEls[titre] && sectionTitreEls[titre].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    };
+    ['Allitérations', 'Assonances internes', 'Homéotéleutes'].forEach(titre => {
+      const btn = sonSautsDiv.createEl('button', { cls: 'cp-hasard-toggle-pool', text: titre.replace(' internes', '') });
+      btn.addEventListener('click', (e) => { e.preventDefault(); sauteVers(titre); });
+    });
+    const sonListeDiv = sonListeDetails.createDiv({ cls: 'cp-son-liste' });
+
+    const PALETTE_SON = ['cp-son-c1','cp-son-c2','cp-son-c3','cp-son-c4','cp-son-c5','cp-son-c6','cp-son-c7'];
+    const couleurParSon = new Map(); // repli dynamique, seulement pour les homéotéleutes (terminaisons arbitraires, hors thème fixe)
+    const coloreSon = (titre, son) => {
+      const table = titre === 'Allitérations' ? THEME_CONSONNE : titre.startsWith('Assonances') ? THEME_VOYELLE : null;
+      if (table && table[son]) return table[son];
+      const cle = titre + son;
+      if (!couleurParSon.has(cle)) couleurParSon.set(cle, PALETTE_SON[couleurParSon.size % PALETTE_SON.length]);
+      return couleurParSon.get(cle);
+    };
+
+    const renderSonorites = () => {
+      couleurParSon.clear();
+      const texte = textarea.value;
+      const mode = modeSonSelect.value;
+      const famillesConsonnes = mode === 'etendu' ? FAMILLES_CONSONNES_ETENDU : mode === 'simple' ? FAMILLES_CONSONNES_SIMPLE : null;
+      const famillesVoyelles = mode === 'etendu' ? FAMILLES_VOYELLES_ETENDU : mode === 'simple' ? FAMILLES_VOYELLES_SIMPLE : null;
+      const parFamilles = mode !== 'exact';
+      const resultat = analyseSonorites(texte, {
+        exclureMotsOutils: toggleMotsOutils.checked,
+        seuilMin: parseInt(seuilInput.value, 10) || 2,
+        famillesConsonnes,
+        famillesVoyelles
+      });
+      // Même regroupement que ci-dessus, pour savoir à quelle entrée de la
+      // liste rattacher un son exact repéré dans le brouillon (surlignage).
+      const cleAllit = (son) => famillesConsonnes ? (famillesConsonnes[son] || son) : son;
+      const cleAsson = (son) => famillesVoyelles ? (famillesVoyelles[son] || son) : son;
+
+      // La liste (plus bas) montre toujours tout ; seul le surlignage dans
+      // le brouillon peut se limiter aux sons dominants si l'option est
+      // cochée — resultat.alliterations/assonances sont déjà triées par
+      // fréquence décroissante, un simple slice(0,3) suffit donc.
+      const resultatSurlignage = toggleDominants.checked
+        ? { alliterations: resultat.alliterations.slice(0, 3), assonances: resultat.assonances.slice(0, 3) }
+        : resultat;
+
+      sonListeDiv.empty();
+      const rendSection = (titre, sousTitre, liste, estFamille) => {
+        if (estFamille === undefined) estFamille = parFamilles;
+        const h4 = sonListeDiv.createEl('h4', { text: titre });
+        sectionTitreEls[titre] = h4;
+        sonListeDiv.createEl('p', { cls: 'cp-son-soustitre', text: sousTitre });
+        if (liste.length === 0) {
+          sonListeDiv.createEl('p', { cls: 'cp-son-vide', text: 'Aucun motif au-dessus du seuil actuel.' });
+          return;
+        }
+        liste.forEach(entree => {
+          const ligne = sonListeDiv.createDiv({ cls: 'cp-son-ligne' });
+          const badge = ligne.createSpan({ cls: 'cp-son-badge ' + coloreSon(titre, entree.son) });
+          // En mode familles, le nom complet ("Sifflantes/chuintantes") ne
+          // tient pas dans le badge rond : on n'y montre que le début,
+          // le nom complet reste lisible juste à côté dans la liste.
+          badge.setText(estFamille ? entree.son.slice(0, 3).toUpperCase() : entree.son);
+          badge.setAttr('title', entree.son);
+          const motsUniques = [...new Set(entree.occurrences.map(o => o.mot))];
+          const lignesUniques = [...new Set(entree.occurrences.map(o => o.ligne))];
+          const prefixe = estFamille ? entree.son + ' — ' : '';
+          ligne.createSpan({ cls: 'cp-son-mots', text: prefixe + motsUniques.join(', ') + ' — vers ' + lignesUniques.join(', ') });
+          ligne.createSpan({ cls: 'cp-son-count', text: entree.count + ' mots' });
+        });
+      };
+      rendSection('Allitérations', 'Son répété en début de mot', resultat.alliterations);
+      rendSection('Assonances internes', 'Voyelle qui revient dans le corps des mots, hors rimes finales', resultat.assonances);
+      const homeoteleutes = analyseHomeoteleutes(texte, toggleMotsOutils.checked);
+      rendSection('Homéotéleutes', 'Finales proches hors rime — au moins un mot en milieu de vers, sinon c\'est déjà ta rime de fin de vers', homeoteleutes, false);
+
+      // Légende : uniquement les sons effectivement surlignés ci-dessous,
+      // avec leur couleur et leur nom exact — pour lever l'ambiguïté entre
+      // par ex. "an" (nasale) et "a" (voyelle ouverte), qui n'étaient
+      // distingués que par la couleur jusqu'ici. Regroupées par catégorie
+      // (le mot "allitération"/"assonance" affiché une seule fois par
+      // groupe, pas répété à chaque son).
+      sonLegendeDiv.empty();
+      const ajouteLegendeGroupe = (titre, liste, cls) => {
+        if (liste.length === 0) return;
+        const groupe = sonLegendeDiv.createDiv({ cls: 'cp-son-legende-groupe' });
+        groupe.createSpan({ cls: 'cp-son-legende-titre', text: titre + ' : ' });
+        liste.forEach(entree => {
+          const puce = groupe.createSpan({ cls: 'cp-son-legende-puce' });
+          puce.createSpan({ cls: 'cp-son-legende-couleur ' + cls + ' ' + coloreSon(titre, entree.son) });
+          puce.createSpan({ cls: 'cp-son-legende-texte', text: entree.son });
+        });
+      };
+      ajouteLegendeGroupe('Allitérations', resultatSurlignage.alliterations, 'cp-son-legende-init');
+      ajouteLegendeGroupe('Assonances', resultatSurlignage.assonances, 'cp-son-legende-vox');
+      if (resultatSurlignage.alliterations.length === 0 && resultatSurlignage.assonances.length === 0) {
+        sonLegendeDiv.createSpan({ cls: 'cp-son-vide', text: 'Aucun motif au-dessus du seuil actuel.' });
+      }
+
+
+      // Brouillon surligné : reconstruit le texte ligne par ligne avec un
+      // <span> par fragment concerné (fond = allitération, soulignement =
+      // assonance), le reste en texte brut.
+      sonBrouillonDiv.empty();
+      const lignesTexte = texte.split('\n');
+      lignesTexte.forEach((ligneTexte, idxLigne) => {
+        const ligneEl = sonBrouillonDiv.createDiv({ cls: 'cp-son-brouillon-ligne' });
+        ligneEl.createSpan({ cls: 'cp-son-brouillon-numero', text: String(idxLigne + 1) });
+        if (!ligneTexte.trim()) { ligneEl.createEl('br'); return; }
+        const mots = ligneTexte.split(/(\s+)/); // garde les espaces pour un rendu fidèle
+        mots.forEach(fragment => {
+          if (!fragment.trim()) { ligneEl.createSpan({ text: fragment }); return; }
+          const mot = nettoieMot(fragment);
+          if (!mot || (toggleMotsOutils.checked && MOTS_OUTILS.has(mot))) {
+            ligneEl.createSpan({ text: fragment });
+            return;
+          }
+          const si = soninitial(mot);
+          const alliRetenue = si && resultatSurlignage.alliterations.some(e => e.son === cleAllit(si));
+          const groupes = groupesVoyellesMot(mot);
+          const offsetMot = fragment.toLowerCase().indexOf(mot); // décalage si ponctuation/majuscule en tête
+
+          let curseur = 0;
+          const nLettresSon = alliRetenue ? longueurSonInitial(mot) : 0;
+          if (alliRetenue && offsetMot >= 0) {
+            ligneEl.createSpan({ text: fragment.slice(0, offsetMot) });
+            const spanInit = ligneEl.createSpan({ cls: 'cp-son-surligne-init ' + coloreSon('Allitérations', cleAllit(si)), text: fragment.slice(offsetMot, offsetMot + nLettresSon) });
+            curseur = offsetMot + nLettresSon;
+          } else {
+            curseur = 0;
+          }
+          // Voyelles internes retenues, dans l'ordre, en soulignant seulement
+          // celles dont le son fait partie d'une assonance retenue.
+          let reste = fragment.slice(curseur);
+          let baseIdx = curseur;
+          groupes.forEach(g => {
+            if (g.debut < baseIdx - (offsetMot >= 0 ? offsetMot : 0)) return; // déjà couvert par l'allitération
+            const assonRetenue = resultatSurlignage.assonances.some(e => e.son === cleAsson(g.son));
+            if (!assonRetenue) return;
+            const debutAbs = (offsetMot >= 0 ? offsetMot : 0) + g.debut;
+            const finAbs = (offsetMot >= 0 ? offsetMot : 0) + g.fin;
+            if (debutAbs < curseur) return;
+            if (debutAbs > curseur) ligneEl.createSpan({ text: fragment.slice(curseur, debutAbs) });
+            ligneEl.createSpan({ cls: 'cp-son-surligne-vox ' + coloreSon('Assonances', cleAsson(g.son)), text: fragment.slice(debutAbs, finAbs) });
+            curseur = finAbs;
+          });
+          if (curseur < fragment.length) ligneEl.createSpan({ text: fragment.slice(curseur) });
+        });
+      });
+    };
+
+    // Resynchronise la hauteur du conteneur sur la face actuellement
+    // visible — nécessaire aussi bien au flip lui-même qu'à chaque fois
+    // que le contenu de la face arrière change de taille (toggle mots
+    // outils, seuil), sinon le conteneur garde une hauteur périmée.
+    const syncFlipHeight = () => {
+      const faceActive = flipZone.classList.contains('flipped') ? flipBack : flipFront;
+      requestAnimationFrame(() => { flipCard.style.height = faceActive.scrollHeight + 'px'; });
+    };
+
+    btnFlip.addEventListener('click', () => {
+      flipZone.classList.toggle('flipped');
+      if (flipZone.classList.contains('flipped')) renderSonorites();
+      syncFlipHeight();
+    });
+    toggleMotsOutils.checked = true;
+    modeSonSelect.value = 'simple';
+    toggleDominants.checked = true;
+    toggleMotsOutils.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+    modeSonSelect.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+    toggleDominants.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+    seuilInput.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+    sonListeDetails.addEventListener('toggle', syncFlipHeight);
 
     (async () => {
       const data = await this.plugin.loadData();
@@ -3745,7 +4246,10 @@ class CarnetView extends ItemView {
     // Exposé pour pouvoir forcer un recalcul depuis l'extérieur (ex. le
     // toggle debug "ignorer le dictionnaire personnel" dans Settings, qui
     // change le comportement des rimes sans que le brouillon ait changé).
-    this._renderAnalyseSyllabes = renderAnalyse;
+    this._renderAnalyseSyllabes = () => {
+      renderAnalyse();
+      if (flipZone.classList.contains('flipped')) renderSonorites();
+    };
 
     btnExport.addEventListener('click', () => {
       const poeme = analysePoeme(textarea.value);
@@ -3778,6 +4282,7 @@ class CarnetView extends ItemView {
     let saveTimeout = null;
     textarea.addEventListener('input', () => {
       renderAnalyse();
+      if (flipZone.classList.contains('flipped')) renderSonorites();
       saveState.setText('…');
       clearTimeout(saveTimeout);
       saveTimeout = setTimeout(async () => {
@@ -4058,6 +4563,12 @@ class CarnetView extends ItemView {
     const rimeCibleDiv = panelSyno.createDiv({ cls: 'cp-filtres' });
     const rimeCibleInput = rimeCibleDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', placeholder: 'Rime avec… (optionnel)', style: 'width:180px' } });
     rimeCibleInput.setAttr('title', 'Optionnel : ne garder que les synonymes/antonymes qui riment aussi avec ce second mot — utile quand tu cherches un synonyme de X contraint par une rime déjà fixée par un autre vers.');
+    const syllabesSynoWrap = rimeCibleDiv.createDiv({ cls: 'cp-select-wrap' });
+    const syllabesSynoSelect = syllabesSynoWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
+    syllabesSynoWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
+    [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
+      .forEach(([val, label]) => syllabesSynoSelect.createEl('option', { attr: { value: val }, text: label }));
+    syllabesSynoSelect.setAttr('title', 'Ne garder que les synonymes/antonymes ayant ce nombre de syllabes — utile pour caser un mot dans un mètre précis.');
 
     const resultatsDiv = panelSyno.createDiv({ cls: 'cp-resultats' });
 
@@ -4077,13 +4588,14 @@ class CarnetView extends ItemView {
 
     Object.values(cases).forEach(c => c.addEventListener('change', sauvePreferenceSources));
 
-    const chercher = () => renderResultatsSynonymes(resultatsDiv, motInput.value, this.plugin, sourcesActives(), rimeCibleInput.value);
+    const chercher = () => renderResultatsSynonymes(resultatsDiv, motInput.value, this.plugin, sourcesActives(), rimeCibleInput.value, syllabesSynoSelect.value);
     this._rechercherSynonymes = chercher;
 
     btnChercher.addEventListener('click', chercher);
     motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
     rimeCibleInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
     rimeCibleInput.addEventListener('input', chercher);
+    syllabesSynoSelect.addEventListener('change', chercher);
 
     this._prefillSynoInput = (mot) => {
       motInput.value = mot;
@@ -4092,13 +4604,9 @@ class CarnetView extends ItemView {
   }
 
   buildPanelGuide(panelGuide){
-    const section = (titre) => {
-      const el = panelGuide.createEl('h3', { cls: 'cp-guide-titre', text: titre });
-      return el;
-    };
-    const para = (texte) => { panelGuide.createEl('p', { cls: 'cp-guide-p', text: texte }); };
-    const liste = (items) => {
-      const ul = panelGuide.createEl('ul', { cls: 'cp-guide-liste' });
+    const para = (container, texte) => { container.createEl('p', { cls: 'cp-guide-p', text: texte }); };
+    const liste = (container, items) => {
+      const ul = container.createEl('ul', { cls: 'cp-guide-liste' });
       items.forEach(it => {
         const li = ul.createEl('li');
         if (typeof it === 'string') {
@@ -4110,102 +4618,146 @@ class CarnetView extends ItemView {
       });
     };
 
-    section('Compter les syllabes en français');
-    para('On compte les groupes de voyelles réellement prononcés dans le vers, pas les lettres.');
-    liste([
-      { titre:'Le e caduc (e muet)', texte:'compté seulement s\'il est suivi d\'un mot commençant par une consonne ; jamais compté en fin de vers ; élidé (jamais compté) devant un mot commençant par une voyelle ou un h muet — ex. « la fleuve aux vagues » : le e de « fleuve » ne compte pas devant « aux ».' },
-      { titre:'Les diphtongues fixes', texte:'ai, au, eau, eu, ou, oi, ei... comptent toujours pour une seule syllabe (« beau » = 1 syllabe).' },
-      { titre:'Le hiatus et la diérèse', texte:'deux voyelles qui ne forment pas une diphtongue fixe (comme « ti-on », « pi-eu », « lu-mi-ère ») peuvent se lire en une seule syllabe (synérèse, la lecture la plus courante) ou en deux (diérèse, souvent utilisée pour allonger un vers) — c\'est un choix du poète selon le mètre recherché. Le Carnet du Poète affiche les deux lectures quand le cas se présente.' },
-      { titre:'La liaison', texte:'change la prononciation mais pas le nombre de syllabes.' },
-      { titre:'Le y intervocalique', texte:'entre deux voyelles (rayon, crayon, voyage), il sépare deux syllabes au lieu de fusionner avec elles.' }
-    ]);
+    // Contenu regroupé par thème plutôt que dans l'ordre où les sections
+    // avaient été ajoutées au fil du temps (les rimes et les formes
+    // poétiques étaient chacune coupées en deux, séparées par du contenu
+    // sans rapport) : d'abord les unités du vers (syllabe → vers →
+    // strophe), puis les rimes, puis les sonorités, puis les formes.
+    const sections = [
+      { id:'syllabes', titre:'Compter les syllabes en français', ouvert:true, build:(c) => {
+        para(c, 'On compte les groupes de voyelles réellement prononcés dans le vers, pas les lettres.');
+        liste(c, [
+          { titre:'Le e caduc (e muet)', texte:'compté seulement s\'il est suivi d\'un mot commençant par une consonne ; jamais compté en fin de vers ; élidé (jamais compté) devant un mot commençant par une voyelle ou un h muet — ex. « la fleuve aux vagues » : le e de « fleuve » ne compte pas devant « aux ».' },
+          { titre:'Les diphtongues fixes', texte:'ai, au, eau, eu, ou, oi, ei... comptent toujours pour une seule syllabe (« beau » = 1 syllabe).' },
+          { titre:'Le hiatus et la diérèse', texte:'deux voyelles qui ne forment pas une diphtongue fixe (comme « ti-on », « pi-eu », « lu-mi-ère ») peuvent se lire en une seule syllabe (synérèse, la lecture la plus courante) ou en deux (diérèse, souvent utilisée pour allonger un vers) — c\'est un choix du poète selon le mètre recherché. Le Carnet du Poète affiche les deux lectures quand le cas se présente.' },
+          { titre:'La liaison', texte:'change la prononciation mais pas le nombre de syllabes.' },
+          { titre:'Le y intervocalique', texte:'entre deux voyelles (rayon, crayon, voyage), il sépare deux syllabes au lieu de fusionner avec elles.' }
+        ]);
+      }},
+      { id:'vers', titre:'Le vers : mètre, césure, coupe', build:(c) => {
+        para(c, 'Nom du mètre selon le nombre de syllabes du vers :');
+        liste(c, [
+          '4 : tétrasyllabe', '5 : pentasyllabe', '6 : hexasyllabe', '7 : heptasyllabe',
+          '8 : octosyllabe', '9 : ennéasyllabe', '10 : décasyllabe', '11 : hendécasyllabe',
+          '12 : alexandrin (le plus utilisé dans la poésie classique française)'
+        ]);
+        liste(c, [
+          { titre:'La césure', texte:'une pause obligatoire à l\'intérieur du vers. Dans l\'alexandrin classique, elle tombe au milieu (6/6) ; on parle de « trimètre » quand elle est remplacée par deux coupes plus légères créant trois groupes (souvent 4/4/4, fréquent chez Hugo et les romantiques).' },
+          { titre:'La coupe', texte:'une pause plus légère et facultative ailleurs dans le vers, qui structure son rythme intérieur.' }
+        ]);
+        para(c, 'Construction du vers :');
+        liste(c, [
+          { titre:'Enjambement', texte:'une phrase ou un groupe de mots déborde du vers sur le suivant, sans pause syntaxique à la rime.' },
+          { titre:'Rejet', texte:'un enjambement où un élément court est repoussé seul en tout début du vers suivant, le mettant en valeur.' },
+          { titre:'Contre-rejet', texte:'l\'inverse : un élément court annonce, en toute fin de vers, la phrase qui se développera au vers suivant.' }
+        ]);
+      }},
+      { id:'strophe', titre:'La strophe : la nommer par son nombre de vers', build:(c) => {
+        liste(c, [
+          '2 vers : distique', '3 vers : tercet', '4 vers : quatrain', '5 vers : quintil',
+          '6 vers : sizain', '7 vers : septain', '8 vers : huitain', '10 vers : dizain'
+        ]);
+      }},
+      { id:'rimes', titre:'Les rimes', build:(c) => {
+        para(c, 'Disposition des rimes dans une strophe (les trois formes courantes, détectées automatiquement dans l\'onglet Syllabes) :');
+        liste(c, [
+          { titre:'Rimes plates (ou suivies) — AABB', texte:'deux vers qui riment se suivent directement.' },
+          { titre:'Rimes croisées — ABAB', texte:'un vers sur deux rime avec le suivant du même type.' },
+          { titre:'Rimes embrassées — ABBA', texte:'deux rimes s\'enferment autour de deux autres.' }
+        ]);
+        para(c, 'Formes plus rares (non détectées automatiquement, à repérer soi-même) :');
+        liste(c, [
+          { titre:'Rimes annexées (ou concaténées)', texte:'la fin d\'un vers est reprise au début du vers suivant.' },
+          { titre:'Rimes internes (ou brisées)', texte:'une rime sonne à la fois à la césure et à la fin du même vers.' },
+          { titre:'Rimes batelées', texte:'la fin d\'un vers trouve son écho à la césure du vers suivant.' },
+          { titre:'Rimes sénées', texte:'tous les mots d\'un même vers commencent par le même son.' },
+          { titre:'Rimes couronnées', texte:'le mot-rime est répété deux fois de suite en fin de vers.' },
+          { titre:'Rimes triplées', texte:'trois vers de suite sur la même rime (aaa), plutôt romantique — la poésie classique préférait s\'arrêter à deux.' },
+          { titre:'Rimes emperières', texte:'un même son revient trois fois dans le même vers ; pure prouesse de rhétoriqueur.' }
+        ]);
+        para(c, 'Qualité d\'une rime — comptage classique du nombre de sons communs en partant de la fin des mots (2 unités pour la voyelle tonique, qui porte le son dominant ; 1 unité par consonne d\'appui) :');
+        liste(c, [
+          { titre:'Rime pauvre', texte:'un seul son commun, seule la voyelle finale (ex. « ami / parti »).' },
+          { titre:'Rime suffisante', texte:'deux sons communs (ex. « chagrin / matin »).' },
+          { titre:'Rime riche', texte:'trois sons communs ou plus (ex. « tendresse / paresse »).' },
+          { titre:'Rime très riche', texte:'la syllabe finale est intégralement identique, et la voyelle de la syllabe précédente coïncide aussi — deux syllabes homophones moins un phonème (ex. « patin / matin », « ambroisie / cramoisie »).' },
+          { titre:'Rime léonine', texte:'deux syllabes entières, consonnes d\'appui comprises, sont identiques (ex. « railleur / ferrailleur », « sultans / insultants »).' }
+        ]);
+        para(c, 'Une nuance utile : une voyelle d\'appui (la voyelle de la syllabe qui précède la rime) enrichit davantage qu\'une simple consonne d\'appui, car elle est plus audible — « harem / Jérusalem » ou « aurore / sonore » riment plus richement qu\'une consonne d\'appui seule ne le laisserait penser. C\'est cette logique qui distingue « riche » de « très riche » ci-dessus.');
+        para(c, 'Genre d\'une rime, et règle d\'alternance classique :');
+        liste(c, [
+          { titre:'Rime féminine', texte:'le vers se termine par un e muet (ex. « montagne », « chêne »).' },
+          { titre:'Rime masculine', texte:'le vers ne se termine pas par un e muet (ex. « amour », « instant »).' },
+          { titre:'Alternance', texte:'la poésie classique française alterne généralement rimes masculines et féminines d\'une strophe à l\'autre (c\'est la pastille F/M affichée dans l\'onglet Syllabes).' }
+        ]);
+        para(c, 'Deux nuances utiles, à repérer soi-même :');
+        liste(c, [
+          { titre:'Rime pour l\'œil vs rime pour l\'oreille', texte:'une rime « pour l\'œil » se ressemble à l\'écrit mais pas à l\'oral (ex. « femme » / « lame » ne riment pas vraiment à l\'oreille) ; une bonne rime classique doit fonctionner à l\'oral, pas seulement visuellement.' },
+          { titre:'Rime normande ou approximative', texte:'certains poètes jouent volontairement avec des rimes approchantes (assonances) plutôt que des rimes strictes, notamment en poésie moderne et en chanson.' }
+        ]);
+      }},
+      { id:'sonorites', titre:'Les sonorités : allitérations, assonances, homéotéleutes', build:(c) => {
+        para(c, 'Contrairement à la rime, qui ne concerne que la fin du vers, les sonorités sont des échos de son qui courent dans le corps des mots, n\'importe où dans le vers ou d\'un vers à l\'autre.');
+        liste(c, [
+          { titre:'Allitération', texte:'répétition d\'un même son consonne en début de mots rapprochés — ex. « Pour qui sont ces serpents qui sifflent sur vos têtes » (Racine), tissé de [s].' },
+          { titre:'Assonance', texte:'répétition d\'une même voyelle à l\'intérieur de plusieurs mots proches, indépendamment de la rime finale — à ne pas confondre avec une « rime par assonance » (voir la nuance « Rime normande » ci-dessus), qui elle concerne la fin du vers.' },
+          { titre:'Homéotéleute', texte:'répétition d\'une finale de mot proche, ailleurs que la rime de fin de vers — un mot en milieu de vers qui fait écho à une terminaison utilisée ailleurs dans le poème.' }
+        ]);
+        para(c, 'L\'onglet Syllabes propose un volet dédié (bouton Sonorités, sous le brouillon) qui détecte ces échos automatiquement : liste par son avec ses occurrences, et surlignage directement dans le texte pour les deux premières. Les homéotéleutes n\'apparaissent que dans la liste (pas de surlignage dans le brouillon pour l\'instant, pour ne pas surcharger le texte d\'un 3e code couleur) — et seulement quand au moins un des mots concernés est en milieu de vers, sinon ce ne serait qu\'une redite du schéma de rimes déjà affiché.');
+        para(c, 'Trois niveaux de regroupement, au choix, dans ce volet (pour les allitérations et assonances ; les homéotéleutes restent toujours sur leur terminaison exacte) :');
+        liste(c, [
+          { titre:'Sons exacts', texte:'chaque symbole phonétique distinct a sa propre couleur (ex. [s] et [ʃ] séparés) — le plus précis, mais potentiellement beaucoup de couleurs sur un poème riche en sonorités.' },
+          { titre:'Familles simplifiées', texte:'peu de groupes, pour repérer un motif d\'ensemble d\'un coup d\'œil. Consonnes : Sifflantes/chuintantes (s, ʃ, ʒ, z) · Occlusives (p, t, k, b, d, g) · Liquides (l, r) · Nasales (m, n, ɲ) · Fricatives (f, v). Voyelles : Voyelles claires (i, y, é, e, ai, ei) · Voyelles sombres (u, o, ou, eu) · Voyelle ouverte (a) · Nasales (in, an, on, un).' },
+          { titre:'Familles étendues', texte:'classification phonétique plus complète, qui distingue en plus sourdes et sonores (la vibration ou non des cordes vocales). Consonnes : Occlusives sourdes (p, t, k) · Occlusives sonores (b, d, g) · Fricatives sourdes (f, s, ʃ) · Fricatives sonores (v, z, ʒ) · Nasales (m, n, ɲ) · Liquides (l, r). Voyelles : Voyelles fermées (i, y, u, ou) · Voyelles moyennes/ouvertes (e, é, ai, ei, o, eu, a) · Nasales (in, an, on, un).' }
+        ]);
+        para(c, 'Comme pour le reste du plugin, la détection est une heuristique orthographique (appuyée sur le dictionnaire phonétique quand le mot y figure) : fiable sur l\'essentiel, mais pas une transcription phonétique parfaite.');
+      }},
+      { id:'formes', titre:'Formes de poèmes', build:(c) => {
+        liste(c, [
+          { titre:'Sonnet', texte:'14 vers, généralement en alexandrins : deux quatrains suivis de deux tercets. Schéma de rimes fréquent : ABBA ABBA CCD EED (ou CCD EDE).' },
+          { titre:'Rondeau', texte:'forme à refrain, souvent 13 ou 15 vers en trois strophes ; le début du premier vers revient comme refrain.' },
+          { titre:'Ballade', texte:'trois strophes suivies d\'un envoi plus court, avec un même vers-refrain répété à la fin de chaque strophe.' },
+          { titre:'Villanelle', texte:'19 vers : cinq tercets puis un quatrain, avec deux vers-refrains qui reviennent alternativement.' },
+          { titre:'Pantoum', texte:'forme d\'origine malaise : les 2e et 4e vers de chaque strophe deviennent les 1er et 3e vers de la strophe suivante.' },
+          { titre:'Ode', texte:'poème lyrique de forme régulière célébrant une personne, une chose ou une idée.' },
+          { titre:'Haïku', texte:'poème très court d\'origine japonaise, en 3 vers (5-7-5 syllabes en tradition japonaise), qui capture un instant, souvent lié à la nature.' },
+          { titre:'Fable', texte:'court récit en vers, souvent animalier, portant une morale (La Fontaine).' },
+          { titre:'Acrostiche', texte:'la première lettre de chaque vers, lue verticalement, forme un mot.' },
+          { titre:'Triolet', texte:'8 vers sur 2 rimes, avec reprise des 1er, 4e et 7e vers comme refrain.' },
+          { titre:'Virelai', texte:'forme médiévale à refrain, sur deux rimes qui s\'échangent de strophe en strophe.' },
+          { titre:'Tanka', texte:'poème japonais de 31 syllabes en 5 vers (5-7-5-7-7), qui prolonge le haïku d\'une réflexion personnelle.' },
+          { titre:'Calligramme', texte:'poème dont la disposition graphique sur la page dessine une forme en lien avec le sujet (Apollinaire).' },
+          { titre:'Vers libres', texte:'vers sans mètre fixe ni rimes obligatoires, qui s\'appuient sur le rythme et la respiration plutôt que sur des règles strictes (Rimbaud, Laforgue, et la majeure partie de la poésie depuis le XXe siècle).' },
+          { titre:'Vers blancs', texte:'vers de mètre régulier mais sans rime.' }
+        ]);
+      }}
+    ];
 
-    section('Quelques formes de poèmes classiques');
-    liste([
-      { titre:'Sonnet', texte:'14 vers, généralement en alexandrins : deux quatrains suivis de deux tercets. Schéma de rimes fréquent : ABBA ABBA CCD EED (ou CCD EDE).' },
-      { titre:'Rondeau', texte:'forme à refrain, souvent 13 ou 15 vers en trois strophes ; le début du premier vers revient comme refrain.' },
-      { titre:'Ballade', texte:'trois strophes suivies d\'un envoi plus court, avec un même vers-refrain répété à la fin de chaque strophe.' },
-      { titre:'Villanelle', texte:'19 vers : cinq tercets puis un quatrain, avec deux vers-refrains qui reviennent alternativement.' },
-      { titre:'Pantoum', texte:'forme d\'origine malaise : les 2e et 4e vers de chaque strophe deviennent les 1er et 3e vers de la strophe suivante.' },
-      { titre:'Ode', texte:'poème lyrique de forme régulière célébrant une personne, une chose ou une idée.' },
-      { titre:'Haïku', texte:'poème très court d\'origine japonaise, en 3 vers (5-7-5 syllabes en tradition japonaise), qui capture un instant, souvent lié à la nature.' },
-      { titre:'Fable', texte:'court récit en vers, souvent animalier, portant une morale (La Fontaine).' },
-      { titre:'Acrostiche', texte:'la première lettre de chaque vers, lue verticalement, forme un mot.' }
-    ]);
+    // Sommaire : un lien par section, qui déplie la section visée et
+    // scrolle jusqu'à elle — pratique pour une page devenue longue.
+    const sommaire = panelGuide.createDiv({ cls: 'cp-guide-sommaire' });
+    sommaire.createEl('div', { cls: 'cp-guide-sommaire-titre', text: 'Sommaire' });
+    const sommaireListe = sommaire.createEl('ul');
 
-    section('Les rimes : généralités');
-    para('Disposition des rimes dans une strophe (les trois formes courantes, détectées automatiquement dans l\'onglet Syllabes) :');
-    liste([
-      { titre:'Rimes plates (ou suivies) — AABB', texte:'deux vers qui riment se suivent directement.' },
-      { titre:'Rimes croisées — ABAB', texte:'un vers sur deux rime avec le suivant du même type.' },
-      { titre:'Rimes embrassées — ABBA', texte:'deux rimes s\'enferment autour de deux autres.' }
-    ]);
-    para('Formes plus rares (non détectées automatiquement, à repérer soi-même) :');
-    liste([
-      { titre:'Rimes annexées (ou concaténées)', texte:'la fin d\'un vers est reprise au début du vers suivant.' },
-      { titre:'Rimes internes (ou brisées)', texte:'une rime sonne à la fois à la césure et à la fin du même vers.' },
-      { titre:'Rimes batelées', texte:'la fin d\'un vers trouve son écho à la césure du vers suivant.' },
-      { titre:'Rimes sénées', texte:'tous les mots d\'un même vers commencent par le même son.' },
-      { titre:'Rimes couronnées', texte:'le mot-rime est répété deux fois de suite en fin de vers.' },
-      { titre:'Rimes triplées', texte:'trois vers de suite sur la même rime (aaa), plutôt romantique — la poésie classique préférait s\'arrêter à deux.' },
-      { titre:'Rimes emperières', texte:'un même son revient trois fois dans le même vers ; pure prouesse de rhétoriqueur.' }
-    ]);
-    para('Qualité d\'une rime — comptage classique du nombre de sons communs en partant de la fin des mots (2 unités pour la voyelle tonique, qui porte le son dominant ; 1 unité par consonne d\'appui) :');
-    liste([
-      { titre:'Rime pauvre', texte:'un seul son commun, seule la voyelle finale (ex. « ami / parti »).' },
-      { titre:'Rime suffisante', texte:'deux sons communs (ex. « chagrin / matin »).' },
-      { titre:'Rime riche', texte:'trois sons communs ou plus (ex. « tendresse / paresse »).' },
-      { titre:'Rime très riche', texte:'la syllabe finale est intégralement identique, et la voyelle de la syllabe précédente coïncide aussi — deux syllabes homophones moins un phonème (ex. « patin / matin », « ambroisie / cramoisie »).' },
-      { titre:'Rime léonine', texte:'deux syllabes entières, consonnes d\'appui comprises, sont identiques (ex. « railleur / ferrailleur », « sultans / insultants »).' }
-    ]);
-    para('Une nuance utile : une voyelle d\'appui (la voyelle de la syllabe qui précède la rime) enrichit davantage qu\'une simple consonne d\'appui, car elle est plus audible — « harem / Jérusalem » ou « aurore / sonore » riment plus richement qu\'une consonne d\'appui seule ne le laisserait penser. C\'est cette logique qui distingue « riche » de « très riche » ci-dessus.');
-    para('Genre d\'une rime, et règle d\'alternance classique :');
-    liste([
-      { titre:'Rime féminine', texte:'le vers se termine par un e muet (ex. « montagne », « chêne »).' },
-      { titre:'Rime masculine', texte:'le vers ne se termine pas par un e muet (ex. « amour », « instant »).' },
-      { titre:'Alternance', texte:'la poésie classique française alterne généralement rimes masculines et féminines d\'une strophe à l\'autre (c\'est la pastille F/M affichée dans l\'onglet Syllabes).' }
-    ]);
+    const details = {};
+    sections.forEach(s => {
+      const li = sommaireListe.createEl('li');
+      const lien = li.createEl('a', { text: s.titre, attr: { href: '#' } });
+      lien.addEventListener('click', (e) => {
+        e.preventDefault();
+        details[s.id].open = true;
+        details[s.id].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
 
-    section('Le vers : mètre, césure, coupe');
-    para('Nom du mètre selon le nombre de syllabes du vers :');
-    liste([
-      '4 : tétrasyllabe', '5 : pentasyllabe', '6 : hexasyllabe', '7 : heptasyllabe',
-      '8 : octosyllabe', '9 : ennéasyllabe', '10 : décasyllabe', '11 : hendécasyllabe',
-      '12 : alexandrin (le plus utilisé dans la poésie classique française)'
-    ]);
-    liste([
-      { titre:'La césure', texte:'une pause obligatoire à l\'intérieur du vers. Dans l\'alexandrin classique, elle tombe au milieu (6/6) ; on parle de « trimètre » quand elle est remplacée par deux coupes plus légères créant trois groupes (souvent 4/4/4, fréquent chez Hugo et les romantiques).' },
-      { titre:'La coupe', texte:'une pause plus légère et facultative ailleurs dans le vers, qui structure son rythme intérieur.' }
-    ]);
-
-    section('Construction du vers : enjambement, rejet, contre-rejet');
-    liste([
-      { titre:'Enjambement', texte:'une phrase ou un groupe de mots déborde du vers sur le suivant, sans pause syntaxique à la rime.' },
-      { titre:'Rejet', texte:'un enjambement où un élément court est repoussé seul en tout début du vers suivant, le mettant en valeur.' },
-      { titre:'Contre-rejet', texte:'l\'inverse : un élément court annonce, en toute fin de vers, la phrase qui se développera au vers suivant.' }
-    ]);
-
-    section('La strophe : la nommer par son nombre de vers');
-    liste([
-      '2 vers : distique', '3 vers : tercet', '4 vers : quatrain', '5 vers : quintil',
-      '6 vers : sizain', '7 vers : septain', '8 vers : huitain', '10 vers : dizain'
-    ]);
-
-    section('D\'autres formes à explorer');
-    liste([
-      { titre:'Triolet', texte:'8 vers sur 2 rimes, avec reprise des 1er, 4e et 7e vers comme refrain.' },
-      { titre:'Virelai', texte:'forme médiévale à refrain, sur deux rimes qui s\'échangent de strophe en strophe.' },
-      { titre:'Tanka', texte:'poème japonais de 31 syllabes en 5 vers (5-7-5-7-7), qui prolonge le haïku d\'une réflexion personnelle.' },
-      { titre:'Calligramme', texte:'poème dont la disposition graphique sur la page dessine une forme en lien avec le sujet (Apollinaire).' },
-      { titre:'Vers libres', texte:'vers sans mètre fixe ni rimes obligatoires, qui s\'appuient sur le rythme et la respiration plutôt que sur des règles strictes (Rimbaud, Laforgue, et la majeure partie de la poésie depuis le XXe siècle).' },
-      { titre:'Vers blancs', texte:'vers de mètre régulier mais sans rime.' }
-    ]);
-
-    section('Deux nuances utiles sur les rimes');
-    liste([
-      { titre:'Rime pour l\'œil vs rime pour l\'oreille', texte:'une rime « pour l\'œil » se ressemble à l\'écrit mais pas à l\'oral (ex. « femme » / « lame » ne riment pas vraiment à l\'oreille) ; une bonne rime classique doit fonctionner à l\'oral, pas seulement visuellement.' },
-      { titre:'Rime normande ou approximative', texte:'certains poètes jouent volontairement avec des rimes approchantes (assonances) plutôt que des rimes strictes, notamment en poésie moderne et en chanson.' }
-    ]);
+    sections.forEach(s => {
+      const det = panelGuide.createEl('details', { cls: 'cp-guide-section' });
+      if (s.ouvert) det.setAttr('open', 'true');
+      det.createEl('summary', { cls: 'cp-guide-titre', text: s.titre });
+      const corps = det.createDiv({ cls: 'cp-guide-corps' });
+      s.build(corps);
+      details[s.id] = det;
+    });
   }
 
   buildPanelDefinitions(panelDefs){
@@ -4871,6 +5423,11 @@ const CARNET_CSS = `
 .cp-icon-btn-label{ font-size: 0.78em; color: var(--text-muted); }
 .cp-icon-btn:hover{ background: var(--background-modifier-hover); border-color: var(--text-accent); }
 .cp-icon-btn:hover .cp-icon-btn-label{ color: var(--text-normal); }
+.cp-icon-btn-pill{ margin-right: auto; border-radius: 999px; }
+.cp-icon-btn-cyan{ color: #2aa198; border-color: #2aa198; background: rgba(42,161,152,0.1); }
+.cp-icon-btn-cyan .cp-icon-btn-label{ color: #2aa198; }
+.cp-icon-btn-cyan:hover{ background: rgba(42,161,152,0.18); }
+.cp-son-mode-select{ font-size:0.85em; }
 .cp-save-state{ font-size: 0.75em; color: var(--text-faint); font-style: italic; }
 .cp-link-btn{ background:none; border:none; box-shadow:none; color: var(--text-muted); text-decoration: underline; font-size: 0.78em; cursor:pointer; padding:0; }
 .cp-link-btn:hover{ color: var(--text-accent); }
@@ -5009,6 +5566,53 @@ const CARNET_CSS = `
 .cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; color: var(--text-muted); }
 .cp-hasard-exclu-ligne{ display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px dashed var(--background-modifier-border); }
 .cp-hasard-ajout-form{ display:flex; flex-direction:column; gap:6px; margin-top:8px; max-width:400px; }
+
+/* --- Volet flip Syllabes / Sonorités --- */
+.cp-flip-zone{ perspective: 1400px; margin-top: 8px; }
+.cp-flip-card{ position:relative; transition: transform 0.6s ease, height 0.3s ease; transform-style: preserve-3d; }
+.cp-flip-zone.flipped .cp-flip-card{ transform: rotateY(180deg); }
+.cp-flip-face{ backface-visibility: hidden; width:100%; }
+.cp-flip-back{ position:absolute; top:0; left:0; transform: rotateY(180deg); }
+.cp-son-seuil{ display:inline-flex; align-items:center; gap:6px; font-size:0.85em; color: var(--text-muted); margin-right:auto; }
+.cp-son-seuil input{ width:48px; }
+.cp-son-liste h4{ margin: 14px 0 2px; }
+.cp-son-soustitre{ font-size:0.8em; color: var(--text-muted); margin: 0 0 8px; }
+.cp-son-vide{ font-size:0.85em; color: var(--text-faint); font-style: italic; }
+.cp-son-ligne{ display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom: 1px solid var(--background-modifier-border); }
+.cp-son-badge{ width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-family: var(--font-monospace); font-size:0.8em; flex-shrink:0; color:#fff; }
+.cp-son-mots{ flex:1; font-size:0.9em; }
+.cp-son-count{ font-size:0.75em; color: var(--text-muted); white-space:nowrap; }
+.cp-son-brouillon{ margin-top:16px; padding-top:12px; border-top:1px solid var(--background-modifier-border); font-family: var(--font-monospace); line-height:2; }
+.cp-son-brouillon-ligne{ min-height:1.6em; white-space:pre-wrap; }
+.cp-son-brouillon-numero{ display:inline-block; width:2em; color: var(--text-faint); font-size:0.85em; user-select:none; }
+.cp-son-surligne-init{ border-radius:3px; padding:0 1px; color:#fff; }
+.cp-son-surligne-vox{ border-bottom:2px solid currentColor; padding-bottom:1px; }
+.cp-son-c1{ color:#6c5ce7; }
+.cp-son-c2{ color:#00b894; }
+.cp-son-c3{ color:#e17055; }
+.cp-son-c4{ color:#e67e22; }
+.cp-son-c5{ color:#e84393; }
+.cp-son-c6{ color:#0984e3; }
+.cp-son-c7{ color:#27ae60; }
+.cp-son-badge.cp-son-c1, .cp-son-surligne-init.cp-son-c1, .cp-son-legende-couleur.cp-son-c1{ background:#6c5ce7; color:#fff; }
+.cp-son-badge.cp-son-c2, .cp-son-surligne-init.cp-son-c2, .cp-son-legende-couleur.cp-son-c2{ background:#00b894; color:#fff; }
+.cp-son-badge.cp-son-c3, .cp-son-surligne-init.cp-son-c3, .cp-son-legende-couleur.cp-son-c3{ background:#e17055; color:#fff; }
+.cp-son-badge.cp-son-c4, .cp-son-surligne-init.cp-son-c4, .cp-son-legende-couleur.cp-son-c4{ background:#e67e22; color:#fff; }
+.cp-son-badge.cp-son-c5, .cp-son-surligne-init.cp-son-c5, .cp-son-legende-couleur.cp-son-c5{ background:#e84393; color:#fff; }
+.cp-son-badge.cp-son-c6, .cp-son-surligne-init.cp-son-c6, .cp-son-legende-couleur.cp-son-c6{ background:#0984e3; color:#fff; }
+.cp-son-badge.cp-son-c7, .cp-son-surligne-init.cp-son-c7, .cp-son-legende-couleur.cp-son-c7{ background:#27ae60; color:#fff; }
+.cp-son-legende{ display:flex; flex-direction:column; gap:6px; margin: 10px 0; font-size:0.8em; }
+.cp-son-legende-groupe{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.cp-son-legende-titre{ color: var(--text-muted); font-weight:600; }
+.cp-son-legende-puce{ display:inline-flex; align-items:center; gap:5px; }
+.cp-son-legende-couleur{ width:12px; height:12px; border-radius:50%; display:inline-block; }
+.cp-son-legende-couleur.cp-son-legende-vox{ border-radius:0; height:3px; width:16px; align-self:center; }
+.cp-son-legende-texte{ color: var(--text-muted); }
+.cp-son-liste-details{ margin-top:10px; }
+.cp-son-liste-details summary{ cursor:pointer; font-size:0.85em; color: var(--text-muted); }
+.cp-son-liste-details .cp-son-liste{ margin-top:10px; }
+.cp-son-sauts{ display:flex; flex-wrap:wrap; gap:6px; margin: 8px 0 10px; }
+.cp-son-sauts button{ font-size:0.78em; padding:3px 10px; }
 .cp-hasard-exclus, .cp-hasard-ajout{ margin-top:16px; font-size:0.85em; color: var(--text-muted); }
 .cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; }
 .cp-rime-form input{ flex:1; }
@@ -5031,6 +5635,14 @@ const CARNET_CSS = `
 .cp-guide-liste{ margin: 0 0 14px; padding-left: 20px; font-size: 0.86em; line-height: 1.6; }
 .cp-guide-liste li{ margin-bottom: 8px; color: var(--text-normal); }
 .cp-guide-liste strong{ color: var(--text-accent); }
+.cp-guide-sommaire{ background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; }
+.cp-guide-sommaire-titre{ font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
+.cp-guide-sommaire ul{ margin:0; padding-left: 18px; font-size: 0.85em; }
+.cp-guide-sommaire li{ margin-bottom: 4px; }
+.cp-guide-sommaire a{ cursor: pointer; }
+.cp-guide-section{ margin-bottom: 4px; border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 6px; }
+.cp-guide-section summary.cp-guide-titre{ cursor: pointer; margin: 10px 0; list-style: revert; }
+.cp-guide-corps{ padding: 4px 4px 8px 4px; }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
 .cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
 .cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }

@@ -370,6 +370,27 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.17.0** — New "Sonorités" panel in the Syllabes tab (flip the card with the button next to
+  Export/Copy/Clear — now a cyan pill on the left): detects allitérations (repeated initial
+  consonant sound), internal assonances (repeated vowel, not just end-of-line rhyme), and
+  homéotéleutes (echoing word endings elsewhere in the poem, not just the rhyme scheme — only
+  surfaced when at least one occurrence is mid-line, otherwise it would just restate the
+  existing rhyme scheme). Results show as a list (word/line references) and as coloured
+  highlighting directly in the draft, with a legend. Three grouping levels — exact sounds,
+  simplified families (manner of articulation / vowel timbre), or extended families (adds
+  voiced/voiceless distinctions) — with colours kept stable per theme across all three levels
+  rather than reassigned by order of appearance. Also: "Exclure mots outils", a seuil (minimum
+  occurrences, default 3), and "Surligner seulement les 3 plus fréquents" to keep the draft
+  readable on sonorité-heavy poems. Several real coverage bugs fixed along the way: "oi"/"ui"
+  and mid-word "eau"/"au" weren't recognised as vowel sounds at all; nasal vowels ("chantant",
+  "jasmin"...) weren't being detected as nasal; the dictionary's phonetic alphabet (R/S/Z/J)
+  didn't match the fallback heuristic's symbols (r/ʃ/ʒ/ɲ), so dictionary-covered words formed
+  their own stray one-word "family" instead of joining the right group; a word's own final mute
+  e was counted as an assonance with itself. The Guide tab got a matching new section, plus a
+  reorganisation (rhymes and poem forms were each split across unrelated sections) and a
+  collapsible table of contents. Also, in the Synonymes tab: each synonym/antonym chip now
+  shows its syllable count, and a new "syllable count" dropdown filters results down to a
+  given count — same style as the existing syllable filter in the Rimes tab.
 - **2.16.0** — Rimes tab ergonomics pass and a real filtering bug fix:
   - **Fixed**: the rhyme-quality filters (Pauvre/Suffisante/Riche+/Très riche/Léonine) had a
     silent edge case — unchecking every one of the 3 main checkboxes was treated internally as
