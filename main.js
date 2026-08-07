@@ -512,6 +512,27 @@ function cleFinApprox(mot){
   const w = preparerMotRime(mot);
   if (!w) return null;
 
+  // "ille" final = yod [j] (fille, abeille, grenouille...), un timbre
+  // différent d'un simple "elle" [ɛl] (nouvelle, ficelle...) malgré une
+  // écriture proche. Sans ce cas à part, les deux s'effondrent sur la
+  // même clé via les règles générales plus bas (bug constaté :
+  // "abeille"/"nouvelle" jugées comme une rime exacte) — la règle "ei→ai"
+  // et la règle "e isolé devant consonne→ai" produisent par coïncidence
+  // la même sortie intermédiaire "aille" une fois la lettre doublée
+  // réduite, sans qu'aucune des deux ne sache qu'il s'agissait en fait
+  // d'un yod. Marqueur "J" majuscule (pas "y") : la constante VOYELLES
+  // est tout en minuscules, donc coeurVocalique() s'arrête bien avant le
+  // marqueur au lieu de l'avaler dans le "cœur" — sinon le mode assonance
+  // ne reconnaissait plus "fille"/"ville" comme partageant la même
+  // voyelle "i", puisque leurs deux clés ("iy" et "ile") semblaient ne
+  // rien avoir en commun dès que le "y" était compté comme une voyelle.
+  // Même liste d'exceptions que pour la trame phonique (illResteConsonne)
+  // — ville/tranquille/mille... où "ill" reste deux vraies consonnes l.
+  const finYod = w.match(/([aeiouyàâäéèêëîïôöùûüÿœ]*i)lle?$/);
+  if (finYod && !illResteConsonne(w)) {
+    return (normaliseSonsFinal(finYod[1]) || '') + 'J';
+  }
+
   const groupes = trouveGroupesAvecPositions(w);
   if (groupes.length === 0) return w;
 
@@ -521,10 +542,20 @@ function cleFinApprox(mot){
   // simple découpage aux 2 dernières lettres les confondait à tort.
   let idxAncre = groupes.length - 1;
   const dernier = groupes[idxAncre];
+  let finCle = w.length;
   if (dernier.texte === 'e' && dernier.fin === w.length && idxAncre > 0) {
     idxAncre--; // e muet final : la vraie rime est portée par la voyelle d'avant
+    // Le e muet ne doit jamais rester collé dans la clé : "vole" (avec e)
+    // et "bol" (sans e) ont exactement le même son [ɔl], seul le genre
+    // change — déjà suivi séparément par le badge F/M. Sans cette borne,
+    // slice() allait jusqu'à la fin de la chaîne et laissait le e muet
+    // trainer dans la clé de "vole" ("ole") mais pas dans celle de "bol"
+    // ("ol") : deux clés différentes pour le même son, donc jugées
+    // "assonance" au lieu de "rime" — corrigé seulement quand le dico
+    // phonétique intervenait pour trancher (sans lui, aucune concordance).
+    finCle = dernier.debut;
   }
-  const cle = normaliseSonsFinal(w.slice(groupes[idxAncre].debut));
+  const cle = normaliseSonsFinal(w.slice(groupes[idxAncre].debut, finCle));
 
   return cle || null;
 }
@@ -593,20 +624,33 @@ let DEBUG_IGNORER_DICO_PERSO = false;
                    "b" ≠ "t" juste avant le "r" final)
    - null        : aucun rapport identifiable (ex. "sombre"/"ténèbres") */
 function classifieRime(motA, motB){
+  const richeA = cleRicheMot(motA), richeB = cleRicheMot(motB);
   const finA = cleFinApprox(motA), finB = cleFinApprox(motB);
-  if (finA && finB && finA === finB) return 'rime';
-
   const coeurA = coeurVocalique(finA), coeurB = coeurVocalique(finB);
   const coeurCompatible = !!(coeurA && coeurB && coeurA === coeurB);
 
-  const richeA = cleRicheMot(motA), richeB = cleRicheMot(motB);
-  if (richeA && richeB && richeA === richeB) {
-    // le dictionnaire phonétique dit qu'ils sont dans le même groupe : on ne
-    // fait confiance que si rien à l'écrit ne le contredit franchement
-    if (!coeurA || !coeurB || coeurCompatible) return 'rime';
-    return null;
+  if (richeA && richeB) {
+    // Les deux mots sont couverts par le dico phonétique : priorité au
+    // dico, comme partout ailleurs dans le plugin ("dico d'abord, repli
+    // heuristique ensuite") — l'approximation orthographique ne sert plus
+    // qu'à écarter un faux positif si le dico se trompait franchement,
+    // jamais à imposer une rime que le dico contredit. Avant ce
+    // réordonnancement, une coïncidence purement orthographique pouvait
+    // renvoyer "rime" sans même consulter le dico (ex. "abeille"/"nouvelle"
+    // partagent la même clé approximative "aile" malgré des sons réels
+    // différents, [ɛj] contre [ɛl] — jamais rattrapé si les deux mots
+    // étaient dans le dico avec des transcriptions distinctes).
+    if (richeA === richeB) {
+      return (!coeurA || !coeurB || coeurCompatible) ? 'rime' : null;
+    }
+    return coeurCompatible ? 'assonance' : null;
   }
 
+  // Repli : au moins un des deux mots n'est pas couvert par le dico — on
+  // se fie à l'approximation orthographique seule (peut encore, elle,
+  // confondre "eille"/"elle" — bug distinct, non couvert par ce
+  // réordonnancement, qui ne peut aider que quand le dico est disponible).
+  if (finA && finB && finA === finB) return 'rime';
   if (coeurCompatible) return 'assonance';
   return null;
 }
@@ -3192,6 +3236,11 @@ function soninitial(mot){
     // milieu, comme si le mot commençait par lui). Un mot qui commence
     // par une voyelle n'a par définition aucune allitération possible.
     if (VOYELLES_PHON.has(phon[0])) return null;
+    // Le yod [j] compte comme un vrai son initial pour l'allitération
+    // (yeux, hier, ion...) — cohérent avec la trame phonique, qui le
+    // reconnaît déjà. Les autres semi-consonnes (w, ɥ) restent ignorées,
+    // comme avant : trop rares en position initiale pour valoir la peine.
+    if (phon[0] === 'j') return 'j';
     for (const ch of phon) {
       if (!VOYELLES_PHON.has(ch) && !GLIDES_PHON.has(ch)) return CONSONNE_PHON_VERS_HEURISTIQUE[ch] || ch;
     }
@@ -3200,6 +3249,11 @@ function soninitial(mot){
   let w2 = w;
   if (w2[0] === 'h') w2 = w2.slice(1); // h muet, le plus souvent
   if (!w2) return null;
+  // "y" en tête suivi d'une voyelle est un yod (yeux, yoga, yaourt), pas
+  // la voyelle [i] qu'il représente ailleurs (stylo, gym) — même logique
+  // que le "j" du dico juste au-dessus, appliquée ici par écriture plutôt
+  // que par transcription.
+  if (w2[0] === 'y' && estVoyelle(w2[1])) return 'j';
   if (estVoyelle(w2[0])) return null;
   if (w2.startsWith('ch')) return 'ʃ';
   if (w2.startsWith('ph')) return 'f';
@@ -3239,7 +3293,7 @@ function normaliseGroupeInterne(w, g, estDernier){
   if (nasalise) {
     if (/^[iy]en?$/.test(texte)) texte = 'in'; // chien, bien, moyen — exception
     else {
-      const NASAL_MAP = { a:'an', e:'an', ai:'in', ei:'in', i:'in', y:'in', o:'on', u:'un' };
+      const NASAL_MAP = { a:'an', e:'an', ai:'in', ei:'in', i:'in', y:'in', o:'on', u:'un', oi:'in', io:'on' };
       if (NASAL_MAP[texte]) texte = NASAL_MAP[texte];
     }
   }
@@ -3297,7 +3351,7 @@ const FAMILLES_CONSONNES_SIMPLE = {
 };
 const FAMILLES_VOYELLES_SIMPLE = {
   i:'Voyelles claires', y:'Voyelles claires', 'é':'Voyelles claires', e:'Voyelles claires', ai:'Voyelles claires', ei:'Voyelles claires', ui:'Voyelles claires',
-  u:'Voyelles sombres', o:'Voyelles sombres', ou:'Voyelles sombres', eu:'Voyelles sombres',
+  u:'Voyelles sombres', o:'Voyelles sombres', ou:'Voyelles sombres', eu:'Voyelles sombres', eui:'Voyelles sombres', 'œi':'Voyelles sombres',
   a:'Voyelle ouverte', oi:'Voyelle ouverte',
   in:'Nasales', an:'Nasales', on:'Nasales', un:'Nasales'
 };
@@ -3311,7 +3365,7 @@ const FAMILLES_CONSONNES_ETENDU = {
 };
 const FAMILLES_VOYELLES_ETENDU = {
   i:'Voyelles fermées', y:'Voyelles fermées', u:'Voyelles fermées', ou:'Voyelles fermées', ui:'Voyelles fermées',
-  e:'Voyelles moyennes/ouvertes', 'é':'Voyelles moyennes/ouvertes', ai:'Voyelles moyennes/ouvertes', ei:'Voyelles moyennes/ouvertes', o:'Voyelles moyennes/ouvertes', eu:'Voyelles moyennes/ouvertes', a:'Voyelles moyennes/ouvertes', oi:'Voyelles moyennes/ouvertes',
+  e:'Voyelles moyennes/ouvertes', 'é':'Voyelles moyennes/ouvertes', ai:'Voyelles moyennes/ouvertes', ei:'Voyelles moyennes/ouvertes', o:'Voyelles moyennes/ouvertes', eu:'Voyelles moyennes/ouvertes', a:'Voyelles moyennes/ouvertes', oi:'Voyelles moyennes/ouvertes', eui:'Voyelles moyennes/ouvertes', 'œi':'Voyelles moyennes/ouvertes',
   in:'Nasales', an:'Nasales', on:'Nasales', un:'Nasales'
 };
 
@@ -3329,6 +3383,7 @@ const THEME_CONSONNE = {
   z:'cp-son-c4', 'ʒ':'cp-son-c4', v:'cp-son-c4', 'Fricatives':'cp-son-c4', 'Fricatives sonores':'cp-son-c4',
   m:'cp-son-c5', n:'cp-son-c5', 'ɲ':'cp-son-c5', 'Nasales':'cp-son-c5',
   l:'cp-son-c6', r:'cp-son-c6', 'Liquides':'cp-son-c6',
+  j:'cp-son-c7', // yod (fille, brillant...) — semi-consonne à part, aucune famille ne lui correspond vraiment ; couleur dédiée, jamais utilisée ailleurs dans cette table.
   // Le mode dico (transcription complète, alphabet type X-SAMPA) peut
   // renvoyer des symboles différents de ceux du repli heuristique pour un
   // même son : R (majuscule) = r français, S = ʃ, Z = ʒ, J = ɲ. Sans ce
@@ -3339,7 +3394,7 @@ const THEME_CONSONNE = {
 };
 const THEME_VOYELLE = {
   i:'cp-son-c1', y:'cp-son-c1', 'é':'cp-son-c1', e:'cp-son-c1', ai:'cp-son-c1', ei:'cp-son-c1', ui:'cp-son-c1', 'Voyelles claires':'cp-son-c1', 'Voyelles fermées':'cp-son-c1',
-  u:'cp-son-c2', o:'cp-son-c2', ou:'cp-son-c2', eu:'cp-son-c2', 'Voyelles sombres':'cp-son-c2', 'Voyelles moyennes/ouvertes':'cp-son-c2',
+  u:'cp-son-c2', o:'cp-son-c2', ou:'cp-son-c2', eu:'cp-son-c2', eui:'cp-son-c2', 'œi':'cp-son-c2', 'Voyelles sombres':'cp-son-c2', 'Voyelles moyennes/ouvertes':'cp-son-c2',
   a:'cp-son-c7', oi:'cp-son-c7', 'Voyelle ouverte':'cp-son-c7',
   in:'cp-son-c3', an:'cp-son-c3', on:'cp-son-c3', un:'cp-son-c3', 'Nasales':'cp-son-c3'
 };
@@ -3394,7 +3449,7 @@ const FREQUENCE_BASE_CONSONNES_TOUTES = {
 };
 const FREQUENCE_BASE_VOYELLES = {
   a:8.55, i:5.12, 'é':6.4, e:4.2, ai:4.2, ei:4.2, y:1.9, u:1.9,
-  o:3.36, ou:2.43, eu:4.31, oi:8.55, ui:5.12,
+  o:3.36, ou:2.43, eu:4.31, oi:8.55, ui:5.12, eui:4.31, 'œi':4.31,
   an:3.09, on:2.25, in:1.84, un:0.2,
   // Familles simplifiées
   'Voyelles claires':17.62, 'Voyelles sombres':10.10, 'Voyelle ouverte':8.55,
@@ -3502,6 +3557,40 @@ const EXCEPTIONS_ER_R_PRONONCE = new Set([
   'mer','cher','fer','fier','hier','hiver','ver','enfer','éther','cancer',
   'super','revolver','amer'
 ]);
+// Deux autres exceptions courantes à CaReFuL, dans l'autre sens cette
+// fois : des mots où c/l final est habituellement prononcé mais reste
+// muet ici. Listes courtes et non exhaustives, comme les autres
+// exceptions de cette section.
+const EXCEPTIONS_L_MUET = new Set([
+  'gentil','gentils','outil','outils','sourcil','sourcils','fusil','fusils','persil'
+]);
+const EXCEPTIONS_C_MUET = new Set([
+  'blanc','banc','franc','flanc','tronc','jonc','accroc','estomac','caoutchouc'
+]);
+
+// "ill" (un i suivi de deux l) se prononce [j] (yod) par défaut — fille,
+// famille, brillant... — sauf dans une liste de mots/racines où il reste
+// [il], deux vraies consonnes l (ville, tranquille, mille et milli-,
+// distiller, osciller, les mots en -illaire, ceux qui commencent par le
+// préfixe ill-, quelques noms propres et termes médicaux). Racines
+// vérifiées par inclusion plutôt que mot exact, pour couvrir directement
+// les dérivés (village, tranquillité, millionnaire, distillerie...) sans
+// devoir les lister un par un.
+function illResteConsonne(w){
+  if (w.startsWith('ill')) return true;
+  if (w.endsWith('illaire')) return true;
+  // "mill" ancré en début de mot seulement : mille/million/milliard...
+  // commencent tous par "mill", contrairement à "famille" ou "Camille"
+  // qui contiennent la même suite de lettres par pure coïncidence, au
+  // milieu du mot — includes() les aurait exceptés à tort.
+  if (w.startsWith('mill')) return true;
+  const racines = [
+    'vill','tranquill','pusillanim','imbécill','chinchill','codicill',
+    'penicillin','pénicillin','defibrillat','défibrillat','distill','oscill',
+    'lille','gilles','achille'
+  ];
+  return racines.some(racine => w.includes(racine));
+}
 
 function consonnesInternesMot(mot){
   const brut = nettoieMot(mot);
@@ -3535,6 +3624,31 @@ function consonnesInternesMot(mot){
     else if (suite.startsWith('gu') && estVoyelle(w[i + 2])) { son = 'g'; longueur = 2; }
     else if (ch === 'c') { son = /^[eéèêëiîïy]/.test(w.slice(i + 1)) ? 's' : 'k'; longueur = 1; }
     else if (ch === 'g') { son = /^[eéèêëiîïy]/.test(w.slice(i + 1)) ? 'ʒ' : 'g'; longueur = 1; }
+    // "t" suivi de "ion" se ramollit en [s] (nation, attention, national,
+    // fiction, création...) — sauf s'il est précédé d'un s ou d'un x, qui
+    // bloque ce ramollissement (question, gestion, bastion restent [t]).
+    // Règle assez fiable pour "-tion" précisément ; les terminaisons
+    // voisines ("-tien", "-tie", "-tiel"...) ont trop d'exceptions
+    // lexicales (chrétien, entier, métier gardent [t]) pour être couvertes
+    // par la même règle sans plus de nuance — non traitées ici.
+    else if (ch === 't' && w.slice(i + 1, i + 4) === 'ion' && !(i > 0 && (w[i - 1] === 's' || w[i - 1] === 'x'))) { son = 's'; longueur = 1; }
+    // "ill" (i + deux l) = yod [j] par défaut (fille, brillant...), sauf
+    // exceptions où ça reste deux vraies consonnes l (voir
+    // illResteConsonne). Doit être vérifié avant la règle de doublement
+    // générique juste en dessous, sinon "ll" y serait déjà traité comme
+    // un simple l doublé avant d'arriver ici.
+    else if (ch === 'l' && w[i + 1] === 'l' && i > 0 && w[i - 1] === 'i' && !illResteConsonne(w)) { son = 'j'; longueur = 2; }
+    // Consonne doublée (deux fois la même lettre) : une seule frappe à
+    // l'oral (addition, attention, pomme, terre...), jamais deux — sauf
+    // c/g, déjà gérées ci-dessus au cas par cas (une paire comme "cc"
+    // devant e/i peut se prononcer [ks], pas juste un [k] doublé —
+    // "succès" — donc chaque lettre y reste évaluée séparément).
+    else if ('ltdpbmnrsfv'.includes(ch) && w[i + 1] === ch) { son = ch; longueur = 2; }
+    // "s" isolé entre deux voyelles se prononce [z] (poison, maison,
+    // raison...) — contrairement au "s" doublé juste au-dessus, qui reste
+    // [s] (poisson), ou au "s" en début/fin de mot ou à côté d'une
+    // consonne, qui reste [s] normalement.
+    else if (ch === 's' && i > 0 && estVoyelle(w[i - 1]) && estVoyelle(w[i + 1])) { son = 'z'; longueur = 1; }
     else { son = ch; longueur = 1; }
 
     const finAbs = i + longueur;
@@ -3543,8 +3657,13 @@ function consonnesInternesMot(mot){
     // courte liste d'exceptions ci-dessus qui le garde prononcé.
     const finEnEr = ch === 'r' && estFinaleMot && i > 0 && w[i - 1] === 'e';
     const rExceptionPrononce = finEnEr && EXCEPTIONS_ER_R_PRONONCE.has(w);
+    // Exceptions inverses : c/l habituellement prononcés en finale
+    // (CaReFuL) mais muets dans ces mots précis (gentil, blanc...).
+    const exceptionMuette = estFinaleMot && (
+      (ch === 'l' && EXCEPTIONS_L_MUET.has(w)) || (ch === 'c' && EXCEPTIONS_C_MUET.has(w))
+    );
     const muette = estFinaleMot && (
-      finEnEr ? !rExceptionPrononce : !CONSONNES_FINALES_PRONONCEES.has(ch)
+      finEnEr ? !rExceptionPrononce : (exceptionMuette || !CONSONNES_FINALES_PRONONCEES.has(ch))
     );
 
     if (!muette) resultats.push({ son, debut: decalage + i, fin: decalage + finAbs });
@@ -4178,7 +4297,7 @@ class CarnetView extends ItemView {
     const couleurParSon = new Map(); // repli dynamique, seulement pour les homéotéleutes (terminaisons arbitraires, hors thème fixe)
     let spotlightSon = null; // son actif en mode "Trame phonique" (clic pour isoler ses occurrences dans le brouillon)
     const coloreSon = (titre, son) => {
-      const table = titre === 'Allitérations' ? THEME_CONSONNE : titre.startsWith('Assonances') ? THEME_VOYELLE : null;
+      const table = (titre === 'Allitérations' || titre === 'Trame phonique') ? THEME_CONSONNE : titre.startsWith('Assonances') ? THEME_VOYELLE : null;
       if (table && table[son]) return table[son];
       const cle = titre + son;
       if (!couleurParSon.has(cle)) couleurParSon.set(cle, PALETTE_SON[couleurParSon.size % PALETTE_SON.length]);

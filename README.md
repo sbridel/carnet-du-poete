@@ -370,6 +370,40 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.19.0** — A systematic audit pass over the Sonorités panel and the underlying rhyme engine,
+  triggered by real test cases from Alucard. Several genuine accuracy bugs found and fixed,
+  each confirmed by direct testing:
+  - **Trame phonique**: doubled consonants ("addition", "attention", "couronne") were counted
+    twice instead of once; a lone "s" between two vowels ("poison", "maison") wasn't recognised
+    as [z]; "t" followed by "-tion" (not preceded by s/x) wasn't softened to [s] ("nation",
+    "national" — "question"/"gestion" correctly stay [t]); "ill" after a vowel is now recognised
+    as the yod glide [j] by default ("fille", "brillant"), with a proper exception list for
+    words where it stays a real double L ("ville", "tranquille", "mille"/million-milliard,
+    "distiller", "osciller", words ending in "-illaire", words starting with the "ill-" prefix,
+    and a few proper nouns/medical terms) — also fixed the "Trame phonique" section not using
+    the same stable per-theme colours as Allitérations, an inconsistency from 2.17.0.
+  - **Allitérations**: a word covered by the phonetic dictionary could return a consonant found
+    *anywhere* in its transcription as if it were word-initial (fixed in 2.18.0 for "écrit"-like
+    cases); yod [j] is now recognised as a valid initial sound too ("ion", "yeux", "hier"),
+    dictionary and spelling-based alike.
+  - **The rhyme engine itself** (used everywhere — rhyme scheme, Rimes tab, quality badges):
+    `classifieRime` now checks the phonetic dictionary first when both words are covered by it,
+    falling back to the spelling approximation only when at least one isn't — previously the
+    approximation could return a match without the dictionary ever being consulted, even when
+    available and correct. Separately, "eille"/"ille" (yod) endings no longer collapse onto
+    plain "elle" endings ("abeille" was being treated as a perfect rhyme with "nouvelle") — a
+    dedicated key is computed for the yod case, using a marker character that mode assonance's
+    core-vowel comparison correctly skips (an early version of this fix accidentally broke
+    "fille"/"ville" assonance matching by using a marker that looked like a vowel itself). Also
+    fixed: a word's final mute e was being left dangling in the rhyme key when anchoring on the
+    vowel before it, making e.g. "vole" and "bol" — the exact same sound, [ɔl], differing only
+    in grammatical gender — compare as merely "assonance" instead of a full "rime" unless the
+    phonetic dictionary happened to override it.
+  - Two remaining known gaps, found along the way but not fixed: verb infinitives in
+    "-iller"/"-eiller" (e.g. "travailler") still lose the yod distinction, since an earlier rule
+    converts their ending before the yod check can run; and words where the anchor vowel and a
+    trailing mute e merge into one written group ("vue" vs "vu") aren't yet reconciled the same
+    way "vole"/"bol" now are.
 - **2.18.0** — Continued work on the Sonorités panel from 2.17.0:
   - **New**: a 4th figure, "Trame phonique" (réseau consonantique) — a consonant sound that
     recurs anywhere in a word (attack, middle, coda), not just word-initial like allitération.
