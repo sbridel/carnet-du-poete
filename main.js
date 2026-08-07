@@ -3220,6 +3220,22 @@ function longueurSonInitial(mot){
    côté des vrais noms de familles. */
 const CONSONNE_PHON_VERS_HEURISTIQUE = { R:'r', S:'ʃ', Z:'ʒ', J:'ɲ' };
 
+// "ch" se prononce [k] dans une poignée de mots d'origine grecque ou
+// technique (chœur, chrome, écho, orchestre, psychologie, pétrichor...)
+// au lieu du [ʃ] habituel (chien, chaleur...). Racines vérifiées par
+// inclusion, comme illResteConsonne, pour couvrir les dérivés
+// (chronologie, archéologique, technologique...) sans les lister un par
+// un. Liste courte et non exhaustive, comme les autres exceptions du
+// repli heuristique.
+const RACINES_CH_K = [
+  'chœur', 'choeur', 'chrom', 'chron', 'chora', 'choré', 'écho', 'orchest',
+  'psych', 'archéo', 'archaïq', 'chaos', 'chaotiq', 'chlor', 'chrétien',
+  'techniqu', 'technolog', 'pétrichor', 'orchid', 'chiropra'
+];
+function chEstK(w){
+  return RACINES_CH_K.some(racine => w.includes(racine));
+}
+
 /* Son initial d'un mot (pour allitérations). Mode dico prioritaire via
    phonetiqueMot (transcription complète déjà utilisée pour le e muet),
    repli sur une petite table orthographique sinon. Ignore les mots
@@ -3255,7 +3271,7 @@ function soninitial(mot){
   // que par transcription.
   if (w2[0] === 'y' && estVoyelle(w2[1])) return 'j';
   if (estVoyelle(w2[0])) return null;
-  if (w2.startsWith('ch')) return 'ʃ';
+  if (w2.startsWith('ch')) return chEstK(w2) ? 'k' : 'ʃ';
   if (w2.startsWith('ph')) return 'f';
   if (w2.startsWith('gn')) return 'ɲ';
   if (w2.startsWith('qu')) return 'k';
@@ -3617,7 +3633,7 @@ function consonnesInternesMot(mot){
 
     const suite = w.slice(i);
     let son, longueur;
-    if (suite.startsWith('ch')) { son = 'ʃ'; longueur = 2; }
+    if (suite.startsWith('ch')) { son = chEstK(w) ? 'k' : 'ʃ'; longueur = 2; }
     else if (suite.startsWith('ph')) { son = 'f'; longueur = 2; }
     else if (suite.startsWith('gn')) { son = 'ɲ'; longueur = 2; }
     else if (suite.startsWith('qu')) { son = 'k'; longueur = 2; }

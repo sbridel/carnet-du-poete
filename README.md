@@ -5,6 +5,16 @@ breakdown, a rhyming dictionary, thematic vocabulary, synonyms/antonyms (includi
 lookup from external sources), and a quick reference on French versification — all in one
 side panel, no internet connection required for the core features.
 
+## Sommaire
+
+- [Features](#features)
+- [Manual installation](#manual-installation)
+- [Extending your dictionaries with `dictionnaire-perso.json`](#extending-your-dictionaries-with-dictionnaire-personjson)
+- [Online sources](#online-sources)
+- [Known limitations](#known-limitations)
+- [Changelog](#changelog) — 5 most recent versions
+- [Version history](#version-history) — full changelog archive
+
 ## Features
 
 - **Syllables** — paste or type your verses; each line is broken down into syllables in
@@ -370,6 +380,15 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.20.0** — A dedicated audit poem (built from real entries in Alucard's own
+  `dictionnaire-perso.json`) surfaced one more small gap: "ch" pronounced [k] instead of the
+  usual [ʃ] in a handful of Greek-origin/technical words — "pétrichor", "chœur", "chrome",
+  "chronique", "choral", "écho", "orchestre", "psychologie", "archéologie", "chaos", "chlore",
+  "chrétien", "technique", "technologie", "orchidée"... Fixed in both allitérations (for words
+  actually starting with "ch") and Trame phonique (for "ch" anywhere in the word, which is how
+  this was first noticed — "pétrichor" was landing in the same [ʃ] bucket as "chien"/"chaleur"
+  instead of its own [k] one). Small root-based exception list, not exhaustive, same pattern as
+  the other exceptions already in this section (CaReFuL, "-er" infinitives, "ill"...).
 - **2.19.0** — A systematic audit pass over the Sonorités panel and the underlying rhyme engine,
   triggered by real test cases from Alucard. Several genuine accuracy bugs found and fixed,
   each confirmed by direct testing:
@@ -464,6 +483,12 @@ Definitions tab may need an update.
     badge colour in the results below; "Mode assonance" moved onto the same row as "Compléter
     en ligne", and the syllable-count dropdown got a small ▾ to signal it opens a menu.
   - "Pauvre" is now unchecked by default (Suffisante/Riche/Très riche/Léonine still on).
+
+## Version history
+
+Full changelog archive, oldest first below — the 5 most recent versions are in the
+[Changelog](#changelog) section above.
+
 - **2.15.0** — New "Rimes continues entre strophes" toggle in the Syllabes tab: by default each
   stanza's rhyme lettering (A, B, C...) restarts at A, which meant a sonnet's tercets always
   came out as AAB/AAB instead of the conventional CCD/EED continuing on from the quatrains'
