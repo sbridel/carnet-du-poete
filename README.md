@@ -380,6 +380,16 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.21.0** — Two ergonomic changes to the Rimes tab, both purely cosmetic, no behaviour
+  change:
+  - The rhyme-quality pill colours (Pauvre/Suffisante/Riche/Très riche/Léonine) are noticeably
+    softer now — same hue family, less saturated, slightly lighter — instead of the fairly
+    strong original palette. Applies everywhere that palette is used: the pills themselves, the
+    small coloured left border on word chips in Rimes/Synonymes results, and the quality-summary
+    dots. Checked-pill text switched from white to a dark grey to keep it readable against the
+    lighter fills (white text on the lightened colours was dropping well below a readable
+    contrast ratio on some of them, most noticeably "Léonine").
+
 - **2.20.0** — A dedicated audit poem (built from real entries in Alucard's own
   `dictionnaire-perso.json`) surfaced one more small gap: "ch" pronounced [k] instead of the
   usual [ʃ] in a handful of Greek-origin/technical words — "pétrichor", "chœur", "chrome",
@@ -467,6 +477,7 @@ Definitions tab may need an update.
   collapsible table of contents. Also, in the Synonymes tab: each synonym/antonym chip now
   shows its syllable count, and a new "syllable count" dropdown filters results down to a
   given count — same style as the existing syllable filter in the Rimes tab.
+## Version history
 - **2.16.0** — Rimes tab ergonomics pass and a real filtering bug fix:
   - **Fixed**: the rhyme-quality filters (Pauvre/Suffisante/Riche+/Très riche/Léonine) had a
     silent edge case — unchecking every one of the 3 main checkboxes was treated internally as
@@ -484,7 +495,6 @@ Definitions tab may need an update.
     en ligne", and the syllable-count dropdown got a small ▾ to signal it opens a menu.
   - "Pauvre" is now unchecked by default (Suffisante/Riche/Très riche/Léonine still on).
 
-## Version history
 
 Full changelog archive, oldest first below — the 5 most recent versions are in the
 [Changelog](#changelog) section above.

@@ -3169,7 +3169,7 @@ function chercheRimes(motSaisi){
    Les groupes phonétiques exacts peuvent contenir plusieurs milliers
    de mots (ex. toutes les conjugaisons en -erai) : on n'affiche que
    les 100 premiers par défaut, avec un bouton pour dérouler le reste. */
-const COULEURS_QUALITE = { pauvre: '#7f8c8d', suffisante: '#2980b9', riche: '#c0392b', tresriche: '#8e44ad', leonine: '#d4af37' };
+const COULEURS_QUALITE = { pauvre: '#a1a8a8', suffisante: '#5f9ac0', riche: '#c26f66', tresriche: '#a478b6', leonine: '#ccb97c' };
 const LABELS_QUALITE = { pauvre: 'pauvre', suffisante: 'suffisante', riche: 'riche', tresriche: 'très riche', leonine: 'léonine' };
 const LETTRES_QUALITE = { pauvre: 'P', suffisante: 'S', riche: 'R', tresriche: 'T', leonine: 'L' };
 const EXPLICATIONS_QUALITE = {
@@ -5876,7 +5876,7 @@ const CARNET_CSS = `
 .cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
 .cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
 .cp-qualite-pill{ border-color: var(--qcolor); color: var(--qcolor); }
-.cp-qualite-pill:has(input:checked){ background: var(--qcolor); border-color: var(--qcolor); color:#fff; }
+.cp-qualite-pill:has(input:checked){ background: var(--qcolor); border-color: var(--qcolor); color:#2a2a2a; }
 .cp-select-wrap{ position:relative; display:inline-flex; align-items:center; }
 .cp-select-wrap select{ padding-right:20px; }
 .cp-select-arrow{ position:absolute; right:8px; font-size:0.7em; color: var(--text-muted); pointer-events:none; }
