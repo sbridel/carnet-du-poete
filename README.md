@@ -380,6 +380,16 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.22.0** — Fixed a real gap in the rhyme engine: a bare "y" that IS the vowel itself (not a
+  semi-consonant before another vowel, already handled separately) is pronounced exactly like
+  "i" — "zéphyr"/"frémir", "rugby"/"pari", "martyr"/"sortir" — but "yr" and "ir" were staying
+  two different keys for the same [iʁ] sound, so words spelled with a final "y" never matched
+  their "i"-spelled rhyme partners. Found via a real poem (thank you, Alucard) using "zéphyr" as
+  a rhyme for "frémir"/"souffrir" — confirmed correct by ear, wrong in the tool. Also worth
+  noting for anyone who ran into this already: this fix had actually been written and tested
+  earlier in the process of tracking the report down, but was left sitting in a working copy
+  and never actually packaged into a release — this version is the first one that genuinely
+  includes it, sorry for the runaround while we nailed down what was and wasn't shipped.
 - **2.21.0** — Two ergonomic changes to the Rimes tab, both purely cosmetic, no behaviour
   change:
   - The rhyme-quality pill colours (Pauvre/Suffisante/Riche/Très riche/Léonine) are noticeably
@@ -456,6 +466,8 @@ Definitions tab may need an update.
     [n]) were being counted as their own consonant sound; a word found in the phonetic
     dictionary could return a consonant found *anywhere* in its transcription as if it were the
     word-initial sound, even for vowel-initial words like "écrit" or "offrant".
+## Version history
+
 - **2.17.0** — New "Sonorités" panel in the Syllabes tab (flip the card with the button next to
   Export/Copy/Clear — now a cyan pill on the left): detects allitérations (repeated initial
   consonant sound), internal assonances (repeated vowel, not just end-of-line rhyme), and
@@ -477,7 +489,6 @@ Definitions tab may need an update.
   collapsible table of contents. Also, in the Synonymes tab: each synonym/antonym chip now
   shows its syllable count, and a new "syllable count" dropdown filters results down to a
   given count — same style as the existing syllable filter in the Rimes tab.
-## Version history
 - **2.16.0** — Rimes tab ergonomics pass and a real filtering bug fix:
   - **Fixed**: the rhyme-quality filters (Pauvre/Suffisante/Riche+/Très riche/Léonine) had a
     silent edge case — unchecking every one of the 3 main checkboxes was treated internally as

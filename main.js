@@ -438,6 +438,12 @@ function normaliseSonsFinal(cle){
   // comme la même rime, avant d'appliquer la normalisation ê/è/e ci-dessous.
   cle = cle.replace(/^[iy](?=[aeiouyàâäéèêëîïôöùûüÿœ])/, '');
 
+  // Un "y" qui EST la voyelle (pas suivi d'une autre voyelle, donc pas le
+  // cas semi-consonne juste au-dessus) se prononce exactement comme "i"
+  // (zéphyr/frémir, rugby/pari, martyr/sortir) — sans cette équivalence,
+  // "yr" et "ir" restent deux clés différentes pour le même son [iʁ].
+  cle = cle.replace(/^y(?=[^aeiouyàâäéèêëîïôöùûüÿœ]|$)/, 'i');
+
   // Normalise quelques graphies nasales équivalentes en début de clé
   // (démente/envoûtante doivent matcher malgré "en" vs "an" ; ombre/
   // nombre doivent matcher malgré "om" vs futur "on")
