@@ -3325,6 +3325,17 @@ function normaliseGroupeInterne(w, g, estDernier){
   texte = texte.replace(/^[iy](?=[aeiouyàâäéèêëîïôöùûüÿœ])/, '');
   if (!texte) return null;
 
+  // "i" final de groupe suivi de "ll" (grenouille, chatouille...) : même
+  // yod que dans "fille" [fij], pas une troisième voyelle qui fusionne
+  // avec "ou" — "grenouille" ne se prononce pas [ɡʁənwi] mais [ɡʁənuj].
+  // Retiré ici pour la même raison que la semi-consonne en attaque
+  // au-dessus, sauf dans les mots où "ill" reste une vraie consonne l
+  // (ville, tranquille...), même liste que pour la trame phonique.
+  if (texte.length > 1 && texte.endsWith('i') && w.slice(g.fin, g.fin + 2) === 'll' && !illResteConsonne(w)) {
+    texte = texte.slice(0, -1);
+  }
+  if (!texte) return null;
+
   // Équivalences sans condition de position (toujours vraies, qu'on soit
   // en fin de mot ou non). "eau"/"au" se prononcent [o] de façon fiable
   // quelle que soit la position (contrairement au "o" seul, qui peut être

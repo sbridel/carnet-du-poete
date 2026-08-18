@@ -380,6 +380,16 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.23.0** — First real automated test suite (`tests/`, run with `node tests/run.js` — no
+  dependency to install, loads the actual `main.js` unmodified). 82 assertions covering
+  everything found and fixed across the last several releases: mute e no longer dangling in a
+  rhyme key, yod ("ille") staying distinct from "elle", "y" as a vowel equalling "i", doubled
+  consonants, intervocalic "s", "-tion" softening, "ch"=[k] exceptions, CaReFuL, nasalisation,
+  vowel-family coverage, homéotéleute filtering, and the full zéphyr/frémir rhyme-scheme case.
+  Building it surfaced one more real bug, caught before it shipped: "grenouille"/"chatouille"
+  were producing a phantom "oui" vowel group — the final "i" before "ille" is the same yod as in
+  "fille", not a third vowel merging with "ou" ("grenouille" is [ɡʁənuj], not [ɡʁənwi]). Fixed at
+  the source in the internal vowel-grouping logic, not by adding "oui" as if it were a real sound.
 - **2.22.0** — Fixed a real gap in the rhyme engine: a bare "y" that IS the vowel itself (not a
   semi-consonant before another vowel, already handled separately) is pronounced exactly like
   "i" — "zéphyr"/"frémir", "rugby"/"pari", "martyr"/"sortir" — but "yr" and "ir" were staying
@@ -443,6 +453,8 @@ Definitions tab may need an update.
     converts their ending before the yod check can run; and words where the anchor vowel and a
     trailing mute e merge into one written group ("vue" vs "vu") aren't yet reconciled the same
     way "vole"/"bol" now are.
+## Version history
+
 - **2.18.0** — Continued work on the Sonorités panel from 2.17.0:
   - **New**: a 4th figure, "Trame phonique" (réseau consonantique) — a consonant sound that
     recurs anywhere in a word (attack, middle, coda), not just word-initial like allitération.
@@ -466,7 +478,6 @@ Definitions tab may need an update.
     [n]) were being counted as their own consonant sound; a word found in the phonetic
     dictionary could return a consonant found *anywhere* in its transcription as if it were the
     word-initial sound, even for vowel-initial words like "écrit" or "offrant".
-## Version history
 
 - **2.17.0** — New "Sonorités" panel in the Syllabes tab (flip the card with the button next to
   Export/Copy/Clear — now a cyan pill on the left): detects allitérations (repeated initial
