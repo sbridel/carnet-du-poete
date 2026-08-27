@@ -407,10 +407,28 @@ function preparerMotRime(mot){
     w = w.slice(0, -2) + 'é';
   } else if (w.endsWith('ez') && w.length > 2 && !EXCEPTIONS_EZ_PRONONCE.has(w)) {
     w = w.slice(0, -2) + 'é';
-  } else {
-    w = w.replace(/[dtx]$/, '');
   }
+  // NB : la consonne finale muette (d/t/x) n'est PLUS retirée ici — elle
+  // reste dans le mot le temps du découpage en syllabes (cleFinApprox,
+  // segmentsPhonetiques, decoupeSyllabesRime), pour que ces fonctions
+  // puissent s'appuyer dessus et repérer la vraie syllabe finale porteuse
+  // de la rime. Avant ce correctif, la retirer ici faisait apparaître un
+  // "e" en toute fin de mot (ex. "rejet" -> "reje") qui se faisait alors
+  // passer à tort pour un e muet classique (comme "vole") : l'ancrage
+  // reculait vers une syllabe précédente sans rapport ("re-" au lieu de
+  // "-jet"), cassant la rime avec "jais"/"forêt" etc. Chacune des 3
+  // fonctions retire maintenant cette consonne elle-même, une fois la clé
+  // déjà assemblée (voir stripConsonneMuetteFinale ci-dessous).
   return normaliseTiVersS(w);
+}
+
+/* Retire une consonne finale muette (d/t/x) d'une clé de rime déjà
+   assemblée — miroir du retrait autrefois fait trop tôt dans
+   preparerMotRime (voir commentaire ci-dessus). Centralisé ici pour que
+   les 3 fonctions qui en ont besoin (cleFinApprox, segmentsPhonetiques,
+   decoupeSyllabesRime) appliquent exactement la même règle. */
+function stripConsonneMuetteFinale(cle){
+  return (cle || '').replace(/[dtx]$/, '');
 }
 
 /* Applique à une clé de fin de mot (déjà ancrée sur la dernière voyelle
@@ -549,19 +567,27 @@ function cleFinApprox(mot){
   let idxAncre = groupes.length - 1;
   const dernier = groupes[idxAncre];
   let finCle = w.length;
-  if (dernier.texte === 'e' && dernier.fin === w.length && idxAncre > 0) {
-    idxAncre--; // e muet final : la vraie rime est portée par la voyelle d'avant
-    // Le e muet ne doit jamais rester collé dans la clé : "vole" (avec e)
-    // et "bol" (sans e) ont exactement le même son [ɔl], seul le genre
-    // change — déjà suivi séparément par le badge F/M. Sans cette borne,
-    // slice() allait jusqu'à la fin de la chaîne et laissait le e muet
-    // trainer dans la clé de "vole" ("ole") mais pas dans celle de "bol"
-    // ("ol") : deux clés différentes pour le même son, donc jugées
-    // "assonance" au lieu de "rime" — corrigé seulement quand le dico
-    // phonétique intervenait pour trancher (sans lui, aucune concordance).
-    finCle = dernier.debut;
+  if (dernier.fin === w.length && dernier.texte.endsWith('e')) {
+    // e muet final : la vraie rime est portée par la voyelle d'avant.
+    // On retire uniquement la lettre "e" finale — que le groupe de
+    // voyelles soit "e" tout seul (vole -> ol) ou fusionné avec d'autres
+    // voyelles qui le précèdent (effraie -> ai, joue -> ou, rue -> u) :
+    // dans les deux cas ce "e" ne se prononce pas et ne doit jamais
+    // rester dans la clé. "vole" (avec e) et "bol" (sans e) ont
+    // exactement le même son [ɔl], seul le genre change — déjà suivi
+    // séparément par le badge F/M. Avant ce correctif, seul le cas "e"
+    // isolé était traité : "effraie" gardait un "aie" bien distinct du
+    // "ai" de "frais"/"forêt", empêchant toute concordance de clé pour
+    // toute la famille de mots en "-aie"/"-oue"/"-ue" (rime jugée à tort
+    // "assonance", voire refusée, y compris quand le dico phonétique
+    // confirmait pourtant l'accord).
+    finCle = w.length - 1;
+    if (finCle <= dernier.debut && idxAncre > 0) {
+      // le groupe ne contenait QUE ce "e" -> reculer au groupe vocalique précédent
+      idxAncre--;
+    }
   }
-  const cle = normaliseSonsFinal(w.slice(groupes[idxAncre].debut, finCle));
+  const cle = stripConsonneMuetteFinale(normaliseSonsFinal(w.slice(groupes[idxAncre].debut, finCle)));
 
   return cle || null;
 }
@@ -649,13 +675,24 @@ function classifieRime(motA, motB){
     if (richeA === richeB) {
       return (!coeurA || !coeurB || coeurCompatible) ? 'rime' : null;
     }
+    // Groupes dico différents : pas de "rime riche" partagée (la consonne
+    // d'attaque de la dernière syllabe diffère, ex. "frais" [fʁɛ] vs
+    // "jais" [ʒɛ] : "RE" contre "ZE"). Mais si les deux mots n'ont plus
+    // rien après leur voyelle finale (fin réduite à son seul noyau
+    // vocalique des deux côtés) et que ce noyau concorde, c'est encore
+    // une rime valide au sens classique — une "rime pauvre" (même son
+    // final, rien à faire concorder ensuite), pas une simple assonance.
+    // Dès qu'il reste une consonne après la voyelle dans l'un des deux
+    // mots, on ne peut pas garantir qu'elle concorderait aussi (on
+    // n'a que la clé de groupe, pas la transcription complète) : on
+    // reste alors prudemment sur "assonance", comme avant.
+    if (coeurCompatible && finA === coeurA && finB === coeurB) return 'rime';
     return coeurCompatible ? 'assonance' : null;
   }
 
   // Repli : au moins un des deux mots n'est pas couvert par le dico — on
-  // se fie à l'approximation orthographique seule (peut encore, elle,
-  // confondre "eille"/"elle" — bug distinct, non couvert par ce
-  // réordonnancement, qui ne peut aider que quand le dico est disponible).
+  // se fie à l'approximation orthographique seule. Le marqueur yod "J"
+  // (voir cleFinApprox) distingue déjà correctement "eille"/"elle" ici.
   if (finA && finB && finA === finB) return 'rime';
   if (coeurCompatible) return 'assonance';
   return null;
@@ -2860,7 +2897,7 @@ function segmentsPhonetiques(mot){
   const dernier = groupes[idxAncre];
   if (dernier.texte === 'e' && dernier.fin === w.length && idxAncre > 0) idxAncre--;
 
-  const queue = normaliseSonsFinal(w.slice(groupes[idxAncre].debut));
+  const queue = stripConsonneMuetteFinale(normaliseSonsFinal(w.slice(groupes[idxAncre].debut)));
   const groupesQueue = trouveGroupesAvecPositions(queue);
   const segments = [];
   let posQueue = queue.length;
@@ -2968,6 +3005,12 @@ function decoupeSyllabesRime(mot){
       groupes = trouveGroupesAvecPositions(w);
     }
   }
+  // Consonne finale muette (d/t/x) : retirée seulement maintenant, une fois
+  // l'ancrage de la vraie syllabe finale déjà décidé ci-dessus (voir
+  // preparerMotRime et stripConsonneMuetteFinale). Ce retrait ne modifie
+  // aucune position de groupe déjà calculée : il ne touche qu'un caractère
+  // situé après la fin du dernier groupe de voyelles.
+  if (/[dtx]$/.test(w)) w = w.slice(0, -1);
   if (groupes.length === 0) return [{ onset: w, noyau: '', coda: '' }];
 
   const nasal = groupes.map(g => normaliseNasaleSyllabe(g.texte, w[g.fin]));

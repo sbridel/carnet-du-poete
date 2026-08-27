@@ -380,6 +380,36 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.24.0** — Three real accuracy fixes to the rhyme engine, all found via a single test poem
+  from Alucard ("effraie/chasse/place/frais/jais/forêt/fées/rejet") and confirmed with
+  `node tests/run.js` (82/82) plus targeted checks before shipping:
+  - A word's final mute e was still left dangling in the rhyme key whenever it fused with
+    another vowel instead of standing alone on its own — the "vole"/"bol" case (isolated e) was
+    fixed back in 2.19.0, but "effraie" (ending in "aie", the e fused with "ai") kept a
+    different key from "frais"/"forêt" ("aie" vs "ai") despite the identical sound. Same fix now
+    applies whether the mute e stands alone or is fused with the vowel before it — also
+    corrects "joue"/"rue"-type endings the same way.
+  - When two words are both covered by the phonetic dictionary but land in different
+    dictionary groups (no shared "rime riche"), the engine now still recognises a genuine
+    "rime pauvre" between them if neither word has anything left after its final vowel — e.g.
+    "frais" [fʁɛ] and "jais" [ʒɛ] share the exact same final sound with nothing following,
+    differing only in the onset consonant before the vowel. Previously this case was capped at
+    "assonance", one level below what it actually is.
+  - The silent final consonant (d/t/x) was being stripped from the word *before* syllable
+    segmentation, which could expose an unrelated earlier vowel as if it were a genuine mute e
+    — "rejet" lost its "t" first, becoming "reje", and the resulting final "e" (which is very
+    much pronounced, [ʒɛ]) was then mistaken for a real mute e, sending the anchor back to the
+    unrelated "e" of "re-". Whole family of words affected: rejet, objet, projet, sujet, effet,
+    regret, and more generally any "-et/-ed/-ex" word preceded by a separate syllable. Fixed by
+    keeping the consonant through segmentation and stripping it only afterwards, once the real
+    rhyme-bearing syllable is already correctly anchored — applied consistently to the rhyme
+    key itself and to the two functions behind the pauvre/suffisante/riche/très
+    riche/léonine quality badge, which had the exact same bug.
+  - Known related limitation, found along the way but left as-is: when a
+    `dictionnaire-perso.json` entry is a homograph with two unrelated pronunciations (e.g. "jet"
+    as in "avion à réaction" [dʒɛt] vs the native French "jet" as in "lancer" [ʒɛ]), the
+    dictionary format can only store one entry per word — whichever sense is present is the one
+    used everywhere. Same limitation already documented below for "président"/"fier".
 - **2.23.0** — First real automated test suite (`tests/`, run with `node tests/run.js` — no
   dependency to install, loads the actual `main.js` unmodified). 82 assertions covering
   everything found and fixed across the last several releases: mute e no longer dangling in a
@@ -419,6 +449,8 @@ Definitions tab may need an update.
   this was first noticed — "pétrichor" was landing in the same [ʃ] bucket as "chien"/"chaleur"
   instead of its own [k] one). Small root-based exception list, not exhaustive, same pattern as
   the other exceptions already in this section (CaReFuL, "-er" infinitives, "ill"...).
+## Version history
+
 - **2.19.0** — A systematic audit pass over the Sonorités panel and the underlying rhyme engine,
   triggered by real test cases from Alucard. Several genuine accuracy bugs found and fixed,
   each confirmed by direct testing:
@@ -452,9 +484,7 @@ Definitions tab may need an update.
     "-iller"/"-eiller" (e.g. "travailler") still lose the yod distinction, since an earlier rule
     converts their ending before the yod check can run; and words where the anchor vowel and a
     trailing mute e merge into one written group ("vue" vs "vu") aren't yet reconciled the same
-    way "vole"/"bol" now are.
-## Version history
-
+    way "vole"/"bol" now are. (Update, 2.24.0: the fused-vowel case is now fixed too, see above.)
 - **2.18.0** — Continued work on the Sonorités panel from 2.17.0:
   - **New**: a 4th figure, "Trame phonique" (réseau consonantique) — a consonant sound that
     recurs anywhere in a word (attack, middle, coda), not just word-initial like allitération.
