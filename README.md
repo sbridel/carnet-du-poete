@@ -380,6 +380,20 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.24.1** — The personal dictionary (`dictionnaire-perso.json`) no longer blocks plugin
+  startup while it loads. Previously, loading it was the very first thing `onload()` did,
+  `await`-ed before registering the view, ribbon icon, or any command — so on a large
+  dictionary (measured: ~750 ms for 121k words on desktop, likely several seconds on mobile
+  given the weaker CPU), nothing from the plugin appeared until that finished, which could feel
+  like the whole plugin was stalling on startup, especially on mobile. The view/icon/commands
+  now register immediately; the dictionary loads in the background right after, and the rhyme
+  engine already falls back safely to its spelling-only heuristic for the brief window before
+  it's ready (`DICO_PHONETIQUE` starts `null`, already handled everywhere it's checked).
+  A separate attempt at speeding up the parsing loop itself (skipping `trim()`/`toLowerCase()`
+  when a word is already clean) looked promising on a single measurement (189 ms → 137 ms) but
+  turned out to be measurement noise once re-tested properly across several alternated runs
+  (~46 ms vs ~43 ms median) — not shipped, since it would have added complexity to
+  dictionary-parsing code for no real gain.
 - **2.24.0** — Three real accuracy fixes to the rhyme engine, all found via a single test poem
   from Alucard ("effraie/chasse/place/frais/jais/forêt/fées/rejet") and confirmed with
   `node tests/run.js` (82/82) plus targeted checks before shipping:
@@ -440,6 +454,8 @@ Definitions tab may need an update.
     lighter fills (white text on the lightened colours was dropping well below a readable
     contrast ratio on some of them, most noticeably "Léonine").
 
+## Version history
+
 - **2.20.0** — A dedicated audit poem (built from real entries in Alucard's own
   `dictionnaire-perso.json`) surfaced one more small gap: "ch" pronounced [k] instead of the
   usual [ʃ] in a handful of Greek-origin/technical words — "pétrichor", "chœur", "chrome",
@@ -449,8 +465,6 @@ Definitions tab may need an update.
   this was first noticed — "pétrichor" was landing in the same [ʃ] bucket as "chien"/"chaleur"
   instead of its own [k] one). Small root-based exception list, not exhaustive, same pattern as
   the other exceptions already in this section (CaReFuL, "-er" infinitives, "ill"...).
-## Version history
-
 - **2.19.0** — A systematic audit pass over the Sonorités panel and the underlying rhyme engine,
   triggered by real test cases from Alucard. Several genuine accuracy bugs found and fixed,
   each confirmed by direct testing:

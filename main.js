@@ -6149,7 +6149,6 @@ const CARNET_CSS = `
 module.exports = class CarnetDuPoetePlugin extends Plugin {
   async onload(){
     this.injectStyles();
-    await chargeDictionnairePerso(this);
 
     const data = await this.loadData();
     MODE_ASSONANCE = !!(data && data.modeAssonance);
@@ -6216,7 +6215,18 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
     });
 
     this.addSettingTab(new CarnetSettingTab(this.app, this));
+
+    // Chargement du dictionnaire personnel en tâche de fond : ne bloque plus
+    // l'activation du plugin (vue, icône, commandes ci-dessus déjà prêtes).
+    // Sur un gros dictionnaire, ce chargement peut prendre plusieurs
+    // secondes sur mobile — en attendant qu'il se termine, le moteur de
+    // rimes retombe simplement sur son repli heuristique (DICO_PHONETIQUE
+    // reste `null` jusque-là, déjà géré partout où il est consulté).
+    chargeDictionnairePerso(this).catch(e => {
+      console.error('[Carnet du Poète] erreur au chargement initial du dictionnaire personnel', e);
+    });
   }
+
 
   injectStyles(){
     if (document.getElementById('carnet-du-poete-styles')) return;
