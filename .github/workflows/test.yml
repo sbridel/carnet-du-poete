@@ -1,0 +1,17 @@
+name: Workflow de Test
+
+on:
+  workflow_dispatch: # Permet le bouton de lancement manuel
+
+jobs:
+  mon-job-de-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Afficher un message de test
+        run: echo "Le workflow fonctionne parfaitement !"
+
+      - name: Vérifier la présence des fichiers
+        run: ls -la
