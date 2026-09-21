@@ -1,4 +1,4 @@
-![Téléchargements dernière release](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/latest/total) ![Téléchargements cumulés](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/total) ![Dernière release](https://img.shields.io/github/v/release/sbridel/carnet-du-poete) ![Licence](https://img.shields.io/github/license/sbridel/carnet-du-poete) ![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?logo=obsidian&logoColor=white)
+![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?logo=obsidian&logoColor=white) ![Téléchargements dernière release](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/latest/total) ![Téléchargements cumulés](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/total) ![Dernière release](https://img.shields.io/github/v/release/sbridel/carnet-du-poete) ![Dernier commit](https://img.shields.io/github/last-commit/sbridel/carnet-du-poete?color=blue) ![Licence](https://img.shields.io/github/license/sbridel/carnet-du-poete)
 # Carnet du Poete
 
 A companion for writing French verse in Obsidian: syllable counting with full scansion
