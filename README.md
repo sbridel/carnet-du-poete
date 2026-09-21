@@ -380,6 +380,26 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.24.2** — Verb forms ending in a silent "-ent" (3rd person plural: "ils dorment", "elles
+  s'enivrent") weren't recognised by the rhyme engine at all — found via a poem where "livres"
+  and "enivrent" (same real sound, [ivʁ]) failed to rhyme. The function that already detects
+  this silent ending, `finMuetteEnEnt` (with its exceptions list `EXCEPTIONS_ENT_PRONONCE` for
+  words where "-ent" really is pronounced: moment, président, différent...), existed but was
+  only ever used for syllable counting, never consulted by the rhyme engine. Now reused in two
+  places: `preparerMotRime` (strips the silent "-ent" before building the rhyme key, the shared
+  path used by both dictionary-backed and pure spelling-based comparison) and `trouveFamille`
+  (the plain spelling-based fallback used when a word isn't covered by any dictionary at all —
+  it was matching every "-ent" word against the nasal [ɑ̃] family by default; it now also tries
+  matching the stem plus a silent e, "enivr" + e ~ "enivre", against the existing families, so
+  it lands on the correct one instead). Confirmed against Alucard's real dictionary: the
+  dictionary already agreed "livres"/"enivrent" belonged to the same phonetic group, but an
+  orthography-based safety check downstream was overriding that correct agreement with `null` —
+  same underlying pattern as three of the 2.24.0 fixes (the dictionary is right, the spelling
+  heuristic wrongly overrides it).
+  Known residual gap, not fixed: without any dictionary coverage, a verb like "dorment" ([ɔʁm])
+  still falls back to the wrong nasal family, since no dedicated "-orme" family exists yet in
+  the curated `FAMILLES` list — not a regression from this fix, just the pre-existing limit of
+  a non-exhaustive list.
 - **2.24.1** — The personal dictionary (`dictionnaire-perso.json`) no longer blocks plugin
   startup while it loads. Previously, loading it was the very first thing `onload()` did,
   `await`-ed before registering the view, ribbon icon, or any command — so on a large
@@ -444,6 +464,8 @@ Definitions tab may need an update.
   earlier in the process of tracking the report down, but was left sitting in a working copy
   and never actually packaged into a release — this version is the first one that genuinely
   includes it, sorry for the runaround while we nailed down what was and wasn't shipped.
+## Version history
+
 - **2.21.0** — Two ergonomic changes to the Rimes tab, both purely cosmetic, no behaviour
   change:
   - The rhyme-quality pill colours (Pauvre/Suffisante/Riche/Très riche/Léonine) are noticeably
@@ -453,9 +475,6 @@ Definitions tab may need an update.
     dots. Checked-pill text switched from white to a dark grey to keep it readable against the
     lighter fills (white text on the lightened colours was dropping well below a readable
     contrast ratio on some of them, most noticeably "Léonine").
-
-## Version history
-
 - **2.20.0** — A dedicated audit poem (built from real entries in Alucard's own
   `dictionnaire-perso.json`) surfaced one more small gap: "ch" pronounced [k] instead of the
   usual [ʃ] in a handful of Greek-origin/technical words — "pétrichor", "chœur", "chrome",

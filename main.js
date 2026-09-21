@@ -403,7 +403,15 @@ function preparerMotRime(mot){
   let w = retireContraction(normaliseMot(mot));
   if (!w) return '';
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
-  if (w.endsWith('er') && w.length > 2 && !EXCEPTIONS_ER_PRONONCE.has(w)) {
+  if (w.endsWith('ent') && w.length > 3 && finMuetteEnEnt(w)) {
+    // "-ent" verbal muet, 3e personne du pluriel (ils dorment, elles
+    // s'enivrent...) : réutilise finMuetteEnEnt, déjà écrite et déjà
+    // utilisée pour le comptage de syllabes, mais qui n'était jusqu'ici
+    // jamais consultée par le moteur de rimes. Sans ce retrait, "enivrent"
+    // gardait son "-ent" et se comparait comme s'il se terminait par le
+    // son nasal [ɑ̃], au lieu du vrai son [ivʁ] partagé avec "livres".
+    w = w.slice(0, -3);
+  } else if (w.endsWith('er') && w.length > 2 && !EXCEPTIONS_ER_PRONONCE.has(w)) {
     w = w.slice(0, -2) + 'é';
   } else if (w.endsWith('ez') && w.length > 2 && !EXCEPTIONS_EZ_PRONONCE.has(w)) {
     w = w.slice(0, -2) + 'é';
@@ -1253,10 +1261,21 @@ const CHAMPS_LEXICAUX = CHAMPS_LEXICAUX_BASE.slice();
 function trouveFamille(mot){
   const w = normaliseMot(mot);
   const wSansS = (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) ? w.slice(0, -1) : null;
+  // "-ent" verbal muet (3e pers. pluriel : ils dorment, elles s'enivrent) :
+  // sonne comme le radical suivi d'un "e" muet ("enivr" + e ~ "enivre"),
+  // donc comparable aux mots qui se terminent naturellement par ce genre
+  // de "e" (livre, ombre...). Sans cette équivalence, ces verbes ne
+  // pouvaient matcher QUE la famille nasale "-ent [ɑ̃]" (toujours fausse
+  // ici, w.endsWith('ent') étant systématiquement vrai), jamais leur
+  // vraie famille de son — le classement par terme le plus long
+  // (longueurMax ci-dessous) suffit à préférer ce candidat dès qu'une
+  // famille plus spécifique matche, sans easer la famille nasale pour les
+  // mots qui la méritent vraiment (moment, président...).
+  const wEntMuet = (w.endsWith('ent') && w.length > 3 && finMuetteEnEnt(w)) ? w.slice(0, -3) + 'e' : null;
   let meilleure = null, longueurMax = 0;
   FAMILLES.forEach(fam => {
     fam.terms.forEach(t => {
-      if ((w.endsWith(t) || (wSansS && wSansS.endsWith(t))) && t.length > longueurMax) {
+      if ((w.endsWith(t) || (wSansS && wSansS.endsWith(t)) || (wEntMuet && wEntMuet.endsWith(t))) && t.length > longueurMax) {
         meilleure = fam; longueurMax = t.length;
       }
     });
