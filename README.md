@@ -86,10 +86,14 @@ side panel, no internet connection required for the core features.
   an optional **"Rime avec…"** field narrows the list down to only the ones that also rhyme
   with a second word of your choice — handy when a rhyme is already fixed by another line.
   See [Online sources](#online-sources) below.
-- **Definitions** — look up a rare word before using it: fetches a definition excerpt and
-  etymology from **CNRTL** (the *Trésor de la Langue Française informatisé*), shown in its own
-  boxed section with a link to the full entry. On-demand only — nothing is looked up
-  automatically.
+- **Definitions** — look up a rare word before using it: a quick one-line definition is shown
+  immediately, then pick from up to seven dictionary sources (TLFi, Wiktionnaire, Académie
+  9th/8th/4th editions, Littré, DMF for Middle French — only the ones that actually cover the
+  word are offered) via a row of pills, TLFi selected by default. Each source is broken down into
+  collapsible sections (numbered senses, locutions, historical notes...) instead of one long
+  block of text, with pure-definition text highlighted the same way the CNRTL site itself does.
+  A quick "Ouvrir sur CNRTL ↗" link opens the real site directly for whatever you've typed, no
+  lookup required. On-demand only — nothing is looked up automatically.
 - **Hasard** — one button, one rare or forgotten French word at random (*smaragdin*,
   *coruscant*, *pétrichor*, *s'ennuiter*...), with a short gloss and quick links to look it up
   in the Definitions or Rhymes tab. A live counter above the button shows how many words match
@@ -321,7 +325,8 @@ into browser CORS restrictions). Four sources are built in:
   Synonyms and Inspiration tabs.
 - **RimesSolides** (`rimessolides.com`) — a French rhyming dictionary with IPA transcriptions.
   Used in the Rhymes tab.
-- **CNRTL** (`cnrtl.fr`) — the *Trésor de la Langue Française informatisé*, used in the
+- **CNRTL** (`cnrtl.fr`) — the CNRTL portal's own internal JSON API, covering seven dictionaries
+  at once (TLFi, Wiktionnaire, Académie 9th/8th/4th editions, Littré, DMF), used in the
   Definitions tab. Unlike the other three, this one has no opt-in checkbox: it is only ever
   queried when you explicitly search in the Definitions tab.
 
@@ -338,11 +343,12 @@ true|false }`, registered in the `SOURCES_EN_LIGNE` table near the top of `main.
 issue or ask if you'd like a specific source added.
 
 *Fair use note:* these are third-party sites without a public API contract; the plugin fetches
-their normal pages and extracts the relevant section. If a site changes its layout, that source
-may temporarily return no results — the other source(s) and the local dictionaries are
-unaffected. CNRTL has announced a full portal redesign for 1 September 2026
-([details](https://www.portail-lexical.fr/)); if the URL structure changes after that date, the
-Definitions tab may need an update.
+their normal pages (or, for CNRTL, its own internal JSON API) and extracts the relevant section.
+If a site changes its layout, that source may temporarily return no results — the other
+source(s) and the local dictionaries are unaffected. CNRTL's announced portal redesign did
+happen on schedule and broke the plugin's HTML scraping entirely (see 2.24.3): the Definitions
+tab now talks to their JSON API instead, which should be more resilient to further front-end
+changes going forward, but isn't a public contract either.
 
 ## Known limitations
 
@@ -380,6 +386,27 @@ Definitions tab may need an update.
 
 ## Changelog
 
+- **2.24.3** — CNRTL definitions were silently broken: the portal's announced September 1, 2026
+  redesign (flagged as a risk in earlier notes) turned out to be a full rewrite to client-side
+  rendering — the `/definition/{word}` page the plugin was scraping no longer contains any
+  article text in its raw HTML at all, just an empty shell, so every lookup silently returned
+  "not found" regardless of the word (caught by Alucard: "aucun mot n'est trouvé"). Fixed by
+  switching to CNRTL's own internal JSON API (`/api/word/{word}/`), found by inspecting the
+  site's network requests — far more reliable than HTML scraping, and considerably richer: the
+  Définitions tab now exposes all seven dictionary sources this API bundles per word (TLFi,
+  Wiktionnaire, Académie 9th/8th/4th editions, Littré, DMF/Middle French — only the ones actually
+  present for a given word are shown), selectable via pills with TLFi selected by default. Each
+  source is broken down into its own collapsible sections (numbered senses, locutions, historical
+  notes...) instead of one wall of text — parsed generically from the HTML structure shared
+  across all seven sources (numbered sense lists, annex sections, named locutions), so nothing is
+  filtered or hard-coded per source; whatever doesn't match a recognised pattern still gets kept,
+  in a catch-all "Complément" block, rather than silently dropped. Pure-definition spans
+  (`s-definition` in CNRTL's own markup) are now visually highlighted, matching the site's own
+  convention. A quick "Ouvrir sur CNRTL ↗" link next to the search box opens the real site
+  directly for the currently typed word, with no lookup of our own involved. The previous
+  text-based extraction (regex hunting for "Étymol. et Hist.", stripping an announcement banner,
+  guessing where an article starts from "MOT," patterns...) is gone entirely — none of it is
+  needed against structured JSON.
 - **2.24.2** — Verb forms ending in a silent "-ent" (3rd person plural: "ils dorment", "elles
   s'enivrent") weren't recognised by the rhyme engine at all — found via a poem where "livres"
   and "enivrent" (same real sound, [ivʁ]) failed to rhyme. The function that already detects

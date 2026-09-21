@@ -1904,87 +1904,133 @@ const SOURCES_EN_LIGNE_ORDRE = ['wiktionnaire', 'crisco'];
    Définitions riches + étymologie, à la demande uniquement
    (onglet "Définitions" dédié, pas de recherche automatique).
    ========================================================= */
-function texteBrutDepuisHtml(html){
-  return (html || '')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&#39;/g, "'")
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\s*\n\s*/g, '\n')
-    .trim();
-}
+/* Correspondance identifiant technique -> libellé affiché, dans l'ordre de
+   présentation des pills (TLFi en premier, sélectionné par défaut). Toute
+   entrée de l'API dont l'id ne figure pas ici (synonyms, antonyms,
+   collocations, proverbs, concordance, translations, history, families,
+   conjugate, proxemie, etymology) est ignorée : ce ne sont pas des articles
+   de dictionnaire à part entière, elles restent hors périmètre pour l'instant. */
+const CNRTL_SOURCES_LABELS = {
+  tlfi: 'TLFi',
+  wiktionnaire: 'Wiktionnaire',
+  academie9: 'Académie (9e éd.)',
+  academie8: 'Académie (8e éd.)',
+  academie4: 'Académie (4e éd.)',
+  littre: 'Littré',
+  dmf: 'DMF (moyen français)',
+};
+const CNRTL_SOURCES_ORDRE = ['tlfi', 'wiktionnaire', 'academie9', 'academie8', 'academie4', 'littre', 'dmf'];
 
-/* Le CNRTL affiche depuis peu (annonce de refonte du portail au 1er
-   septembre 2026) un bandeau d'annonce suivi d'un menu de navigation qui
-   peut se retrouver capturé AVANT la vraie définition selon la page. On le
-   retire s'il est présent, en se basant sur des repères de texte stables
-   plutôt que sur une position fixe (le bandeau disparaîtra peut-être un
-   jour, mais ce nettoyage restera inoffensif s'il n'y a rien à retirer). */
-function retireBoilerplateCnrtl(texte){
-  const debutBandeau = texte.indexOf('Chers usagers du portail lexical');
-  if (debutBandeau === -1) return texte;
-  const reperesFin = ['Police de caractères', 'Concordance Aide', 'DMF ('];
-  let finBandeau = -1, repereTrouve = '';
-  reperesFin.forEach(rep => {
-    const idx = texte.indexOf(rep, debutBandeau);
-    if (idx !== -1 && idx > finBandeau) { finBandeau = idx; repereTrouve = rep; }
-  });
-  if (finBandeau === -1) return texte; // rien de fiable trouvé, on ne touche à rien
-  return texte.slice(0, debutBandeau) + texte.slice(finBandeau + repereTrouve.length);
-}
-
+/* Depuis la refonte du portail CNRTL (annoncée pour le 1er septembre 2026),
+   la page /definition/{mot} ne sert plus qu'une coquille vide : le contenu
+   est chargé à part par le navigateur via une API JSON interne
+   (/api/word/{mot}/), que l'on interroge directement ici plutôt que de
+   scraper un HTML qui ne contient plus rien d'utile. Pour un mot inconnu,
+   l'API répond toujours en HTTP 200 mais sans champ "header" (juste
+   {"suggestions":[...]} ), d'où le test sur la présence de header plutôt
+   que sur le statut HTTP. */
 async function chercheCnrtl(mot){
-  const url = `https://www.cnrtl.fr/definition/${encodeURIComponent(mot)}`;
-  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
+  const urlPage = `https://www.cnrtl.fr/definition/${encodeURIComponent(mot)}`;
+  const urlApi = `https://www.cnrtl.fr/api/word/${encodeURIComponent(mot)}/`;
+  const reponse = await requestUrl({ url: urlApi, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
-  const html = reponse.text || '';
-  if (/n['’]a pas été trouvé|(?:la|cette) forme[\s\S]{0,60}introuvable/i.test(html)) {
-    return { trouve: false, url };
+
+  let data;
+  try {
+    data = JSON.parse(reponse.text || '{}');
+  } catch (err) {
+    throw new Error('Réponse CNRTL illisible (format inattendu)');
   }
 
-  let texte = texteBrutDepuisHtml(html);
-  texte = retireBoilerplateCnrtl(texte);
-  const motMaj = mot.toUpperCase();
-
-  // Le vrai début de l'article se reconnaît à "MOT," (ou "MOT1,", "MOT2,"
-  // pour les homographes numérotés par le TLFi, ex. "ombre" = OMBRE1 le
-  // phénomène optique / OMBRE2 le poisson) suivi d'une catégorie
-  // grammaticale — parfois avec la forme féminine intercalée juste avant
-  // ("DRACONIEN¹, IENNE, adj."). Le numéro d'homographe peut être un
-  // chiffre normal ou un chiffre en exposant unicode (¹²³... non reconnus
-  // par \d), et — quand il est rendu via une balise <sup> dans le HTML
-  // source — se retrouve entouré d'espaces après le nettoyage des balises
-  // (chaque balise est remplacée par un espace), d'où les \s* de part et
-  // d'autre. On ne se rabat sur "MOT " (sans virgule) qu'en dernier
-  // recours, car ce motif plus large peut aussi matcher un simple titre de
-  // page ("OMBRE : Définition de OMBRE") plutôt que le vrai contenu.
-  const regexDebut = new RegExp(motMaj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[0-9¹²³⁰⁴⁵⁶⁷⁸⁹]{0,2}\\s*,');
-  const matchDebut = regexDebut.exec(texte);
-  let debutArticle = matchDebut ? matchDebut.index : -1;
-  if (debutArticle === -1) debutArticle = texte.indexOf(motMaj + ' ');
-  const etymIdx = texte.indexOf('Étymol. et Hist.');
-
-  let definition = '';
-  if (debutArticle !== -1) {
-    const finDef = etymIdx !== -1 ? etymIdx : debutArticle + 1000;
-    definition = texte.slice(debutArticle, Math.min(finDef, debutArticle + 1000)).replace(/\s+/g, ' ').trim();
+  if (!data.header) {
+    return { trouve: false, url: urlPage };
   }
 
-  let etymologie = '';
-  if (etymIdx !== -1) {
-    const freqIdx = texte.indexOf('Fréq. abs.', etymIdx);
-    const bbgIdx = texte.indexOf('Bbg.', etymIdx);
-    let finEtym = etymIdx + 900;
-    if (freqIdx !== -1 && freqIdx < finEtym) finEtym = freqIdx;
-    else if (bbgIdx !== -1 && bbgIdx < finEtym) finEtym = bbgIdx;
-    etymologie = texte.slice(etymIdx, finEtym).replace(/\s+/g, ' ').trim();
-  }
+  const definition = (data.header.description || '').trim();
 
-  return { trouve: !!(definition || etymologie), definition, etymologie, url };
+  // On ne garde que les entrées "dictionnaire" reconnues, chacune avec ses
+  // fragments HTML bruts tels que renvoyés par l'API — le découpage en
+  // blocs pliables se fait à l'affichage (decoupeSectionsCnrtl), pas ici,
+  // pour ne recalculer que la source réellement sélectionnée par l'usager.
+  const sources = CNRTL_SOURCES_ORDRE
+    .map(id => {
+      const entree = (data.content || []).find(c => c.id === id);
+      if (!entree || !Array.isArray(entree.content) || entree.content.length === 0) return null;
+      return { id, label: CNRTL_SOURCES_LABELS[id], htmlEntries: entree.content };
+    })
+    .filter(Boolean);
+
+  return { trouve: !!(definition || sources.length), definition, sources, url: urlPage };
 }
+
+/* Découpe le HTML brut d'une source CNRTL (un ou plusieurs articles, ex.
+   les deux entrées homographes du DMF) en blocs pliables correspondant à
+   ses grandes sections : chaque sens numéroté (I., 1., A....) d'une liste
+   "s-root-structure", chaque section annexe ("s-section", ex. Historique,
+   Remarque), chaque locution ("s-related", ex. "AU HASARD"), et le corps
+   principal ("s-content" ou balise <definition>). Rien n'est filtré ni
+   dédupliqué : tout ce que la source contient devient un bloc, y compris
+   le contenu qui ne rentre dans aucune de ces catégories reconnues
+   (regroupé en un dernier bloc "Complément" pour ne rien perdre). Repose
+   sur le DOM du navigateur (disponible dans Obsidian) plutôt que sur des
+   regex, plus robuste face à un balisage varié selon la source. */
+function decoupeSectionsCnrtl(htmlEntries){
+  const blocs = [];
+  (htmlEntries || []).forEach((html, index) => {
+    const conteneur = document.createElement('div');
+    conteneur.innerHTML = html;
+    const racine = conteneur.firstElementChild;
+    if (!racine) return;
+    const prefixe = htmlEntries.length > 1 ? `Entrée ${index + 1} — ` : '';
+
+    const clone = racine.cloneNode(true);
+    const enfantsOriginaux = Array.from(racine.children);
+    const enfantsClone = Array.from(clone.children);
+
+    enfantsOriginaux.forEach((enfant, i) => {
+      let extrait = true;
+      if (enfant.classList.contains('s-header')) {
+        // Le mot-titre est déjà affiché ailleurs (définition rapide) : on
+        // le retire du reste sans en faire un bloc à part.
+      } else if (enfant.getAttribute('role') === 'list' && enfant.classList.contains('s-root-structure')) {
+        Array.from(enfant.children).forEach(item => {
+          const numero = item.querySelector(':scope > .s-structure-num');
+          const titre = numero ? numero.textContent.trim() : 'Sens';
+          blocs.push({ titre: prefixe + titre, html: item.innerHTML });
+        });
+      } else if (enfant.classList.contains('s-section')) {
+        const titreEl = enfant.querySelector(':scope > .s-section-title');
+        const titre = titreEl ? titreEl.textContent.trim() : 'Section';
+        const enfantClone = enfantsClone[i];
+        const titreClone = enfantClone.querySelector(':scope > .s-section-title');
+        if (titreClone) titreClone.remove();
+        blocs.push({ titre: prefixe + titre, html: enfantClone.innerHTML });
+      } else if (enfant.classList.contains('s-related')) {
+        const formeEl = enfant.querySelector(':scope > .s-form');
+        const titre = formeEl ? formeEl.textContent.trim() : 'Locution';
+        blocs.push({ titre: prefixe + titre, html: enfant.innerHTML });
+      } else if (enfant.classList.contains('s-content')) {
+        blocs.push({ titre: prefixe + 'Définition', html: enfant.innerHTML });
+      } else if (enfant.tagName === 'DEFINITION') {
+        blocs.push({ titre: prefixe + 'Définition', html: enfant.innerHTML });
+      } else {
+        extrait = false;
+      }
+      if (extrait) enfantsClone[i].remove();
+    });
+
+    // Tout ce qui n'a pas été reconnu ci-dessus (texte libre, balises
+    // isolées type <br>...) reste dans le clone : on le récupère en un
+    // dernier bloc plutôt que de le perdre silencieusement.
+    const reste = clone.innerHTML.trim();
+    if (reste) {
+      blocs.push({ titre: prefixe + 'Complément', html: reste });
+    }
+  });
+  return blocs;
+}
+
+
 
 /* =========================================================
    RIMES SOLIDES (source de rimes en ligne complémentaire)
@@ -5253,13 +5299,21 @@ class CarnetView extends ItemView {
     const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
     const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });
     const btnChercher = form.createEl('button', { text: 'Chercher' });
+    const lienOuvrirCnrtl = form.createEl('a', { cls: 'cp-icon-btn', text: 'Ouvrir sur CNRTL ↗', attr: { target: '_blank', rel: 'noopener', href: '#' } });
+    const majLienOuvrirCnrtl = () => {
+      const m = motInput.value.trim();
+      lienOuvrirCnrtl.setAttribute('href', m ? `https://www.cnrtl.fr/definition/${encodeURIComponent(m)}` : '#');
+    };
+    motInput.addEventListener('input', majLienOuvrirCnrtl);
+    majLienOuvrirCnrtl();
+    lienOuvrirCnrtl.addEventListener('click', (e) => { if (!motInput.value.trim()) e.preventDefault(); });
     const resultatsDiv = panelDefs.createDiv({ cls: 'cp-resultats' });
 
     const chercher = async () => {
       const saisie = motInput.value.trim();
       resultatsDiv.empty();
       if (!saisie) return;
-      resultatsDiv.createDiv({ cls: 'cp-son-label', text: `${saisie} — CNRTL / TLFi` });
+      resultatsDiv.createDiv({ cls: 'cp-son-label', text: `${saisie} — CNRTL` });
       const statut = resultatsDiv.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
       try {
         const r = await chercheCnrtl(saisie);
@@ -5272,13 +5326,47 @@ class CarnetView extends ItemView {
         lien.addClass('cp-cnrtl-lien');
         if (r.definition) {
           const blocDef = resultatsDiv.createDiv({ cls: 'cp-cnrtl-bloc' });
-          blocDef.createDiv({ cls: 'cp-cnrtl-titre', text: 'Définition' });
+          blocDef.createDiv({ cls: 'cp-cnrtl-titre', text: 'Définition rapide' });
           blocDef.createEl('p', { cls: 'cp-cnrtl-texte', text: r.definition });
         }
-        if (r.etymologie) {
-          const blocEtym = resultatsDiv.createDiv({ cls: 'cp-cnrtl-bloc' });
-          blocEtym.createDiv({ cls: 'cp-cnrtl-titre', text: 'Étymologie' });
-          blocEtym.createEl('p', { cls: 'cp-cnrtl-texte', text: r.etymologie });
+
+        if (r.sources.length > 0) {
+          const pillsDiv = resultatsDiv.createDiv({ cls: 'cp-cnrtl-source-pills' });
+          const zoneSource = resultatsDiv.createDiv({ cls: 'cp-cnrtl-source-zone' });
+
+          // Découpe et affiche la source choisie en blocs pliables, la
+          // première section ouverte et les suivantes fermées. Recalculé
+          // uniquement à la sélection d'une pill, pas pour les 6 sources
+          // d'un coup (les autres sources peuvent être longues, ex. TLFi
+          // ou Littré, inutile de tout parser si l'usager n'en affiche
+          // qu'une seule à la fois).
+          const afficherSource = (source) => {
+            zoneSource.empty();
+            const blocs = decoupeSectionsCnrtl(source.htmlEntries);
+            if (blocs.length === 0) {
+              zoneSource.createEl('p', { cls: 'cp-vide', text: `Rien à afficher pour ${source.label}.` });
+              return;
+            }
+            blocs.forEach((bloc, i) => {
+              const det = zoneSource.createEl('details', { cls: 'cp-cnrtl-details' });
+              if (i === 0) det.setAttr('open', 'true');
+              det.createEl('summary', { cls: 'cp-cnrtl-details-titre', text: bloc.titre });
+              const corps = det.createDiv({ cls: 'cp-cnrtl-texte' });
+              corps.innerHTML = bloc.html;
+            });
+          };
+
+          r.sources.forEach((source, i) => {
+            const pill = pillsDiv.createEl('button', { cls: 'cp-cnrtl-source-pill', text: source.label });
+            if (i === 0) pill.addClass('active');
+            pill.addEventListener('click', () => {
+              pillsDiv.querySelectorAll('.cp-cnrtl-source-pill').forEach(b => b.removeClass('active'));
+              pill.addClass('active');
+              afficherSource(source);
+            });
+          });
+
+          afficherSource(r.sources[0]);
         }
       } catch (err) {
         console.error('[Carnet du Poète] erreur CNRTL', err);
@@ -5291,6 +5379,7 @@ class CarnetView extends ItemView {
 
     this._prefillDefsInput = (mot) => {
       motInput.value = mot;
+      majLienOuvrirCnrtl();
       chercher();
     };
   }
@@ -5949,6 +6038,27 @@ const CARNET_CSS = `
 .cp-cnrtl-titre{ font-family: var(--font-text); font-weight:700; font-size:1em; color: var(--text-accent); margin-bottom:8px; }
 .cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: normal; }
 .cp-cnrtl-lien{ display:inline-block; margin-bottom:12px; font-size:0.85em; }
+.cp-cnrtl-source-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.cp-cnrtl-source-pill{ background: var(--background-secondary); border: 1.5px solid var(--background-modifier-border); border-radius: 999px; padding: 4px 12px; font-size: 0.8em; font-weight: 600; color: var(--text-muted); cursor: pointer; box-shadow: none; }
+.cp-cnrtl-source-pill:hover{ border-color: var(--text-accent); color: var(--text-normal); }
+.cp-cnrtl-source-pill.active{ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
+.cp-cnrtl-details{ border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:8px; background: var(--background-primary-alt); overflow:hidden; }
+.cp-cnrtl-details-titre{ font-family: var(--font-text); font-weight:700; font-size:0.92em; color: var(--text-accent); padding:8px 12px; cursor:pointer; list-style:revert; }
+.cp-cnrtl-details[open] > .cp-cnrtl-details-titre{ border-bottom:1px solid var(--background-modifier-border); }
+.cp-cnrtl-details .cp-cnrtl-texte{ padding:10px 14px; }
+.cp-cnrtl-texte .s-structure-num{ font-weight:700; color: var(--text-accent); margin-right:4px; }
+.cp-cnrtl-texte .s-structure-item{ display:block; margin:6px 0; }
+.cp-cnrtl-texte div[role="listitem"].s-structure-item{ margin-left:12px; }
+.cp-cnrtl-texte .s-definition{ background: rgba(255, 200, 0, 0.3); padding:1px 3px; border-radius:3px; }
+.cp-cnrtl-texte .s-example, .cp-cnrtl-texte .s-example-inline, .cp-cnrtl-texte blockquote{ display:block; margin:6px 0 6px 14px; padding-left:10px; border-left:2px solid var(--background-modifier-border); color: var(--text-muted); font-size:0.97em; }
+.cp-cnrtl-texte .t-i{ font-style: italic; }
+.cp-cnrtl-texte .t-g{ font-weight:700; }
+.cp-cnrtl-texte .s-author, .cp-cnrtl-texte .t-c{ font-style: normal; font-weight:600; }
+.cp-cnrtl-texte .s-date, .cp-cnrtl-texte .s-localisation, .cp-cnrtl-texte .s-reference{ color: var(--text-faint); font-size:0.9em; }
+.cp-cnrtl-texte cite.s-title{ font-style: italic; }
+.cp-cnrtl-texte .s-section-title{ font-weight:700; margin:8px 0 4px; }
+.cp-cnrtl-texte .s-form{ font-weight:700; }
+.cp-cnrtl-texte .s-usage-indicator, .cp-cnrtl-texte .s-usage-domain, .cp-cnrtl-texte .s-domain{ font-style: italic; color: var(--text-muted); }
 .cp-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:10px; font-size:0.82em; }
 .cp-filtre-lettre{ width:56px; text-align:center; }
 .cp-filtre-syllabes{ font-size:0.9em; }

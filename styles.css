@@ -243,6 +243,48 @@
 .cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: normal; }
 .cp-cnrtl-lien{ display:inline-block; margin-bottom:12px; font-size:0.85em; }
 
+/* Pills de sélection de source (TLFi / Wiktionnaire / Académie.../ Littré / DMF) */
+.cp-cnrtl-source-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.cp-cnrtl-source-pill{
+  background: var(--background-secondary);
+  border: 1.5px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: none;
+}
+.cp-cnrtl-source-pill:hover{ border-color: var(--text-accent); color: var(--text-normal); }
+.cp-cnrtl-source-pill.active{ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
+
+/* Accordéon des grandes sections d'une source (I., 1., A., locutions...) */
+.cp-cnrtl-details{ border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:8px; background: var(--background-primary-alt); overflow:hidden; }
+.cp-cnrtl-details-titre{ font-family: var(--font-text); font-weight:700; font-size:0.92em; color: var(--text-accent); padding:8px 12px; cursor:pointer; list-style:revert; }
+.cp-cnrtl-details[open] > .cp-cnrtl-details-titre{ border-bottom:1px solid var(--background-modifier-border); }
+.cp-cnrtl-details .cp-cnrtl-texte{ padding:10px 14px; }
+
+/* Mise en forme du balisage interne CNRTL (partagé par TLFi, Wiktionnaire,
+   Académie, Littré, DMF — mêmes classes sur toutes les sources), pour
+   éviter le mur de texte plat que donnerait le HTML brut sans style. */
+.cp-cnrtl-texte .s-structure-num{ font-weight:700; color: var(--text-accent); margin-right:4px; }
+.cp-cnrtl-texte .s-structure-item{ display:block; margin:6px 0; }
+.cp-cnrtl-texte div[role="listitem"].s-structure-item{ margin-left:12px; }
+.cp-cnrtl-texte .s-definition{ background: rgba(255, 200, 0, 0.3); padding:1px 3px; border-radius:3px; }
+.cp-cnrtl-texte .s-example, .cp-cnrtl-texte .s-example-inline, .cp-cnrtl-texte blockquote{
+  display:block; margin:6px 0 6px 14px; padding-left:10px; border-left:2px solid var(--background-modifier-border);
+  color: var(--text-muted); font-size:0.97em;
+}
+.cp-cnrtl-texte .t-i{ font-style: italic; }
+.cp-cnrtl-texte .t-g{ font-weight:700; }
+.cp-cnrtl-texte .s-author, .cp-cnrtl-texte .t-c{ font-style: normal; font-weight:600; }
+.cp-cnrtl-texte .s-date, .cp-cnrtl-texte .s-localisation, .cp-cnrtl-texte .s-reference{ color: var(--text-faint); font-size:0.9em; }
+.cp-cnrtl-texte cite.s-title{ font-style: italic; }
+.cp-cnrtl-texte .s-section-title{ font-weight:700; margin:8px 0 4px; }
+.cp-cnrtl-texte .s-form{ font-weight:700; }
+.cp-cnrtl-texte .s-usage-indicator, .cp-cnrtl-texte .s-usage-domain, .cp-cnrtl-texte .s-domain{ font-style: italic; color: var(--text-muted); }
+
 .cp-filtres{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:10px; font-size:0.82em; }
 .cp-filtre-lettre{ width:56px; text-align:center; }
 .cp-filtre-syllabes{ font-size:0.9em; }
