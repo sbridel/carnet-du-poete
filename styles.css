@@ -181,6 +181,30 @@
 .cp-groupe-anto{ border-left:3px solid #b56a94; padding-left:8px; }
 .cp-groupe-syno > .cp-titre{ color: #3f9d8a; }
 .cp-groupe-anto > .cp-titre{ color: #b56a94; }
+/* Onglet Inspiration (CNRTL) : collocations / famille / proverbes — bleu
+   ardoise, absent de la palette syno/anto et de celle de qualité de rime. */
+/* Une couleur par NATURE (champ lexical, famille, expressions…), quelle
+   que soit la source ; la variable --cp-nature sert aussi aux pastilles de
+   la légende, donc un réglage de teinte ici suit partout. */
+.cp-nature-lexical{ --cp-nature: #6b7fa8; }
+.cp-nature-famille{ --cp-nature: #7d8a3a; }
+.cp-nature-expression{ --cp-nature: #8d6e63; }
+.cp-nature-carac{ --cp-nature: #8a5a7a; }
+.cp-nature-parties{ --cp-nature: #4f7a5a; }
+.cp-groupe[class*="cp-nature-"]{ border-left:3px solid var(--cp-nature); padding-left:8px; }
+.cp-groupe[class*="cp-nature-"] > .cp-titre{ color: var(--cp-nature); }
+.cp-inspi-legende{ margin:4px 0 10px; }
+.cp-cnrtl-homographes{ margin-bottom:8px; }
+.cp-inspi-legende-ligne{ margin:4px 0 0 4px; line-height:1.4; }
+.cp-inspi-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; background: var(--cp-nature); margin-right:6px; vertical-align:middle; }
+.cp-inspi-legende-nom{ font-weight:700; color: var(--cp-nature); }
+.cp-inspi-legende-detail{ color: var(--text-muted); }
+.cp-inspi-proverbe{ margin:0 0 10px; }
+.cp-inspi-proverbe-texte{ font-style:italic; }
+.cp-inspi-proverbe-sens{ font-size:0.82em; color: var(--text-muted); margin:2px 0 0 12px; }
+.cp-inspi-liens{ display:flex; gap:12px; margin-top:8px; font-size:0.78em; }
+.cp-inspi-lien{ color: var(--text-muted); }
+.cp-inspi-lien:hover{ color: var(--text-accent); }
 
 /* Bouton "+ N de plus" pour les listes longues (plafonnées à 15 chips) */
 .cp-mot-voir-plus{ background: var(--background-secondary); border: 1px dashed var(--background-modifier-border); border-radius: 999px; padding: 3px 10px; font-size: 0.78em; color: var(--text-muted); cursor: pointer; box-shadow: none; }
@@ -242,6 +266,7 @@
 }
 
 .cp-mot-syno{ border-left-color: var(--background-modifier-border); }
+.cp-mot-inspi{ border-left-color: var(--background-modifier-border); }
 .cp-mot-excluable{ cursor:pointer; }
 .cp-mot-exclu{ opacity:0.4; text-decoration: line-through; }
 .cp-mot-anto{ border-left-color: var(--background-modifier-border); }

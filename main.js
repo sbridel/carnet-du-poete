@@ -1309,10 +1309,15 @@ function chercheInspiration(motSaisi){
   );
   if (exacts.length > 0) return exacts;
 
+  // Repli approximatif limité aux variantes de fin de mot (pluriel,
+  // féminin : "forêts" -> forêt, "châteaux" -> château) : la saisie doit
+  // COMMENCER par le mot-clé et ne le dépasser que de 3 lettres au plus.
+  // L'ancien test dans les deux sens (includes) produisait des faux
+  // positifs du type "chat" -> Château (mot-clé contenant la saisie).
   const partiels = CHAMPS_LEXICAUX.filter(champ =>
     champ.motsClefs.some(k => {
       const kn = normaliseSouple(k);
-      return kn.length > 3 && (kn.includes(wSouple) || wSouple.includes(kn));
+      return kn.length > 3 && wSouple.startsWith(kn) && wSouple.length - kn.length <= 3;
     })
   );
   return partiels;
@@ -1903,17 +1908,95 @@ async function chercheSynonymesCrisco(mot){
    renderResultatsSynonymes. Les autres sources continuent de renvoyer de
    simples chaînes ; texteDe/rangDe (plus bas) uniformisent l'accès pour le
    reste du code, qui n'a pas à savoir laquelle des deux formes il reçoit. */
-async function chercheSynonymesAntonymesCnrtl(mot){
-  const urlApi = `https://www.cnrtl.fr/api/word/${encodeURIComponent(mot)}/`;
-  const reponse = await requestUrl({ url: urlApi, headers: ENTETES_NAVIGATEUR, throw: false });
+/* Accès partagé à l'API CNRTL /api/word/{mot}/ — ou /api/word/{mot}/{pos}
+   pour un homographe précis (ex. "os" nom vs adjectif : sans catégorie,
+   l'API renvoie une entrée par défaut, pas forcément la bonne). Réponses
+   gardées en cache (petit plafond) : revenir sur une catégorie déjà vue, ou
+   passer d'un onglet à l'autre pour le même mot, ne relance pas de requête. */
+const CACHE_CNRTL = new Map();
+const CACHE_CNRTL_MAX = 40;
+async function jsonMotCnrtl(mot, pos){
+  const url = `https://www.cnrtl.fr/api/word/${encodeURIComponent(mot)}/${pos ? encodeURIComponent(pos) : ''}`;
+  if (CACHE_CNRTL.has(url)) return CACHE_CNRTL.get(url);
+  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
-
   let data;
   try {
     data = JSON.parse(reponse.text || '{}');
   } catch (err) {
     throw new Error('Réponse CNRTL illisible (format inattendu)');
   }
+  if (CACHE_CNRTL.size >= CACHE_CNRTL_MAX) CACHE_CNRTL.delete(CACHE_CNRTL.keys().next().value);
+  CACHE_CNRTL.set(url, data);
+  return data;
+}
+
+/* Homographes CNRTL d'un mot, via l'autocomplétion du site
+   (/api/search/{mot}) : on ne garde que les entrées dont la forme est
+   exactement le mot (pas "ôs" ni "oscar" pour "os"), une par catégorie
+   grammaticale (seule la catégorie sert à demander la fiche). Ne rejette
+   jamais : en cas d'erreur, liste vide = comportement d'avant (entrée par
+   défaut de l'API). */
+const CACHE_HOMOGRAPHES = new Map();
+async function homographesCnrtl(mot){
+  const cle = (mot || '').trim().toLowerCase();
+  if (!cle) return [];
+  if (CACHE_HOMOGRAPHES.has(cle)) return CACHE_HOMOGRAPHES.get(cle);
+  let liste = [];
+  try {
+    const reponse = await requestUrl({ url: `https://www.cnrtl.fr/api/search/${encodeURIComponent(cle)}?autofix=true`, headers: ENTETES_NAVIGATEUR, throw: false });
+    if (reponse.status === 200) {
+      const data = JSON.parse(reponse.text || '[]');
+      const vus = new Map();
+      (Array.isArray(data) ? data : []).forEach(e => {
+        if (!e || typeof e.form !== 'string' || typeof e.pos !== 'string' || !e.pos) return;
+        if (e.form.trim().toLowerCase() !== cle) return;
+        const libelle = (typeof e.label === 'string' && e.label.includes(',')) ? e.label.split(',').slice(1).join(',').trim() : e.pos;
+        if (vus.has(e.pos)) vus.get(e.pos).libelle = e.pos; // ex. "livre" nom masc./fém. : même catégorie
+        else vus.set(e.pos, { pos: e.pos, libelle: libelle || e.pos });
+      });
+      liste = [...vus.values()];
+    }
+  } catch (err) {
+    console.error('[Carnet du Poète] homographes CNRTL', err);
+    liste = [];
+  }
+  if (CACHE_HOMOGRAPHES.size >= CACHE_CNRTL_MAX) CACHE_HOMOGRAPHES.delete(CACHE_HOMOGRAPHES.keys().next().value);
+  CACHE_HOMOGRAPHES.set(cle, liste);
+  return liste;
+}
+
+/* Rangée de pills "adjectif | nom masculin" en tête d'une zone CNRTL,
+   seulement s'il existe plusieurs homographes. `remplir(cible, pos)`
+   (fourni par chaque onglet) vide `cible` et y affiche l'entrée demandée.
+   Par défaut : le nom s'il existe, sinon la première entrée. */
+function brancheHomographesCnrtl(parent, mot, remplir){
+  const pillsDiv = parent.createDiv({ cls: 'cp-cnrtl-seuil cp-cnrtl-homographes' });
+  const contenu = parent.createDiv();
+  contenu.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' }); // vidé par remplir()
+  homographesCnrtl(mot).then(homos => {
+    if (homos.length <= 1) { pillsDiv.remove(); remplir(contenu, null); return; }
+    let actif = (homos.find(h => h.pos === 'nom') || homos[0]).pos;
+    pillsDiv.createSpan({ cls: 'cp-sources-label', text: 'Entrée : ' });
+    const boutons = [];
+    homos.forEach(h => {
+      const btn = pillsDiv.createEl('button', { cls: 'cp-hasard-toggle-pool', text: h.libelle });
+      if (h.pos === actif) btn.addClass('active');
+      btn.addEventListener('click', () => {
+        if (h.pos === actif) return;
+        actif = h.pos;
+        boutons.forEach(b => b.removeClass('active'));
+        btn.addClass('active');
+        remplir(contenu, h.pos);
+      });
+      boutons.push(btn);
+    });
+    remplir(contenu, actif);
+  });
+}
+
+async function chercheSynonymesAntonymesCnrtl(mot, pos){
+  const data = await jsonMotCnrtl(mot, pos);
   if (!data.header) return { synonymes: [], antonymes: [], trouve: false };
 
   const extrait = (id) => {
@@ -1930,12 +2013,229 @@ async function chercheSynonymesAntonymesCnrtl(mot){
   return { synonymes, antonymes, trouve: synonymes.length > 0 || antonymes.length > 0 };
 }
 
+/* Onglet Inspiration : même API CNRTL que ci-dessus, mais on y lit les clés
+   qui relèvent du champ lexical plutôt que des synonymes (déjà couverts par
+   l'onglet Synonymes) — collocations (mots souvent employés avec le mot),
+   famille de mots (dérivés), proverbes — plus le lien Proxémie fourni tel
+   quel par l'API. Aucune de ces données ne passe par le moteur de rimes
+   autrement que via le rendu des chips (mots simples). */
+async function chercheInspirationCnrtl(mot, pos){
+  const data = await jsonMotCnrtl(mot, pos);
+  const vide = { collocations: [], famille: [], proverbes: [], proxemie: null, trouve: false };
+  if (!data.header) return vide;
+
+  const bloc = (id) => {
+    const entree = (data.content || []).find(c => c && c.id === id);
+    return entree ? entree.content : null;
+  };
+
+  const brutsCollocs = Array.isArray(bloc('collocations')) ? bloc('collocations') : [];
+  const collocations = brutsCollocs
+    .filter(c => c && typeof c.key === 'string' && c.key.trim())
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .map(c => c.key.trim())
+    // CNRTL renvoie parfois le mot lui-même parmi ses collocations ("os" pour "os").
+    .filter(k => normaliseMot(k) !== normaliseMot(mot) && normaliseMot(k) !== normaliseMot((data.header && data.header.form) || ''));
+
+  // Famille : on écarte les noms propres, le mot lui-même (saisi ou forme
+  // de base renvoyée par l'API) et les doublons (ex. "sylvain" adj. + nom).
+  const exclus = new Set([normaliseMot(mot), normaliseMot((data.header && data.header.form) || '')]);
+  const vus = new Set();
+  const noeuds = (bloc('families') && Array.isArray(bloc('families').nodes)) ? bloc('families').nodes : [];
+  const famille = [];
+  noeuds.forEach(n => {
+    if (!n || typeof n.label !== 'string' || !n.label.trim()) return;
+    if (n.fpos === 'Nom propre') return;
+    const label = n.label.trim();
+    const cle = normaliseMot(label);
+    if (exclus.has(cle) || vus.has(cle)) return;
+    vus.add(cle);
+    famille.push(label);
+  });
+
+  const brutsProverbes = Array.isArray(bloc('proverbs')) ? bloc('proverbs') : [];
+  const proverbes = brutsProverbes
+    .filter(p => p && typeof p.proverb === 'string' && p.proverb.trim())
+    .map(p => ({ html: p.proverb, sens: typeof p.meaning === 'string' ? p.meaning.trim() : '' }));
+
+  const lienProx = bloc('proxemie');
+  const proxemie = (typeof lienProx === 'string' && /^https:\/\//.test(lienProx)) ? lienProx : null;
+
+  return { collocations, famille, proverbes, proxemie,
+    trouve: collocations.length > 0 || famille.length > 0 || proverbes.length > 0 };
+}
+
+/* Affiche un proverbe CNRTL sans injecter son HTML : on le lit via
+   DOMParser (aucun script exécuté) et on ne recrée que le texte, avec le
+   mot surligné par CNRTL (span.s-highlight) remis en gras. */
+function renderProverbeCnrtl(parent, html){
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+  const racine = doc.body.firstElementChild;
+  if (!racine) return;
+  racine.childNodes.forEach(n => {
+    if (n.nodeType === 3) parent.appendText(n.textContent);
+    else if (n.nodeType === 1) {
+      if (n.tagName === 'SCRIPT' || n.tagName === 'STYLE') return;
+      if (n.classList && n.classList.contains('s-highlight')) parent.createEl('strong', { text: n.textContent });
+      else parent.appendText(n.textContent);
+    }
+  });
+}
+
+/* Onglet Inspiration — Wiktionnaire : mêmes requête et découpage par langue
+   que chercheSynonymesWiktionnaire (fonction laissée intacte), mais on lit
+   les sections de champ lexical plutôt que les synonymes. Chaque section
+   peut apparaître sous plusieurs classes grammaticales (nom, adjectif…) :
+   on les rassemble toutes. Le titre de section est reconnu sous son nom
+   complet ou son abréviation Wiktionnaire ({{S|drv}} = {{S|dérivés}}…). */
+const SECTIONS_WIKT_INSPIRATION = {
+  vocabulaire: 'vocabulaire', voc: 'vocabulaire',
+  'dérivés': 'derives', drv: 'derives',
+  'apparentés': 'apparentes', apr: 'apparentes',
+  locutions: 'locutions', loc: 'locutions',
+  proverbes: 'proverbes', prov: 'proverbes'
+};
+
+async function chercheInspirationWiktionnaire(mot){
+  const url = `https://fr.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(mot)}&format=json&prop=wikitext&origin=*`;
+  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
+  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
+  const data = reponse.json;
+  const vide = { vocabulaire: [], derives: [], apparentes: [], locutions: [], proverbes: [], trouve: false };
+  if (!data || data.error || !data.parse) return vide;
+
+  const complet = (data.parse.wikitext && data.parse.wikitext['*']) || '';
+  // Section française seule (même logique que pour les synonymes).
+  const mLangue = /==\s*\{\{langue\|fr\}\}\s*==/i.exec(complet);
+  let wikitext = complet;
+  if (mLangue) {
+    const suite = complet.slice(mLangue.index + mLangue[0].length);
+    const fin = suite.match(/\n==[^=]/);
+    wikitext = fin ? suite.slice(0, fin.index) : suite;
+  }
+
+  const res = { vocabulaire: [], derives: [], apparentes: [], locutions: [], proverbes: [] };
+  const vus = { vocabulaire: new Set(), derives: new Set(), apparentes: new Set(), locutions: new Set(), proverbes: new Set() };
+  const soi = normaliseMot(mot);
+  const ajoute = (cle, texte) => {
+    const t = (texte || '').replace(/_/g, ' ').trim();
+    if (!t || t.includes(':')) return; // Thésaurus:, Catégorie:, Annexe:…
+    const n = normaliseMot(t);
+    if (!n || n === soi || vus[cle].has(n)) return;
+    vus[cle].add(n);
+    res[cle].push(t);
+  };
+
+  const reTitre = /^=+\s*\{\{S\|([^|}]+)[^}]*\}\}\s*=+\s*$/gm;
+  const titres = [];
+  let m;
+  while ((m = reTitre.exec(wikitext))) titres.push({ nom: m[1].trim().toLowerCase(), debut: m.index + m[0].length, pos: m.index });
+  titres.forEach((t, i) => {
+    const cle = SECTIONS_WIKT_INSPIRATION[t.nom];
+    if (!cle) return;
+    const corps = wikitext.slice(t.debut, i + 1 < titres.length ? titres[i + 1].pos : wikitext.length);
+    let mm;
+    const reLien = /\{\{(?:lien|l)\|([^|}]+)/g;
+    const reCrochets = /\[\[([^\]|#]+)/g;
+    // On garde l'ordre d'apparition dans la page : on relève les positions
+    // des deux types de liens puis on les trie.
+    const trouves = [];
+    while ((mm = reLien.exec(corps))) trouves.push({ i: mm.index, t: mm[1] });
+    while ((mm = reCrochets.exec(corps))) trouves.push({ i: mm.index, t: mm[1] });
+    trouves.sort((a, b) => a.i - b.i).forEach(x => ajoute(cle, x.t));
+  });
+
+  const trouve = Object.values(res).some(l => l.length > 0);
+  return Object.assign(res, { trouve });
+}
+
+/* Onglet Inspiration — JeuxDeMots (réseau lexical du LIRMM, API publique
+   de démonstration). Relations pondérées : 0 = idées associées, 17 =
+   caractéristiques, 9 = parties. L'API ne trie pas par poids (ordre des
+   identifiants) : on récupère tout au-dessus d'un seuil et on trie ici.
+   Deux appels en parallèle, car les idées associées sont bien plus
+   nombreuses et demandent un seuil plus haut. */
+const JDM_API = 'https://jdm-api.demo.lirmm.fr/v0/relations/from/';
+const JDM_SEUIL_ASSOCIEES = 200;
+const JDM_SEUIL_PRECIS = 20;
+
+function decodeEntitesHtml(texte){
+  if (!texte || texte.indexOf('&') === -1) return texte;
+  const doc = new DOMParser().parseFromString(`<div>${texte}</div>`, 'text/html');
+  return doc.body.textContent || texte;
+}
+
+async function appelJdm(mot, types, seuil){
+  const params = types.map(t => `types_ids=${t}`).join('&');
+  const url = `${JDM_API}${encodeURIComponent(mot)}?${params}&min_weight=${seuil}`;
+  const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
+  if (reponse.status === 404) return { nodes: [], relations: [] }; // mot inconnu du réseau
+  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
+  let data;
+  try { data = JSON.parse(reponse.text || '{}'); }
+  catch (err) { throw new Error('Réponse JeuxDeMots illisible (format inattendu)'); }
+  return { nodes: Array.isArray(data.nodes) ? data.nodes : [], relations: Array.isArray(data.relations) ? data.relations : [] };
+}
+
+async function chercheInspirationJdm(mot){
+  const [a, b] = await Promise.all([
+    appelJdm(mot, [0], JDM_SEUIL_ASSOCIEES),
+    appelJdm(mot, [17, 9], JDM_SEUIL_PRECIS)
+  ]);
+  const noms = new Map();
+  [...a.nodes, ...b.nodes].forEach(n => { if (n && n.type === 1 && typeof n.name === 'string') noms.set(n.id, n.name); });
+  const soi = normaliseMot(mot);
+  const parType = { 0: [], 17: [], 9: [] };
+  [...a.relations, ...b.relations].forEach(r => {
+    if (!r || !(r.type in parType) || typeof r.w !== 'number' || r.w <= 0) return;
+    let nom = noms.get(r.node2);
+    if (!nom) return;                                   // nœud technique (type ≠ 1)
+    if (nom.startsWith('::') || /^[a-z]{2}:/.test(nom)) return; // interne, autre langue (en:…)
+    nom = decodeEntitesHtml(nom.split('>')[0]).trim();  // "matou>150" -> "matou"
+    if (!nom || /^[A-ZÀ-Ý]/.test(nom)) return;          // noms propres
+    parType[r.type].push({ mot: nom, w: r.w });
+  });
+  const nettoie = (liste) => {
+    const vus = new Set();
+    return liste.sort((x, y) => y.w - x.w).filter(x => {
+      const n = normaliseMot(x.mot);
+      if (!n || n === soi || vus.has(n)) return false;
+      vus.add(n);
+      return true;
+    }).map(x => x.mot);
+  };
+  const associees = nettoie(parType[0]);
+  const caracteristiques = nettoie(parType[17]);
+  const parties = nettoie(parType[9]);
+  return { associees, caracteristiques, parties,
+    trouve: associees.length > 0 || caracteristiques.length > 0 || parties.length > 0 };
+}
+
+/* Légende de l'onglet Inspiration : une couleur par NATURE de contenu,
+   quelle que soit la source (la même classe CSS colore sous-sections et
+   pastilles de la légende, donc un réglage de teinte suit partout). */
+const NATURES_INSPIRATION = [
+  { cle: 'lexical', nom: 'Champ lexical', detail: 'Collocations (CNRTL) · Vocabulaire apparenté (Wiktionnaire) · Idées associées (JeuxDeMots)' },
+  { cle: 'famille', nom: 'Famille de mots', detail: 'Famille de mots (CNRTL) · Dérivés, Apparentés étymologiques (Wiktionnaire)' },
+  { cle: 'expression', nom: 'Expressions', detail: 'Proverbes (CNRTL) · Locutions, Proverbes (Wiktionnaire)' },
+  { cle: 'carac', nom: 'Caractéristiques', detail: 'JeuxDeMots' },
+  { cle: 'parties', nom: 'Parties', detail: 'JeuxDeMots' }
+];
+
 const SOURCES_EN_LIGNE = {
   wiktionnaire: { id: 'wiktionnaire', nom: 'Wiktionnaire', chercher: chercheSynonymesWiktionnaire },
   crisco: { id: 'crisco', nom: 'CRISCO', chercher: chercheSynonymesCrisco },
   cnrtl: { id: 'cnrtl', nom: 'CNRTL', chercher: chercheSynonymesAntonymesCnrtl }
 };
 const SOURCES_EN_LIGNE_ORDRE = ['cnrtl', 'crisco', 'wiktionnaire'];
+// Onglet Inspiration : sources de champ lexical (pas de synonymes, déjà
+// couverts par l'onglet Synonymes). Ordre = ordre d'affichage des blocs ;
+// seul le premier bloc coché s'ouvre par défaut.
+const SOURCES_INSPIRATION = [
+  { id: 'cnrtl', nom: 'CNRTL' },
+  { id: 'wiktionnaire', nom: 'Wiktionnaire' },
+  { id: 'jdm', nom: 'JeuxDeMots' }
+];
 
 /* =========================================================
    CNRTL (Trésor de la Langue Française informatisé)
@@ -1967,18 +2267,9 @@ const CNRTL_SOURCES_ORDRE = ['tlfi', 'wiktionnaire', 'academie9', 'academie8', '
    l'API répond toujours en HTTP 200 mais sans champ "header" (juste
    {"suggestions":[...]} ), d'où le test sur la présence de header plutôt
    que sur le statut HTTP. */
-async function chercheCnrtl(mot){
+async function chercheCnrtl(mot, pos){
   const urlPage = `https://www.cnrtl.fr/definition/${encodeURIComponent(mot)}`;
-  const urlApi = `https://www.cnrtl.fr/api/word/${encodeURIComponent(mot)}/`;
-  const reponse = await requestUrl({ url: urlApi, headers: ENTETES_NAVIGATEUR, throw: false });
-  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
-
-  let data;
-  try {
-    data = JSON.parse(reponse.text || '{}');
-  } catch (err) {
-    throw new Error('Réponse CNRTL illisible (format inattendu)');
-  }
+  const data = await jsonMotCnrtl(mot, pos);
 
   if (!data.header) {
     return { trouve: false, url: urlPage };
@@ -4116,15 +4407,21 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives,
   const saisie = (motSaisi || '').trim();
   if (!saisie) return;
 
+  // --- dictionnaire local (même présentation que l'onglet Synonymes) ---
+  const detailsLocal = container.createEl('details', { cls: 'cp-syn-source-details cp-syn-source-local' });
+  detailsLocal.setAttr('open', 'true');
+  detailsLocal.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — dictionnaire local` });
+  const blocLocal = detailsLocal.createDiv({ cls: 'cp-syn-source-corps' });
+
   const themes = chercheInspiration(saisie);
   if (themes.length === 0) {
-    container.createEl('p', {
+    blocLocal.createEl('p', {
       cls: 'cp-vide',
       text: `Pas de champ lexical reconnu pour « ${saisie} » — essaie un mot plus général (ex. « forêt », « mer », « nuit », « amour »…) ou ajoute ton propre champ lexical via dictionnaire-perso.json.`
     });
   } else {
     themes.forEach(champ => {
-      const bloc = container.createDiv({ cls: 'cp-groupe' });
+      const bloc = blocLocal.createDiv({ cls: 'cp-groupe' });
       bloc.createDiv({ cls: 'cp-son-label', text: champ.theme });
       const liste = bloc.createDiv({ cls: 'cp-inspi-liste' });
       champ.mots.forEach(entree => {
@@ -4138,30 +4435,119 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives,
     });
   }
 
-  // --- bonus : mots proches trouvés en ligne (à piocher comme inspiration) ---
+  // --- sources en ligne cochées (CNRTL, Wiktionnaire, JeuxDeMots) ---
+  // Chaque sous-section est colorée selon sa NATURE (voir
+  // NATURES_INSPIRATION), pas selon sa source.
+  const actives = SOURCES_INSPIRATION.filter(src => (sourcesActives || []).includes(src.id));
+  if (actives.length === 0) return;
   const themeSuggereEnLigne = saisie.charAt(0).toUpperCase() + saisie.slice(1);
-  const liste = (sourcesActives || []).map(id => SOURCES_EN_LIGNE[id]).filter(Boolean);
-  liste.forEach(source => {
-    const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
-    bloc.createDiv({ cls: 'cp-son-label', text: `Mots proches via ${source.nom} (en ligne)` });
-    const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+  const urlFicheCnrtl = `https://www.cnrtl.fr/definition/${encodeURIComponent(saisie)}`;
 
-    source.chercher(saisie).then(resultat => {
-      statut.remove();
-      const mots = [...(resultat.synonymes || []), ...(resultat.antonymes || [])].map(texteDe);
-      if (!resultat || !resultat.trouve || mots.length === 0) {
-        bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
-        return;
-      }
-      const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
-      mots.forEach(m => {
-        const span = motsDiv.createSpan({ cls: 'cp-mot cp-mot-syno', text: m });
-        rendMotSelectionnable(span, m, themeSuggereEnLigne, '', selectionApi);
-      });
-    }).catch(err => {
-      console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
-      statut.setText(messageErreurSource(err, source.nom));
+  const groupeChips = (zone, titre, mots, nature) => {
+    if (!mots || mots.length === 0) return;
+    const g = zone.createDiv({ cls: `cp-groupe cp-nature-${nature}` });
+    g.createDiv({ cls: 'cp-titre', text: titre });
+    const motsDiv = g.createDiv({ cls: 'cp-mots' });
+    afficheAvecLimite(motsDiv, mots, m => {
+      // Pas de badge de rime quand l'expression se termine par le mot
+      // cherché lui-même ("aller à l'os" pour "os") : rime triviale.
+      const fin = dernierMotExpression(m).split(/['’]/).pop();
+      const refRime = normaliseMot(fin) === normaliseMot(saisie) ? null : saisie;
+      const span = renderChipMot(motsDiv, m, 'cp-mot cp-mot-inspi', refRime, null);
+      rendMotSelectionnable(span, m, themeSuggereEnLigne, '', selectionApi);
     });
+  };
+
+  // Proverbes : une ligne chacun (sens en dessous s'il existe), plafonnés
+  // à CAP_PROVERBES puis bouton "+ N de plus". `rendreTexte` remplit la
+  // ligne (HTML nettoyé pour CNRTL, texte brut pour le Wiktionnaire).
+  const groupeProverbes = (zone, titre, liste, rendreTexte) => {
+    if (!liste || liste.length === 0) return;
+    const g = zone.createDiv({ cls: 'cp-groupe cp-nature-expression' });
+    g.createDiv({ cls: 'cp-titre', text: titre });
+    const rendreProverbe = (p) => {
+      const ligne = g.createDiv({ cls: 'cp-inspi-proverbe' });
+      rendreTexte(ligne.createDiv({ cls: 'cp-inspi-proverbe-texte' }), p);
+      if (p.sens) ligne.createDiv({ cls: 'cp-inspi-proverbe-sens', text: p.sens });
+    };
+    liste.slice(0, CAP_PROVERBES).forEach(rendreProverbe);
+    const restants = liste.slice(CAP_PROVERBES);
+    if (restants.length > 0) {
+      const btnPlus = g.createEl('button', { cls: 'cp-mot-voir-plus', text: `+ ${restants.length} de plus` });
+      btnPlus.addEventListener('click', () => {
+        btnPlus.remove();
+        restants.forEach(rendreProverbe);
+      });
+    }
+  };
+
+  const RENDUS = {
+    cnrtl: {
+      chercher: chercheInspirationCnrtl,
+      rendre: (zone, r, liens) => {
+        groupeChips(zone, 'Collocations', r.collocations, 'lexical');
+        groupeChips(zone, 'Famille de mots', r.famille, 'famille');
+        groupeProverbes(zone, 'Proverbes', r.proverbes, (el, p) => renderProverbeCnrtl(el, p.html));
+        if (r.proxemie) liens.push(['Proxémie ↗', r.proxemie]);
+        liens.push(['Fiche CNRTL ↗', urlFicheCnrtl]);
+      },
+      liensSiErreur: [['Fiche CNRTL ↗', urlFicheCnrtl]]
+    },
+    wiktionnaire: {
+      chercher: chercheInspirationWiktionnaire,
+      rendre: (zone, r) => {
+        groupeChips(zone, 'Vocabulaire apparenté', r.vocabulaire, 'lexical');
+        groupeChips(zone, 'Dérivés', r.derives, 'famille');
+        groupeChips(zone, 'Apparentés étymologiques', r.apparentes, 'famille');
+        groupeChips(zone, 'Locutions', r.locutions, 'expression');
+        groupeProverbes(zone, 'Proverbes', r.proverbes.map(t => ({ texte: t })), (el, p) => el.appendText(p.texte));
+      },
+      liensSiErreur: []
+    },
+    jdm: {
+      chercher: chercheInspirationJdm,
+      rendre: (zone, r) => {
+        groupeChips(zone, 'Idées associées', r.associees, 'lexical');
+        groupeChips(zone, 'Caractéristiques', r.caracteristiques, 'carac');
+        groupeChips(zone, 'Parties', r.parties, 'parties');
+      },
+      liensSiErreur: []
+    }
+  };
+
+  actives.forEach((src, index) => {
+    const rendu = RENDUS[src.id];
+    const details = container.createEl('details', { cls: 'cp-syn-source-details' });
+    if (index === 0) details.setAttr('open', 'true');
+    details.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — ${src.nom}` });
+    const corps = details.createDiv({ cls: 'cp-syn-source-corps' });
+    const remplir = (cible, pos) => {
+    cible.empty();
+    const statut = cible.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+    const zone = cible.createDiv();
+    const liensDiv = cible.createDiv({ cls: 'cp-inspi-liens' });
+    const poseLiens = (liens) => liens.forEach(([texte, url]) =>
+      liensDiv.createEl('a', { cls: 'cp-inspi-lien', text: texte, attr: { href: url, target: '_blank', rel: 'noopener' } }));
+
+    rendu.chercher(saisie, pos).then(r => {
+      statut.remove();
+      const liens = [];
+      if (!r || !r.trouve) {
+        zone.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${src.nom} pour « ${saisie} ».` });
+        if (src.id === 'cnrtl') liens.push(['Fiche CNRTL ↗', urlFicheCnrtl]);
+      } else {
+        rendu.rendre(zone, r, liens);
+      }
+      poseLiens(liens);
+    }).catch(err => {
+      console.error(`[Carnet du Poète] erreur ${src.nom} (Inspiration)`, err);
+      statut.setText(messageErreurSource(err, src.nom));
+      poseLiens(rendu.liensSiErreur);
+    });
+    };
+    // CNRTL : choix de l'homographe (nom/adjectif…) si le mot en a plusieurs.
+    if (src.id === 'cnrtl') brancheHomographesCnrtl(corps, saisie, remplir);
+    else remplir(corps.createDiv(), null);
   });
 }
 
@@ -4228,9 +4614,11 @@ function renderChipMot(motsDiv, item, cls, motRimeRef, exclus){
     span.setAttr('title', `Pertinence CNRTL : ${rang}/100`);
   }
   if (motRimeRef && memeRime(motRimeRef, dernierMotExpression(m))) badgeQualite(span, dernierMotExpression(m), motRimeRef);
+  return span;
 }
 
 const CAP_MOTS_AFFICHES = 15;
+const CAP_PROVERBES = 5;
 
 /* Affiche jusqu'à CAP_MOTS_AFFICHES chips, puis un bouton "+ N de plus" qui
    révèle le reste d'un coup — évite qu'une longue liste (ex. CNRTL avec un
@@ -4333,10 +4721,14 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
     const details = container.createEl('details', { cls: 'cp-syn-source-details' });
     if (source.id === idSourceOuverte) details.setAttr('open', 'true');
     details.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — ${source.nom}` });
-    const bloc = details.createDiv({ cls: 'cp-syn-source-corps' });
+    const corpsSource = details.createDiv({ cls: 'cp-syn-source-corps' });
+    // `remplir` (ré)affiche la source dans `bloc` ; pour CNRTL, `pos` choisit
+    // l'homographe (nom/adjectif…), les autres sources l'ignorent.
+    const remplir = (bloc, pos) => {
+    bloc.empty();
     const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
 
-    source.chercher(saisie).then(resultat => {
+    source.chercher(saisie, pos).then(resultat => {
       statut.remove();
       if (!resultat || !resultat.trouve || (resultat.synonymes.length === 0 && resultat.antonymes.length === 0)) {
         bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
@@ -4412,6 +4804,9 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
       console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
       statut.setText(messageErreurSource(err, source.nom));
     });
+    };
+    if (source.id === 'cnrtl') brancheHomographesCnrtl(corpsSource, saisie, remplir);
+    else remplir(corpsSource.createDiv(), null);
   });
 }
 
@@ -5098,12 +5493,22 @@ class CarnetView extends ItemView {
     const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
     sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
     const cases = {};
-    SOURCES_EN_LIGNE_ORDRE.forEach(id => {
-      const source = SOURCES_EN_LIGNE[id];
+    SOURCES_INSPIRATION.forEach(source => {
       const label = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
       const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
       label.createSpan({ text: ' ' + source.nom });
-      cases[id] = case_;
+      cases[source.id] = case_;
+    });
+
+    // Légende des couleurs (même présentation que "Afficher les
+    // statistiques" de l'onglet Hasard), fermée par défaut.
+    const legende = panelInspi.createEl('details', { cls: 'cp-hasard-stats-details cp-inspi-legende' });
+    legende.createEl('summary', { text: 'Afficher la légende' });
+    NATURES_INSPIRATION.forEach(n => {
+      const ligne = legende.createDiv({ cls: `cp-inspi-legende-ligne cp-nature-${n.cle}` });
+      ligne.createSpan({ cls: 'cp-inspi-pastille' });
+      ligne.createSpan({ cls: 'cp-inspi-legende-nom', text: n.nom });
+      ligne.createSpan({ cls: 'cp-inspi-legende-detail', text: ' : ' + n.detail });
     });
 
     const form = panelInspi.createDiv({ cls: 'cp-rime-form' });
@@ -5199,7 +5604,7 @@ class CarnetView extends ItemView {
 
     const resultatsDiv = panelInspi.createDiv({ cls: 'cp-resultats' });
 
-    const sourcesActives = () => SOURCES_EN_LIGNE_ORDRE.filter(id => cases[id].checked);
+    const sourcesActives = () => SOURCES_INSPIRATION.map(src => src.id).filter(id => cases[id].checked);
 
     const sauvePreference = async () => {
       const data = (await this.plugin.loadData()) || {};
@@ -5209,7 +5614,7 @@ class CarnetView extends ItemView {
     (async () => {
       const data = await this.plugin.loadData();
       const prefs = (data && Array.isArray(data.sourcesEnLigneInspiration)) ? data.sourcesEnLigneInspiration : [];
-      SOURCES_EN_LIGNE_ORDRE.forEach(id => { cases[id].checked = prefs.includes(id); });
+      SOURCES_INSPIRATION.forEach(src => { cases[src.id].checked = prefs.includes(src.id); });
     })();
     Object.values(cases).forEach(c => c.addEventListener('change', sauvePreference));
 
@@ -5466,25 +5871,29 @@ class CarnetView extends ItemView {
       resultatsDiv.empty();
       if (!saisie) return;
       resultatsDiv.createDiv({ cls: 'cp-son-label', text: `${saisie} — CNRTL` });
-      const statut = resultatsDiv.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+      // Choix de l'homographe (nom/adjectif…) si le mot en a plusieurs ;
+      // `afficher` (ré)affiche l'entrée demandée dans `zone`.
+      const afficher = async (zone, pos) => {
+      zone.empty();
+      const statut = zone.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
       try {
-        const r = await chercheCnrtl(saisie);
+        const r = await chercheCnrtl(saisie, pos);
         statut.remove();
         if (!r.trouve) {
-          resultatsDiv.createEl('p', { cls: 'cp-vide', text: `« ${saisie} » n'a pas été trouvé sur le CNRTL.` });
+          zone.createEl('p', { cls: 'cp-vide', text: `« ${saisie} » n'a pas été trouvé sur le CNRTL.` });
           return;
         }
-        const lien = resultatsDiv.createEl('a', { text: `Voir « ${saisie} » sur le CNRTL →`, attr: { href: r.url, target: '_blank', rel: 'noopener' } });
+        const lien = zone.createEl('a', { text: `Voir « ${saisie} » sur le CNRTL →`, attr: { href: r.url, target: '_blank', rel: 'noopener' } });
         lien.addClass('cp-cnrtl-lien');
         if (r.definition) {
-          const blocDef = resultatsDiv.createDiv({ cls: 'cp-cnrtl-bloc' });
+          const blocDef = zone.createDiv({ cls: 'cp-cnrtl-bloc' });
           blocDef.createDiv({ cls: 'cp-cnrtl-titre', text: 'Définition rapide' });
           blocDef.createEl('p', { cls: 'cp-cnrtl-texte', text: r.definition });
         }
 
         if (r.sources.length > 0) {
-          const pillsDiv = resultatsDiv.createDiv({ cls: 'cp-cnrtl-source-pills' });
-          const zoneSource = resultatsDiv.createDiv({ cls: 'cp-cnrtl-source-zone' });
+          const pillsDiv = zone.createDiv({ cls: 'cp-cnrtl-source-pills' });
+          const zoneSource = zone.createDiv({ cls: 'cp-cnrtl-source-zone' });
 
           // Découpe et affiche la source choisie en blocs pliables, la
           // première section ouverte et les suivantes fermées. Recalculé
@@ -5524,6 +5933,8 @@ class CarnetView extends ItemView {
         console.error('[Carnet du Poète] erreur CNRTL', err);
         statut.setText('Recherche impossible (pas de connexion, ou le site a changé — voir la console).');
       }
+      };
+      brancheHomographesCnrtl(resultatsDiv, saisie, afficher);
     };
 
     btnChercher.addEventListener('click', chercher);
@@ -6386,6 +6797,30 @@ const CARNET_CSS = `
 .cp-groupe-anto{ border-left:3px solid #b56a94; padding-left:8px; }
 .cp-groupe-syno > .cp-titre{ color: #3f9d8a; }
 .cp-groupe-anto > .cp-titre{ color: #b56a94; }
+/* Onglet Inspiration (CNRTL) : collocations / famille / proverbes — bleu
+   ardoise, absent de la palette syno/anto et de celle de qualité de rime. */
+/* Une couleur par NATURE (champ lexical, famille, expressions…), quelle
+   que soit la source ; la variable --cp-nature sert aussi aux pastilles de
+   la légende, donc un réglage de teinte ici suit partout. */
+.cp-nature-lexical{ --cp-nature: #6b7fa8; }
+.cp-nature-famille{ --cp-nature: #7d8a3a; }
+.cp-nature-expression{ --cp-nature: #8d6e63; }
+.cp-nature-carac{ --cp-nature: #8a5a7a; }
+.cp-nature-parties{ --cp-nature: #4f7a5a; }
+.cp-groupe[class*="cp-nature-"]{ border-left:3px solid var(--cp-nature); padding-left:8px; }
+.cp-groupe[class*="cp-nature-"] > .cp-titre{ color: var(--cp-nature); }
+.cp-inspi-legende{ margin:4px 0 10px; }
+.cp-cnrtl-homographes{ margin-bottom:8px; }
+.cp-inspi-legende-ligne{ margin:4px 0 0 4px; line-height:1.4; }
+.cp-inspi-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; background: var(--cp-nature); margin-right:6px; vertical-align:middle; }
+.cp-inspi-legende-nom{ font-weight:700; color: var(--cp-nature); }
+.cp-inspi-legende-detail{ color: var(--text-muted); }
+.cp-inspi-proverbe{ margin:0 0 10px; }
+.cp-inspi-proverbe-texte{ font-style:italic; }
+.cp-inspi-proverbe-sens{ font-size:0.82em; color: var(--text-muted); margin:2px 0 0 12px; }
+.cp-inspi-liens{ display:flex; gap:12px; margin-top:8px; font-size:0.78em; }
+.cp-inspi-lien{ color: var(--text-muted); }
+.cp-inspi-lien:hover{ color: var(--text-accent); }
 .cp-mot-voir-plus{ background: var(--background-secondary); border: 1px dashed var(--background-modifier-border); border-radius: 999px; padding: 3px 10px; font-size: 0.78em; color: var(--text-muted); cursor: pointer; box-shadow: none; }
 .cp-mot-voir-plus:hover{ border-color: var(--text-accent); color: var(--text-normal); }
 .cp-titre{ font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
@@ -6394,6 +6829,7 @@ const CARNET_CSS = `
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
 .cp-mot-pertinence{ color: var(--text-faint); margin-left:2px; }
 .cp-mot-syno{ border-left-color: var(--background-modifier-border); }
+.cp-mot-inspi{ border-left-color: var(--background-modifier-border); }
 .cp-mot-excluable{ cursor:pointer; }
 .cp-mot-exclu{ opacity:0.4; text-decoration: line-through; }
 .cp-mot-anto{ border-left-color: var(--background-modifier-border); }
