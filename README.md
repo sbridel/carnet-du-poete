@@ -1,5 +1,6 @@
-![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?logo=obsidian&logoColor=white) ![Téléchargements dernière release](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/latest/total) ![Téléchargements cumulés](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/total) ![Dernière release](https://img.shields.io/github/v/release/sbridel/carnet-du-poete) ![Dernier commit](https://img.shields.io/github/last-commit/sbridel/carnet-du-poete?color=blue) ![Licence](https://img.shields.io/github/license/sbridel/carnet-du-poete)
 # Carnet du Poete
+
+![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?logo=obsidian&logoColor=white) ![Téléchargements dernière release](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/latest/total) ![Téléchargements cumulés](https://img.shields.io/github/downloads/sbridel/carnet-du-poete/total) ![Dernière release](https://img.shields.io/github/v/release/sbridel/carnet-du-poete) ![Dernier commit](https://img.shields.io/github/last-commit/sbridel/carnet-du-poete?color=blue) ![Licence](https://img.shields.io/github/license/sbridel/carnet-du-poete)
 
 A companion for writing French verse in Obsidian: syllable counting with full scansion
 breakdown, a rhyming dictionary, thematic vocabulary, synonyms/antonyms (including live
@@ -387,6 +388,23 @@ changes going forward, but isn't a public contract either.
 
 ## Changelog
 
+- **2.24.4** — CNRTL now also powers the Synonyms tab: it appears as a third online source
+  alongside Wiktionnaire and CRISCO, contributing a relevance score (0-100) per synonym/antonym
+  that the other two don't provide. Results are sorted by relevance, with a "Seuil de
+  pertinence" pill row (Tout / 30% / 60% / 85%) to cut off the long low-relevance tail without a
+  new network request per click — everything is refiltered locally from data already fetched.
+  Very relevant matches (≥70) render in bold. The Synonyms tab itself got a broader rework: the
+  local dictionary and each online source now sit in their own collapsible block (local
+  dictionary open by default; when several online sources are active, only the highest-priority
+  one — CNRTL, then CRISCO, then Wiktionnaire — opens automatically, the rest collapsed), long
+  lists cap at 15 entries with a "+N more" reveal button, and synonym/antonym categories are
+  distinguished at the block level (title colour + left border) rather than on every individual
+  chip, which was colliding visually with the existing rhyme-quality colour badge on the same
+  chip. That rhyme-quality signal, when present, now colours a chip's entire border instead of
+  just its left edge, making an actual rhyme match easier to spot at a glance. All toggle pills
+  across the plugin (quality filters, RimesSolides, online sources, this new relevance filter)
+  render as solid-filled pills when active instead of showing a checkbox glyph next to a
+  colour-outlined pill.
 - **2.24.3** — CNRTL definitions were silently broken: the portal's announced September 1, 2026
   redesign (flagged as a risk in earlier notes) turned out to be a full rewrite to client-side
   rendering — the `/definition/{word}` page the plugin was scraping no longer contains any
@@ -472,6 +490,8 @@ changes going forward, but isn't a public contract either.
     as in "avion à réaction" [dʒɛt] vs the native French "jet" as in "lancer" [ʒɛ]), the
     dictionary format can only store one entry per word — whichever sense is present is the one
     used everywhere. Same limitation already documented below for "président"/"fier".
+## Version history
+
 - **2.23.0** — First real automated test suite (`tests/`, run with `node tests/run.js` — no
   dependency to install, loads the actual `main.js` unmodified). 82 assertions covering
   everything found and fixed across the last several releases: mute e no longer dangling in a
@@ -492,7 +512,6 @@ changes going forward, but isn't a public contract either.
   earlier in the process of tracking the report down, but was left sitting in a working copy
   and never actually packaged into a release — this version is the first one that genuinely
   includes it, sorry for the runaround while we nailed down what was and wasn't shipped.
-## Version history
 
 - **2.21.0** — Two ergonomic changes to the Rimes tab, both purely cosmetic, no behaviour
   change:

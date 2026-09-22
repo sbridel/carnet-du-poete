@@ -162,6 +162,29 @@
   margin-bottom: 10px;
 }
 .cp-groupe{ margin-bottom: 10px; }
+
+/* Blocs pliables de l'onglet Synonymes (dico local + chaque source en
+   ligne), sur le même principe que l'accordéon de l'onglet Définitions. */
+.cp-syn-source-details{ border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:10px; background: var(--background-primary-alt); overflow:hidden; }
+.cp-syn-source-details-titre{ font-family: var(--font-text); font-weight:700; font-size:0.95em; color: var(--text-accent); padding:9px 14px; cursor:pointer; list-style:revert; }
+.cp-syn-source-details[open] > .cp-syn-source-details-titre{ border-bottom:1px solid var(--background-modifier-border); }
+.cp-syn-source-corps{ padding:10px 14px; }
+/* Le dico local se distingue visuellement des sources en ligne (fond
+   légèrement teinté vers l'accent, coin gauche marqué) plutôt que d'être
+   juste "un bloc de plus" dans la pile. */
+.cp-syn-source-local{ background: var(--background-primary); }
+.cp-syn-source-local > .cp-syn-source-details-titre{ color: var(--text-normal); }
+
+/* Distinction visuelle synonymes / antonymes : bordure de couleur propre à
+   chaque bloc (en plus du liseré déjà présent sur chaque chip). */
+.cp-groupe-syno{ border-left:3px solid #3f9d8a; padding-left:8px; }
+.cp-groupe-anto{ border-left:3px solid #b56a94; padding-left:8px; }
+.cp-groupe-syno > .cp-titre{ color: #3f9d8a; }
+.cp-groupe-anto > .cp-titre{ color: #b56a94; }
+
+/* Bouton "+ N de plus" pour les listes longues (plafonnées à 15 chips) */
+.cp-mot-voir-plus{ background: var(--background-secondary); border: 1px dashed var(--background-modifier-border); border-radius: 999px; padding: 3px 10px; font-size: 0.78em; color: var(--text-muted); cursor: pointer; box-shadow: none; }
+.cp-mot-voir-plus:hover{ border-color: var(--text-accent); color: var(--text-normal); }
 .cp-titre{
   font-size: 0.7em;
   text-transform: uppercase;
@@ -181,6 +204,7 @@
   color: var(--text-normal);
 }
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
+.cp-mot-pertinence{ color: var(--text-faint); margin-left:2px; }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
 .cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
 .cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }
@@ -217,10 +241,10 @@
   margin-left: 4px;
 }
 
-.cp-mot-syno{ border-left-color: var(--text-accent); }
+.cp-mot-syno{ border-left-color: var(--background-modifier-border); }
 .cp-mot-excluable{ cursor:pointer; }
 .cp-mot-exclu{ opacity:0.4; text-decoration: line-through; }
-.cp-mot-anto{ border-left-color: var(--text-muted); opacity: 0.85; }
+.cp-mot-anto{ border-left-color: var(--background-modifier-border); }
 .cp-guide-titre{ font-family: var(--font-text); font-style: italic; font-weight: 500; font-size: 1.05em; margin: 22px 0 8px; color: var(--text-accent); }
 .cp-guide-titre:first-child{ margin-top: 0; }
 .cp-guide-p{ font-size: 0.86em; color: var(--text-muted); line-height: 1.6; margin: 0 0 8px; }
@@ -233,8 +257,9 @@
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-hasard-ligne-raccourcis{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px; }
 .cp-hasard-toggle-pool{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8em; font-weight:500; color: var(--text-muted); background: var(--background-primary-alt); border:1.5px solid var(--background-modifier-border); border-radius:14px; padding:4px 12px; }
-.cp-hasard-toggle-pool:has(input:checked){ color: var(--text-normal); border-color: var(--text-accent); background: var(--background-modifier-hover); }
-.cp-hasard-toggle-pool input{ margin:0; }
+.cp-hasard-toggle-pool:has(input:checked){ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
+.cp-hasard-toggle-pool.active{ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
+.cp-hasard-toggle-pool input{ position:absolute; opacity:0; width:0; height:0; margin:0; pointer-events:none; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
 
@@ -242,6 +267,7 @@
 .cp-cnrtl-titre{ font-family: var(--font-text); font-weight:700; font-size:1em; color: var(--text-accent); margin-bottom:8px; }
 .cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: normal; }
 .cp-cnrtl-lien{ display:inline-block; margin-bottom:12px; font-size:0.85em; }
+.cp-cnrtl-seuil{ display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:6px 0 10px; font-size:0.82em; color: var(--text-muted); }
 
 /* Pills de sélection de source (TLFi / Wiktionnaire / Académie.../ Littré / DMF) */
 .cp-cnrtl-source-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }

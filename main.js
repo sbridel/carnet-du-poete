@@ -1893,11 +1893,49 @@ async function chercheSynonymesCrisco(mot){
   return { synonymes, antonymes, trouve: synMatch || antoMatch ? true : false };
 }
 
+/* CNRTL fournit ses propres synonymes/antonymes via la même API JSON que
+   l'onglet Définitions (voir chercheCnrtl), avec un score de pertinence
+   "rank" (0-100) par mot — absent chez Wiktionnaire/CRISCO. On renvoie ici
+   la liste COMPLÈTE, triée par pertinence décroissante, sous forme d'objets
+   {mot, rang} plutôt que de simples chaînes : ça permet d'afficher ce score
+   (opacité) et de le filtrer localement (curseur de seuil) sans refaire de
+   requête réseau à chaque réglage — voir le curseur dans
+   renderResultatsSynonymes. Les autres sources continuent de renvoyer de
+   simples chaînes ; texteDe/rangDe (plus bas) uniformisent l'accès pour le
+   reste du code, qui n'a pas à savoir laquelle des deux formes il reçoit. */
+async function chercheSynonymesAntonymesCnrtl(mot){
+  const urlApi = `https://www.cnrtl.fr/api/word/${encodeURIComponent(mot)}/`;
+  const reponse = await requestUrl({ url: urlApi, headers: ENTETES_NAVIGATEUR, throw: false });
+  if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
+
+  let data;
+  try {
+    data = JSON.parse(reponse.text || '{}');
+  } catch (err) {
+    throw new Error('Réponse CNRTL illisible (format inattendu)');
+  }
+  if (!data.header) return { synonymes: [], antonymes: [], trouve: false };
+
+  const extrait = (id) => {
+    const entree = (data.content || []).find(c => c.id === id);
+    if (!entree || !Array.isArray(entree.content)) return [];
+    return entree.content
+      .filter(item => item && typeof item.value === 'string' && item.value.trim())
+      .map(item => ({ mot: item.value.trim(), rang: typeof item.rank === 'number' ? item.rank : 0 }))
+      .sort((a, b) => b.rang - a.rang);
+  };
+
+  const synonymes = extrait('synonyms');
+  const antonymes = extrait('antonyms');
+  return { synonymes, antonymes, trouve: synonymes.length > 0 || antonymes.length > 0 };
+}
+
 const SOURCES_EN_LIGNE = {
   wiktionnaire: { id: 'wiktionnaire', nom: 'Wiktionnaire', chercher: chercheSynonymesWiktionnaire },
-  crisco: { id: 'crisco', nom: 'CRISCO', chercher: chercheSynonymesCrisco }
+  crisco: { id: 'crisco', nom: 'CRISCO', chercher: chercheSynonymesCrisco },
+  cnrtl: { id: 'cnrtl', nom: 'CNRTL', chercher: chercheSynonymesAntonymesCnrtl }
 };
-const SOURCES_EN_LIGNE_ORDRE = ['wiktionnaire', 'crisco'];
+const SOURCES_EN_LIGNE_ORDRE = ['cnrtl', 'crisco', 'wiktionnaire'];
 
 /* =========================================================
    CNRTL (Trésor de la Langue Française informatisé)
@@ -3296,7 +3334,7 @@ const EXPLICATIONS_QUALITE = {
 
 function badgeQualite(badgeMot, mot, saisie){
   const q = classeRime(saisie, mot);
-  badgeMot.style.borderLeftColor = COULEURS_QUALITE[q];
+  badgeMot.style.borderColor = COULEURS_QUALITE[q];
   const b = badgeMot.createEl('sup', { cls: 'cp-qualite cp-qualite-' + q, text: LETTRES_QUALITE[q] });
   b.setAttr('title', `Rime ${LABELS_QUALITE[q]} — ${EXPLICATIONS_QUALITE[q]} (heuristique phonétique approchée)`);
   b.setAttr('title', `Rime ${q} (approximatif, orthographique)`);
@@ -4110,7 +4148,7 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives,
 
     source.chercher(saisie).then(resultat => {
       statut.remove();
-      const mots = [...(resultat.synonymes || []), ...(resultat.antonymes || [])];
+      const mots = [...(resultat.synonymes || []), ...(resultat.antonymes || [])].map(texteDe);
       if (!resultat || !resultat.trouve || mots.length === 0) {
         bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
         return;
@@ -4135,16 +4173,87 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives,
    seul ne suffit pas comme garde-fou : il renvoie toujours un niveau (même
    "pauvre") pour n'importe quelle paire de mots, y compris ceux qui ne
    riment pas du tout — d'où le badge qui semblait s'afficher partout. */
-function buildGroupeMots(container, titre, liste, cls, motRimeRef){
+/* Un élément de liste de synonymes/antonymes peut être une simple chaîne
+   (dictionnaire local, Wiktionnaire, CRISCO) ou un objet {mot, rang} quand
+   la source fournit un score de pertinence (CNRTL) — ces deux utilitaires
+   uniformisent l'accès pour le reste du code, qui n'a pas à savoir d'où
+   vient chaque mot. rangDe renvoie null pour une simple chaîne (pas de
+   score connu), jamais 0 (qui est un score CNRTL valide, à distinguer). */
+function texteDe(item){ return typeof item === 'string' ? item : (item ? item.mot : ''); }
+function rangDe(item){ return typeof item === 'string' ? null : (item && typeof item.rang === 'number' ? item.rang : null); }
+
+/* CNRTL renvoie parfois des expressions à plusieurs mots en synonyme/
+   antonyme (ex. "coup de dés", "manque de pot") — jamais rencontré pour un
+   vers réel (déjà découpé mot par mot avant d'arriver dans le moteur de
+   rimes), donc sans risque de régression sur l'analyse de poème. On isole
+   le dernier mot pour la rime (c'est lui qui porte le son final) et on
+   somme les syllabes de chaque mot séparément pour le compte total, plutôt
+   que de laisser nettoieMot avaler les espaces et coller l'expression en
+   un seul pseudo-mot ("coupdedés"). Pour un mot seul (l'immense majorité
+   des cas), comportement strictement identique à avant. */
+function dernierMotExpression(expression){
+  const mots = (expression || '').trim().split(/\s+/).filter(Boolean);
+  return mots.length ? mots[mots.length - 1] : '';
+}
+function compteSyllabesExpression(expression, finalEPrononce){
+  const mots = (expression || '').trim().split(/\s+/).filter(Boolean);
+  if (mots.length <= 1) return compteSyllabesMot(expression, finalEPrononce);
+  return mots.reduce((acc, m, i) => {
+    const r = compteSyllabesMot(m, i === mots.length - 1 ? finalEPrononce : false);
+    return { min: acc.min + r.min, max: acc.max + r.max, hiatus: acc.hiatus || r.hiatus };
+  }, { min: 0, max: 0, hiatus: false });
+}
+
+/* Rendu d'un seul "chip" mot (syllabes, badge de qualité de rime, et pour
+   CNRTL l'opacité de pertinence) — factorisé pour ne pas dupliquer cette
+   logique entre buildGroupeMots (simple affichage) et
+   buildGroupeMotsExcluable (variante cliquable/exclusion) ; `exclus` vaut
+   null pour la variante non-excluable. */
+function renderChipMot(motsDiv, item, cls, motRimeRef, exclus){
+  const m = texteDe(item);
+  const rang = rangDe(item);
+  const span = motsDiv.createSpan({ cls: cls, text: m });
+  if (rang !== null && rang >= 70) span.style.fontWeight = '700';
+  span.createEl('sup', { text: String(compteSyllabesExpression(m, false).min) });
+  if (exclus) {
+    span.setAttr('title', rang !== null
+      ? `Pertinence CNRTL : ${rang}/100 — clique pour exclure ce mot avant de l'enregistrer dans ton dictionnaire personnel (reclique pour annuler).`
+      : 'Clique pour exclure ce mot avant de l\'enregistrer dans ton dictionnaire personnel (reclique pour annuler).');
+    span.addClass('cp-mot-excluable');
+    span.addEventListener('click', () => {
+      if (exclus.has(m)) { exclus.delete(m); span.removeClass('cp-mot-exclu'); }
+      else { exclus.add(m); span.addClass('cp-mot-exclu'); }
+    });
+  } else if (rang !== null) {
+    span.setAttr('title', `Pertinence CNRTL : ${rang}/100`);
+  }
+  if (motRimeRef && memeRime(motRimeRef, dernierMotExpression(m))) badgeQualite(span, dernierMotExpression(m), motRimeRef);
+}
+
+const CAP_MOTS_AFFICHES = 15;
+
+/* Affiche jusqu'à CAP_MOTS_AFFICHES chips, puis un bouton "+ N de plus" qui
+   révèle le reste d'un coup — évite qu'une longue liste (ex. CNRTL avec un
+   seuil de pertinence bas) n'envahisse tout l'onglet. */
+function afficheAvecLimite(motsDiv, liste, rendreUnMot){
+  const visibles = liste.slice(0, CAP_MOTS_AFFICHES);
+  const restants = liste.slice(CAP_MOTS_AFFICHES);
+  visibles.forEach(item => rendreUnMot(item));
+  if (restants.length > 0) {
+    const btnPlus = motsDiv.createEl('button', { cls: 'cp-mot-voir-plus', text: `+ ${restants.length} de plus` });
+    btnPlus.addEventListener('click', () => {
+      btnPlus.remove();
+      restants.forEach(item => rendreUnMot(item));
+    });
+  }
+}
+
+function buildGroupeMots(container, titre, liste, cls, motRimeRef, type){
   if (!liste || liste.length === 0) return;
-  const g = container.createDiv({ cls: 'cp-groupe' });
+  const g = container.createDiv({ cls: `cp-groupe${type ? ' cp-groupe-' + type : ''}` });
   g.createDiv({ cls: 'cp-titre', text: titre });
   const motsDiv = g.createDiv({ cls: 'cp-mots' });
-  liste.forEach(m => {
-    const span = motsDiv.createSpan({ cls: cls, text: m });
-    span.createEl('sup', { text: String(compteSyllabesMot(m, false).min) });
-    if (motRimeRef && memeRime(motRimeRef, m)) badgeQualite(span, m, motRimeRef);
-  });
+  afficheAvecLimite(motsDiv, liste, item => renderChipMot(motsDiv, item, cls, motRimeRef, null));
 }
 
 /* Variante de buildGroupeMots où chaque chip est cliquable pour l'exclure
@@ -4153,22 +4262,12 @@ function buildGroupeMots(container, titre, liste, cls, motRimeRef){
    Wiktionnaire mêlant plusieurs langues) qu'on ne veut pas polluer son
    dictionnaire perso avec. `exclus` est un Set partagé, rempli/vidé par le
    clic, relu par le bouton "Enregistrer" au moment de sauvegarder. */
-function buildGroupeMotsExcluable(container, titre, liste, cls, motRimeRef, exclus){
+function buildGroupeMotsExcluable(container, titre, liste, cls, motRimeRef, exclus, type){
   if (!liste || liste.length === 0) return;
-  const g = container.createDiv({ cls: 'cp-groupe' });
+  const g = container.createDiv({ cls: `cp-groupe${type ? ' cp-groupe-' + type : ''}` });
   g.createDiv({ cls: 'cp-titre', text: titre });
   const motsDiv = g.createDiv({ cls: 'cp-mots' });
-  liste.forEach(m => {
-    const span = motsDiv.createSpan({ cls: cls, text: m });
-    span.createEl('sup', { text: String(compteSyllabesMot(m, false).min) });
-    span.setAttr('title', 'Clique pour exclure ce mot avant de l\'enregistrer dans ton dictionnaire personnel (reclique pour annuler).');
-    span.addClass('cp-mot-excluable');
-    span.addEventListener('click', () => {
-      if (exclus.has(m)) { exclus.delete(m); span.removeClass('cp-mot-exclu'); }
-      else { exclus.add(m); span.addClass('cp-mot-exclu'); }
-    });
-    if (motRimeRef && memeRime(motRimeRef, m)) badgeQualite(span, m, motRimeRef);
-  });
+  afficheAvecLimite(motsDiv, liste, item => renderChipMot(motsDiv, item, cls, motRimeRef, exclus));
 }
 
 /* Filtre une liste de mots pour ne garder que ceux qui riment réellement
@@ -4178,7 +4277,7 @@ function buildGroupeMotsExcluable(container, titre, liste, cls, motRimeRef, excl
    le dictionnaire complet). */
 function filtreParRime(liste, cible){
   if (!cible) return liste || [];
-  return (liste || []).filter(m => memeRime(cible, m));
+  return (liste || []).filter(item => memeRime(cible, dernierMotExpression(texteDe(item))));
 }
 
 /* Filtre par nombre de syllabes exact (ou "5+"), même logique que le
@@ -4186,8 +4285,8 @@ function filtreParRime(liste, cible){
 function filtreParSyllabes(liste, syllabes){
   if (!syllabes) return liste || [];
   const cible = syllabes === '5+' ? null : parseInt(syllabes, 10);
-  return (liste || []).filter(m => {
-    const n = compteSyllabesMot(m, false).min;
+  return (liste || []).filter(item => {
+    const n = compteSyllabesExpression(texteDe(item), false).min;
     return cible === null ? n >= 5 : n === cible;
   });
 }
@@ -4204,8 +4303,10 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
   const motRimeRef = cible || saisie;
 
   // --- dictionnaire local (toujours vérifié en premier, instantané) ---
-  const blocLocal = container.createDiv({ cls: 'cp-groupe' });
-  blocLocal.createDiv({ cls: 'cp-son-label', text: `${saisie} — dictionnaire local` });
+  const detailsLocal = container.createEl('details', { cls: 'cp-syn-source-details cp-syn-source-local' });
+  detailsLocal.setAttr('open', 'true');
+  detailsLocal.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — dictionnaire local` });
+  const blocLocal = detailsLocal.createDiv({ cls: 'cp-syn-source-corps' });
   const entree = chercheSynonymes(saisie);
   if (entree) {
     const syn = filtreParSyllabes(filtreParRime(entree.synonymes, cible), filtreSyllabes);
@@ -4213,18 +4314,26 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
     if (syn.length === 0 && anto.length === 0) {
       blocLocal.createEl('p', { cls: 'cp-vide', text: `Aucun synonyme/antonyme local de « ${saisie} » ne correspond à ces filtres.` });
     } else {
-      buildGroupeMots(blocLocal, 'Synonymes', syn, 'cp-mot cp-mot-syno', motRimeRef);
-      buildGroupeMots(blocLocal, 'Antonymes', anto, 'cp-mot cp-mot-anto', motRimeRef);
+      buildGroupeMots(blocLocal, 'Synonymes', syn, 'cp-mot cp-mot-syno', motRimeRef, 'syno');
+      buildGroupeMots(blocLocal, 'Antonymes', anto, 'cp-mot cp-mot-anto', motRimeRef, 'anto');
     }
   } else {
     blocLocal.createEl('p', { cls: 'cp-vide', text: 'Pas d\'entrée locale pour ce mot.' });
   }
 
-  // --- sources en ligne sélectionnées ---
+  // --- sources en ligne sélectionnées (déjà dans l'ordre de priorité
+  // CNRTL > CRISCO > Wiktionnaire, défini une fois pour toutes dans
+  // SOURCES_EN_LIGNE_ORDRE) ---
   const liste = (sourcesActives || []).map(id => SOURCES_EN_LIGNE[id]).filter(Boolean);
+  // Une seule source active -> elle s'ouvre par défaut. Plusieurs -> toutes
+  // repliées sauf la plus prioritaire (déjà en tête de liste), pour limiter
+  // le défilement sans cacher la meilleure.
+  const idSourceOuverte = liste.length > 0 ? liste[0].id : null;
   liste.forEach(source => {
-    const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
-    bloc.createDiv({ cls: 'cp-son-label', text: `${saisie} — ${source.nom}` });
+    const details = container.createEl('details', { cls: 'cp-syn-source-details' });
+    if (source.id === idSourceOuverte) details.setAttr('open', 'true');
+    details.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — ${source.nom}` });
+    const bloc = details.createDiv({ cls: 'cp-syn-source-corps' });
     const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
 
     source.chercher(saisie).then(resultat => {
@@ -4233,29 +4342,72 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
         bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur ${source.nom} pour « ${saisie} ».` });
         return;
       }
-      const synEnLigne = filtreParSyllabes(filtreParRime(resultat.synonymes, cible), filtreSyllabes);
-      const antoEnLigne = filtreParSyllabes(filtreParRime(resultat.antonymes, cible), filtreSyllabes);
-      if (synEnLigne.length === 0 && antoEnLigne.length === 0) {
-        bloc.createEl('p', { cls: 'cp-vide', text: `Aucun résultat ${source.nom} ne correspond à ces filtres.` });
-        return;
-      }
-      const exclusSyn = new Set();
-      const exclusAnto = new Set();
-      buildGroupeMotsExcluable(bloc, 'Synonymes', synEnLigne, 'cp-mot cp-mot-syno', motRimeRef, exclusSyn);
-      buildGroupeMotsExcluable(bloc, 'Antonymes', antoEnLigne, 'cp-mot cp-mot-anto', motRimeRef, exclusAnto);
 
-      if (plugin && (synEnLigne.length > 0 || antoEnLigne.length > 0)) {
-        const btnSauver = bloc.createEl('button', { cls: 'cp-link-btn', text: `💾 Enregistrer dans mon dictionnaire personnel` });
-        btnSauver.setAttr('title', 'Enregistre tout ce qui est affiché ci-dessus, sauf les mots grisés/barrés (clique sur un mot pour l\'exclure).');
-        btnSauver.addEventListener('click', async () => {
-          btnSauver.disabled = true;
-          btnSauver.setText('Enregistrement…');
-          const synARetenir = synEnLigne.filter(m => !exclusSyn.has(m));
-          const antoARetenir = antoEnLigne.filter(m => !exclusAnto.has(m));
-          await enregistreSynonymePerso(plugin, saisie, synARetenir, antoARetenir);
-          btnSauver.setText('Enregistré ✓');
+      // CNRTL fournit un score de pertinence (0-100) par mot — pills à
+      // paliers fixes pour écarter la longue traîne des scores faibles
+      // (une réglette à glisser posait trop de problèmes cross-navigateur,
+      // voir l'historique), recalculé localement à chaque clic sans
+      // nouvelle requête réseau (les données complètes sont déjà en
+      // mémoire dans `resultat`).
+      let seuilActuel = 30;
+      if (source.id === 'cnrtl') {
+        const seuilDiv = bloc.createDiv({ cls: 'cp-cnrtl-seuil' });
+        seuilDiv.createSpan({ cls: 'cp-sources-label', text: 'Seuil de pertinence : ' });
+        const paliers = [
+          { label: 'Tout', valeur: 0 },
+          { label: '30%', valeur: 30 },
+          { label: '60%', valeur: 60 },
+          { label: '85%', valeur: 85 }
+        ];
+        const boutons = [];
+        paliers.forEach(p => {
+          const btn = seuilDiv.createEl('button', { cls: 'cp-hasard-toggle-pool', text: p.label });
+          if (p.valeur === seuilActuel) btn.addClass('active');
+          btn.addEventListener('click', () => {
+            seuilActuel = p.valeur;
+            boutons.forEach(b => b.el.removeClass('active'));
+            btn.addClass('active');
+            rendreChips();
+          });
+          boutons.push({ el: btn, valeur: p.valeur });
         });
       }
+      const zoneChips = bloc.createDiv();
+      const zoneSauver = bloc.createDiv();
+
+      const rendreChips = () => {
+        zoneChips.empty();
+        zoneSauver.empty();
+        const passeSeuil = (item) => {
+          const r = rangDe(item);
+          return r === null || r >= seuilActuel;
+        };
+        const synEnLigne = filtreParSyllabes(filtreParRime(resultat.synonymes.filter(passeSeuil), cible), filtreSyllabes);
+        const antoEnLigne = filtreParSyllabes(filtreParRime(resultat.antonymes.filter(passeSeuil), cible), filtreSyllabes);
+        if (synEnLigne.length === 0 && antoEnLigne.length === 0) {
+          zoneChips.createEl('p', { cls: 'cp-vide', text: `Aucun résultat ${source.nom} ne correspond à ces filtres.` });
+          return;
+        }
+        const exclusSyn = new Set();
+        const exclusAnto = new Set();
+        buildGroupeMotsExcluable(zoneChips, 'Synonymes', synEnLigne, 'cp-mot cp-mot-syno', motRimeRef, exclusSyn, 'syno');
+        buildGroupeMotsExcluable(zoneChips, 'Antonymes', antoEnLigne, 'cp-mot cp-mot-anto', motRimeRef, exclusAnto, 'anto');
+
+        if (plugin && (synEnLigne.length > 0 || antoEnLigne.length > 0)) {
+          const btnSauver = zoneSauver.createEl('button', { cls: 'cp-link-btn', text: `💾 Enregistrer dans mon dictionnaire personnel` });
+          btnSauver.setAttr('title', 'Enregistre tout ce qui est affiché ci-dessus, sauf les mots grisés/barrés (clique sur un mot pour l\'exclure).');
+          btnSauver.addEventListener('click', async () => {
+            btnSauver.disabled = true;
+            btnSauver.setText('Enregistrement…');
+            const synARetenir = synEnLigne.map(texteDe).filter(m => !exclusSyn.has(m));
+            const antoARetenir = antoEnLigne.map(texteDe).filter(m => !exclusAnto.has(m));
+            await enregistreSynonymePerso(plugin, saisie, synARetenir, antoARetenir);
+            btnSauver.setText('Enregistré ✓');
+          });
+        }
+      };
+
+      rendreChips();
     }).catch(err => {
       console.error(`[Carnet du Poète] erreur ${source.nom}`, err);
       statut.setText(messageErreurSource(err, source.nom));
@@ -4948,7 +5100,7 @@ class CarnetView extends ItemView {
     const cases = {};
     SOURCES_EN_LIGNE_ORDRE.forEach(id => {
       const source = SOURCES_EN_LIGNE[id];
-      const label = sourcesDiv.createEl('label', { cls: 'cp-source-toggle' });
+      const label = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
       const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
       label.createSpan({ text: ' ' + source.nom });
       cases[id] = case_;
@@ -5081,7 +5233,7 @@ class CarnetView extends ItemView {
     const cases = {};
     SOURCES_EN_LIGNE_ORDRE.forEach(id => {
       const source = SOURCES_EN_LIGNE[id];
-      const label = sourcesDiv.createEl('label', { cls: 'cp-source-toggle' });
+      const label = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
       const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
       label.createSpan({ text: ' ' + source.nom });
       cases[id] = case_;
@@ -6030,14 +6182,16 @@ const CARNET_CSS = `
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-hasard-ligne-raccourcis{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px; }
 .cp-hasard-toggle-pool{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8em; font-weight:500; color: var(--text-muted); background: var(--background-primary-alt); border:1.5px solid var(--background-modifier-border); border-radius:14px; padding:4px 12px; }
-.cp-hasard-toggle-pool:has(input:checked){ color: var(--text-normal); border-color: var(--text-accent); background: var(--background-modifier-hover); }
-.cp-hasard-toggle-pool input{ margin:0; }
+.cp-hasard-toggle-pool:has(input:checked){ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
+.cp-hasard-toggle-pool.active{ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
+.cp-hasard-toggle-pool input{ position:absolute; opacity:0; width:0; height:0; margin:0; pointer-events:none; }
 .cp-source-toggle input{ cursor:pointer; }
 .cp-source-en-ligne{ border-left: 2px solid var(--background-modifier-border); padding-left: 10px; }
 .cp-cnrtl-bloc{ border:1px solid var(--background-modifier-border); border-radius:8px; padding:12px 14px; margin-bottom:12px; background: var(--background-primary-alt); }
 .cp-cnrtl-titre{ font-family: var(--font-text); font-weight:700; font-size:1em; color: var(--text-accent); margin-bottom:8px; }
 .cp-cnrtl-texte{ font-size:0.86em; line-height:1.6; color: var(--text-normal); white-space: normal; }
 .cp-cnrtl-lien{ display:inline-block; margin-bottom:12px; font-size:0.85em; }
+.cp-cnrtl-seuil{ display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:6px 0 10px; font-size:0.82em; color: var(--text-muted); }
 .cp-cnrtl-source-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
 .cp-cnrtl-source-pill{ background: var(--background-secondary); border: 1.5px solid var(--background-modifier-border); border-radius: 999px; padding: 4px 12px; font-size: 0.8em; font-weight: 600; color: var(--text-muted); cursor: pointer; box-shadow: none; }
 .cp-cnrtl-source-pill:hover{ border-color: var(--text-accent); color: var(--text-normal); }
@@ -6222,14 +6376,27 @@ const CARNET_CSS = `
 .cp-rime-form input{ flex:1; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }
+.cp-syn-source-details{ border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:10px; background: var(--background-primary-alt); overflow:hidden; }
+.cp-syn-source-details-titre{ font-family: var(--font-text); font-weight:700; font-size:0.95em; color: var(--text-accent); padding:9px 14px; cursor:pointer; list-style:revert; }
+.cp-syn-source-details[open] > .cp-syn-source-details-titre{ border-bottom:1px solid var(--background-modifier-border); }
+.cp-syn-source-corps{ padding:10px 14px; }
+.cp-syn-source-local{ background: var(--background-primary); }
+.cp-syn-source-local > .cp-syn-source-details-titre{ color: var(--text-normal); }
+.cp-groupe-syno{ border-left:3px solid #3f9d8a; padding-left:8px; }
+.cp-groupe-anto{ border-left:3px solid #b56a94; padding-left:8px; }
+.cp-groupe-syno > .cp-titre{ color: #3f9d8a; }
+.cp-groupe-anto > .cp-titre{ color: #b56a94; }
+.cp-mot-voir-plus{ background: var(--background-secondary); border: 1px dashed var(--background-modifier-border); border-radius: 999px; padding: 3px 10px; font-size: 0.78em; color: var(--text-muted); cursor: pointer; box-shadow: none; }
+.cp-mot-voir-plus:hover{ border-color: var(--text-accent); color: var(--text-normal); }
 .cp-titre{ font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
 .cp-mots{ display:flex; flex-wrap:wrap; gap:6px; }
 .cp-mot{ display:inline-block; font-family: var(--font-monospace); font-size: 0.84em; background: var(--background-primary-alt); border: 1px solid var(--background-modifier-border); border-left: 3px solid var(--text-accent); padding: 4px 8px; border-radius: 3px; color: var(--text-normal); }
 .cp-mot sup{ color: var(--text-faint); margin-left:2px; }
-.cp-mot-syno{ border-left-color: var(--text-accent); }
+.cp-mot-pertinence{ color: var(--text-faint); margin-left:2px; }
+.cp-mot-syno{ border-left-color: var(--background-modifier-border); }
 .cp-mot-excluable{ cursor:pointer; }
 .cp-mot-exclu{ opacity:0.4; text-decoration: line-through; }
-.cp-mot-anto{ border-left-color: var(--text-muted); opacity: 0.85; }
+.cp-mot-anto{ border-left-color: var(--background-modifier-border); }
 .cp-mot-assonance{ border-left-style: dashed; border-left-color: var(--text-faint); opacity: 0.8; }
 .cp-label-assonance{ color: var(--text-faint); font-style: italic; }
 .cp-bloc-assonance{ border-top: 1px dashed var(--background-modifier-border); padding-top: 10px; margin-top: 6px; }
