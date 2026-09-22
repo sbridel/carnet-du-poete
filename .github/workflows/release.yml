@@ -3,7 +3,7 @@ name: Release Asset with Attestation
 on:
   push:
     tags:
-      - 'v*'
+      - '*.*.*'
 
 jobs:
   build-and-release:
