@@ -18,6 +18,15 @@ function phonetiqueMot(mot){
   return w ? (PHONETIQUE_MOT.get(w) || null) : null;
 }
 
+/* Dernière voyelle de la transcription phonétique complète du mot (dico
+   perso Format C), ou null si le mot n'y a pas de transcription. */
+function voyelleFinalePhon(mot){
+  const p = phonetiqueMot(mot);
+  if (!p) return null;
+  for (let i = p.length - 1; i >= 0; i--) if (VOYELLES_PHON.has(p[i])) return p[i];
+  return null;
+}
+
 function estimeSonsCommunsPhon(phonA, phonB){
   let i = phonA.length - 1, j = phonB.length - 1, n = 0;
   while (i >= 0 && j >= 0 && phonA[i] === phonB[j]) { n++; i--; j--; }

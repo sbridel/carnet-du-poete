@@ -39,8 +39,13 @@ function chargeMoteur() {
   // en direct la variable "let RIMES_CONTINUES" définie plus haut —
   // contrairement à un simple export de sa valeur, qui ne ferait que
   // capturer un instantané figé au moment du chargement.
+  // _setDicoTest : installe un mini dictionnaire phonétique (mot -> transcription),
+  // groupé par les 2 derniers phonèmes comme le vrai ; null pour le retirer.
   const exportLine = `\nfunction _setRimesContinues(v){ RIMES_CONTINUES = v; }\n`
-    + `module.exports = { ${A_EXPORTER.join(', ')}, _setRimesContinues };\n`;
+    + `function _setDicoTest(phons){ if (!phons) { DICO_PHONETIQUE = null; PHONETIQUE_MOT = null; return; }`
+    + ` DICO_PHONETIQUE = new Map(Object.entries(phons).map(([m, p]) => [m, p.slice(-2)]));`
+    + ` PHONETIQUE_MOT = new Map(Object.entries(phons)); }\n`
+    + `module.exports = { ${A_EXPORTER.join(', ')}, _setRimesContinues, _setDicoTest };\n`;
 
   // Dossier temporaire avec sa propre arborescence node_modules/obsidian,
   // pour que le require('obsidian') tout en haut de main.js résolve vers

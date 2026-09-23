@@ -13,6 +13,7 @@ side panel, no internet connection required for the core features.
 - [Manual installation](#manual-installation)
 - [Extending your dictionaries with `dictionnaire-perso.json`](#extending-your-dictionaries-with-dictionnaire-personjson)
 - [Online sources](#online-sources)
+- [Data sources & licences](#data-sources--licences)
 - [Known limitations](#known-limitations)
 - [Changelog](#changelog) — 5 most recent versions
 - [Full changelog](CHANGELOG.md) — complete version history (separate file)
@@ -365,6 +366,29 @@ happen on schedule and broke the plugin's HTML scraping entirely (see 2.24.3): t
 tab now talks to their JSON API instead, which should be more resilient to further front-end
 changes going forward, but isn't a public contract either.
 
+## Data sources & licences
+
+**The plugin's code is licensed under GPL-3.0** (see `LICENSE`). **The published
+`dictionnaire-perso.json` is a separate work**: derived from Lexique383, it is shared under
+**CC BY-SA 4.0**.
+
+The ready-made `dictionnaire-perso.json` published with this repository is built from three
+sources. Every word carries a `src` code recording where it comes from (explained in the
+`_legende` field at the top of the file):
+
+- **L — [Lexique383](http://www.lexique.org/)** (B. New, C. Pallier et al.): phonetic
+  transcriptions of ~121,000 word forms. Licence **CC BY-SA 4.0** — the dictionary file, as a
+  derived work, is shared under the same licence.
+- **M — [Morphalou 3.1](https://www.ortolang.fr/market/lexicons/morphalou)** (ATILF – CNRS,
+  Nancy): ~89,000 additional forms (nouns, adjectives, participles, infinitives, adverbs), their
+  phonetics converted to Lexique's notation. Licence **LGPL-LR**.
+- **R — Didier Méral's inventory of rare, forgotten or obsolete French words**, freely shared by
+  its author since 2006 (rare-word list and definitions, tag `méral`).
+
+A `cor` field marks the entries whose source phonetics were corrected: `ai` = future and
+simple-past 1st-person *-ai* pronounced [e] rather than [ɛ] (*aimerai*, *chantai*), which Lexique383
+transcribes as [ɛ].
+
 ## Known limitations
 
 - Syllable counting is a spelling-based heuristic (like most free online tools), not a full
@@ -401,6 +425,23 @@ changes going forward, but isn't a public contract either.
 
 ## Changelog
 
+- **2.27.0** — A bigger, more accurate rhyme dictionary.
+  - **The published `dictionnaire-perso.json` grows from ~121,000 to ~210,000 words**: ~89,000
+    forms from **Morphalou 3.1** (nouns, adjectives, participles, infinitives, adverbs) join the
+    Lexique383 base, their phonetics converted to Lexique's notation (137 doubtful entries left
+    out). Every word now carries its **lineage** (`src`: L = Lexique383, M = Morphalou, R = Méral
+    rare word), explained in a `_legende` field at the top of the file; see the new "Data sources
+    & licences" section.
+  - **Future and simple-past *-ai* now rhyme in [e]** (2,289 forms corrected, marked `cor: "ai"`):
+    *aimerai* rhymes with *juré*, *jurer*, *jouerez* — no longer with *aimerais*, *jarret* or
+    *jetterait* ([ɛ]). Lexique383 transcribes them [ɛ], which classical French prosody rejects.
+  - **The rhyme engine now trusts the transcribed vowel over spelling** when both words are in the
+    phonetic dictionary: spelling alone cannot tell that *aimerai* ends in [e], and was vetoing
+    *aimerai*/*juré* even with a corrected dictionary. Spelling remains the fallback for words
+    outside the dictionary.
+  - **Smaller file**: the dictionary is written without indentation and without empty
+    synonym/antonym lists — 13 MB instead of 17 MB despite 75% more words — and the plugin now
+    keeps it compact when it saves to it.
 - **2.26.0** — Rhymes tab: a second online source, and the same layout as Synonyms/Inspiration.
   - **Wiktionnaire as a second opt-in online source**, next to RimesSolides. The plugin reads the
     rhyme category the Wiktionnaire assigns to the searched word ("Rimes en français en …",
@@ -477,24 +518,5 @@ changes going forward, but isn't a public contract either.
   text-based extraction (regex hunting for "Étymol. et Hist.", stripping an announcement banner,
   guessing where an article starts from "MOT," patterns...) is gone entirely — none of it is
   needed against structured JSON.
-- **2.24.2** — Verb forms ending in a silent "-ent" (3rd person plural: "ils dorment", "elles
-  s'enivrent") weren't recognised by the rhyme engine at all — found via a poem where "livres"
-  and "enivrent" (same real sound, [ivʁ]) failed to rhyme. The function that already detects
-  this silent ending, `finMuetteEnEnt` (with its exceptions list `EXCEPTIONS_ENT_PRONONCE` for
-  words where "-ent" really is pronounced: moment, président, différent...), existed but was
-  only ever used for syllable counting, never consulted by the rhyme engine. Now reused in two
-  places: `preparerMotRime` (strips the silent "-ent" before building the rhyme key, the shared
-  path used by both dictionary-backed and pure spelling-based comparison) and `trouveFamille`
-  (the plain spelling-based fallback used when a word isn't covered by any dictionary at all —
-  it was matching every "-ent" word against the nasal [ɑ̃] family by default; it now also tries
-  matching the stem plus a silent e, "enivr" + e ~ "enivre", against the existing families, so
-  it lands on the correct one instead). Confirmed against Alucard's real dictionary: the
-  dictionary already agreed "livres"/"enivrent" belonged to the same phonetic group, but an
-  orthography-based safety check downstream was overriding that correct agreement with `null` —
-  same underlying pattern as three of the 2.24.0 fixes (the dictionary is right, the spelling
-  heuristic wrongly overrides it).
-  Known residual gap, not fixed: without any dictionary coverage, a verb like "dorment" ([ɔʁm])
-  still falls back to the wrong nasal family, since no dedicated "-orme" family exists yet in
-  the curated `FAMILLES` list — not a regression from this fix, just the pre-existing limit of
-  a non-exhaustive list.
+
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).

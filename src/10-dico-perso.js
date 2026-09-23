@@ -195,7 +195,10 @@ async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
     data.synonymes.push({ mot, synonymes, antonymes });
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  // Écriture compacte (sans indentation) : le dictionnaire complet pèse
+  // ~13 Mo compact contre ~20 Mo indenté ; même contenu, seul l'affichage
+  // brut du fichier change (un éditeur peut le remettre en forme).
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -260,7 +263,7 @@ async function ajouteMotRarePerso(plugin, mot, note, tags){
     data.motsRares.push(entree);
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -342,7 +345,7 @@ async function graverTousLesMotsRaresEnMasse(plugin){
     compte++;
   });
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -423,7 +426,7 @@ async function ajouteMotChampLexicalPerso(plugin, theme, motsClefs, mot, note, o
     champ.mots.push({ mot, note: note || '' });
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -576,7 +579,7 @@ async function nettoieEtFusionneDictionnairePerso(plugin){
     synoApres = fusion.length;
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     await adapter.write(chemin, contenu);
   } catch (e) {

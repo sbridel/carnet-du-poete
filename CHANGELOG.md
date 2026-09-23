@@ -2,6 +2,23 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.27.0** — A bigger, more accurate rhyme dictionary.
+  - **The published `dictionnaire-perso.json` grows from ~121,000 to ~210,000 words**: ~89,000
+    forms from **Morphalou 3.1** (nouns, adjectives, participles, infinitives, adverbs) join the
+    Lexique383 base, their phonetics converted to Lexique's notation (137 doubtful entries left
+    out). Every word now carries its **lineage** (`src`: L = Lexique383, M = Morphalou, R = Méral
+    rare word), explained in a `_legende` field at the top of the file; see the new "Data sources
+    & licences" section.
+  - **Future and simple-past *-ai* now rhyme in [e]** (2,289 forms corrected, marked `cor: "ai"`):
+    *aimerai* rhymes with *juré*, *jurer*, *jouerez* — no longer with *aimerais*, *jarret* or
+    *jetterait* ([ɛ]). Lexique383 transcribes them [ɛ], which classical French prosody rejects.
+  - **The rhyme engine now trusts the transcribed vowel over spelling** when both words are in the
+    phonetic dictionary: spelling alone cannot tell that *aimerai* ends in [e], and was vetoing
+    *aimerai*/*juré* even with a corrected dictionary. Spelling remains the fallback for words
+    outside the dictionary.
+  - **Smaller file**: the dictionary is written without indentation and without empty
+    synonym/antonym lists — 13 MB instead of 17 MB despite 75% more words — and the plugin now
+    keeps it compact when it saves to it.
 - **2.26.0** — Rhymes tab: a second online source, and the same layout as Synonyms/Inspiration.
   - **Wiktionnaire as a second opt-in online source**, next to RimesSolides. The plugin reads the
     rhyme category the Wiktionnaire assigns to the searched word ("Rimes en français en …",

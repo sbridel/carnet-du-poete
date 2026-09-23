@@ -681,6 +681,14 @@ function classifieRime(motA, motB){
     // différents, [ɛj] contre [ɛl] — jamais rattrapé si les deux mots
     // étaient dans le dico avec des transcriptions distinctes).
     if (richeA === richeB) {
+      // Même groupe du dico. Si les deux mots ont une transcription
+      // complète, c'est la voyelle finale TRANSCRITE qui départage (ex.
+      // "sombre" [§] / "ténèbres" [E] sous une même clé "bR" : pas de
+      // rime). L'orthographe ne sert qu'en l'absence de transcription :
+      // elle ne peut pas savoir que "aimerai" (futur) se prononce [e] et
+      // refusait à tort "aimerai"/"juré" une fois le dico corrigé.
+      const vA = voyelleFinalePhon(motA), vB = voyelleFinalePhon(motB);
+      if (vA && vB) return vA === vB ? 'rime' : null;
       return (!coeurA || !coeurB || coeurCompatible) ? 'rime' : null;
     }
     // Groupes dico différents : pas de "rime riche" partagée (la consonne
@@ -694,6 +702,14 @@ function classifieRime(motA, motB){
     // mots, on ne peut pas garantir qu'elle concorderait aussi (on
     // n'a que la clé de groupe, pas la transcription complète) : on
     // reste alors prudemment sur "assonance", comme avant.
+    // Même principe qu'au-dessus : transcriptions complètes d'abord (fin
+    // réduite à la voyelle = transcription qui se termine par elle).
+    const pA = phonetiqueMot(motA), pB = phonetiqueMot(motB);
+    const vA = voyelleFinalePhon(motA), vB = voyelleFinalePhon(motB);
+    if (vA && vB) {
+      if (vA === vB && pA.endsWith(vA) && pB.endsWith(vB)) return 'rime';
+      return vA === vB ? 'assonance' : null;
+    }
     if (coeurCompatible && finA === coeurA && finB === coeurB) return 'rime';
     return coeurCompatible ? 'assonance' : null;
   }
@@ -2679,7 +2695,10 @@ async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
     data.synonymes.push({ mot, synonymes, antonymes });
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  // Écriture compacte (sans indentation) : le dictionnaire complet pèse
+  // ~13 Mo compact contre ~20 Mo indenté ; même contenu, seul l'affichage
+  // brut du fichier change (un éditeur peut le remettre en forme).
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -2744,7 +2763,7 @@ async function ajouteMotRarePerso(plugin, mot, note, tags){
     data.motsRares.push(entree);
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -2826,7 +2845,7 @@ async function graverTousLesMotsRaresEnMasse(plugin){
     compte++;
   });
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -2907,7 +2926,7 @@ async function ajouteMotChampLexicalPerso(plugin, theme, motsClefs, mot, note, o
     champ.mots.push({ mot, note: note || '' });
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     if (await adapter.exists(chemin)) {
       await adapter.write(chemin, contenu);
@@ -3060,7 +3079,7 @@ async function nettoieEtFusionneDictionnairePerso(plugin){
     synoApres = fusion.length;
   }
 
-  const contenu = JSON.stringify(data, null, 2);
+  const contenu = JSON.stringify(data);
   try {
     await adapter.write(chemin, contenu);
   } catch (e) {
@@ -3505,6 +3524,15 @@ function phonetiqueMot(mot){
   if (DEBUG_IGNORER_DICO_PERSO || !PHONETIQUE_MOT) return null;
   const w = normaliseMot(mot);
   return w ? (PHONETIQUE_MOT.get(w) || null) : null;
+}
+
+/* Dernière voyelle de la transcription phonétique complète du mot (dico
+   perso Format C), ou null si le mot n'y a pas de transcription. */
+function voyelleFinalePhon(mot){
+  const p = phonetiqueMot(mot);
+  if (!p) return null;
+  for (let i = p.length - 1; i >= 0; i--) if (VOYELLES_PHON.has(p[i])) return p[i];
+  return null;
 }
 
 function estimeSonsCommunsPhon(phonA, phonB){

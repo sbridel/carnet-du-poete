@@ -677,6 +677,14 @@ function classifieRime(motA, motB){
     // différents, [ɛj] contre [ɛl] — jamais rattrapé si les deux mots
     // étaient dans le dico avec des transcriptions distinctes).
     if (richeA === richeB) {
+      // Même groupe du dico. Si les deux mots ont une transcription
+      // complète, c'est la voyelle finale TRANSCRITE qui départage (ex.
+      // "sombre" [§] / "ténèbres" [E] sous une même clé "bR" : pas de
+      // rime). L'orthographe ne sert qu'en l'absence de transcription :
+      // elle ne peut pas savoir que "aimerai" (futur) se prononce [e] et
+      // refusait à tort "aimerai"/"juré" une fois le dico corrigé.
+      const vA = voyelleFinalePhon(motA), vB = voyelleFinalePhon(motB);
+      if (vA && vB) return vA === vB ? 'rime' : null;
       return (!coeurA || !coeurB || coeurCompatible) ? 'rime' : null;
     }
     // Groupes dico différents : pas de "rime riche" partagée (la consonne
@@ -690,6 +698,14 @@ function classifieRime(motA, motB){
     // mots, on ne peut pas garantir qu'elle concorderait aussi (on
     // n'a que la clé de groupe, pas la transcription complète) : on
     // reste alors prudemment sur "assonance", comme avant.
+    // Même principe qu'au-dessus : transcriptions complètes d'abord (fin
+    // réduite à la voyelle = transcription qui se termine par elle).
+    const pA = phonetiqueMot(motA), pB = phonetiqueMot(motB);
+    const vA = voyelleFinalePhon(motA), vB = voyelleFinalePhon(motB);
+    if (vA && vB) {
+      if (vA === vB && pA.endsWith(vA) && pB.endsWith(vB)) return 'rime';
+      return vA === vB ? 'assonance' : null;
+    }
     if (coeurCompatible && finA === coeurA && finB === coeurB) return 'rime';
     return coeurCompatible ? 'assonance' : null;
   }

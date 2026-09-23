@@ -129,4 +129,17 @@ module.exports = function testsRimes(m) {
       assertFalse(m.estFlexionDe('aimer', 'semer'));
     });
   });
+  groupe('Rimes — avec dico phonétique, la voyelle transcrite prime sur l\'orthographe', () => {
+    m._setDicoTest({ aimerai: 'Em°Re', 'juré': 'ZyRe', aimerais: 'Em°RE', jamais: 'ZamE',
+      sombre: 's§bR', 'ténèbres': 'tenEbR', abeille: 'abEj', nouvelle: 'nuvEl', frais: 'fRE', jais: 'ZE' });
+    try {
+      test('aimerai (futur, [e]) rime avec juré', () => assertTrue(m.memeRime('aimerai', 'juré')));
+      test('aimerai ne rime pas avec aimerais (conditionnel, [ɛ])', () => assertFalse(m.memeRime('aimerai', 'aimerais')));
+      test('sombre/ténèbres : même clé bR, voyelles différentes → pas de rime', () => assertFalse(m.memeRime('sombre', 'ténèbres')));
+      test('frais/jais (groupes différents, même voyelle finale) : toujours rime pauvre', () => assertTrue(m.memeRime('frais', 'jais')));
+      test('abeille/nouvelle restent sans rime', () => assertFalse(m.memeRime('abeille', 'nouvelle')));
+    } finally {
+      m._setDicoTest(null);
+    }
+  });
 };
