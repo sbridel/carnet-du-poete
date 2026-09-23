@@ -56,10 +56,12 @@ side panel, no internet connection required for the core features.
   per quality) and every word chip carries a matching coloured border and badge, with a tooltip
   explaining the criterion, for a quick visual read of the list. You can also tick
   **RimesSolides** to pull in additional live results from
-  [rimessolides.com](https://www.rimessolides.com) — and every filter above (letter, syllable
+  [rimessolides.com](https://www.rimessolides.com), and/or **Wiktionnaire** (the words it files
+  under the same rhyme category — partial coverage, handy as a fallback and for rare words) — and every filter above (letter, syllable
   count, quality) applies to those results too, on top of the site's own pagination, so you can
   narrow down a 4000+-word RimesSolides list the same way you'd narrow the local dictionary,
-  something the site's own interface doesn't offer. A global **"Mode assonance"**
+  something the site's own interface doesn't offer. The searched word's own inflections (*armée* →
+  *armées*, *armé*, *armer*…) are left out of every list, since a word doesn't rhyme with itself. A global **"Mode assonance"**
   toggle (off by default — strict rhymes only) additionally surfaces words that share the same
   vowel but differ in what follows it (e.g. *ombre*/*montre* — same nasal vowel, but "b" vs "t"
   right before the final "r"), shown in a clearly separate, dashed-border section so they're
@@ -334,6 +336,8 @@ into browser CORS restrictions). Five sources are built in:
   or go offline without notice.
 - **RimesSolides** (`rimessolides.com`) — a French rhyming dictionary with IPA transcriptions.
   Used in the Rhymes tab.
+- **Wiktionnaire rhyme categories** — the "Rimes en français en \\…\\" categories, queried
+  through the same Wiktionnaire API. Used in the Rhymes tab as a second, opt-in source.
 - **CNRTL** (`cnrtl.fr`) — the CNRTL portal's own internal JSON API, covering seven dictionaries
   at once (TLFi, Wiktionnaire, Académie 9th/8th/4th editions, Littré, DMF), used in the
   Definitions tab, and as an opt-in source in the Synonyms and Inspiration tabs. When a word has
@@ -397,6 +401,27 @@ changes going forward, but isn't a public contract either.
 
 ## Changelog
 
+- **2.26.0** — Rhymes tab: a second online source, and the same layout as Synonyms/Inspiration.
+  - **Wiktionnaire as a second opt-in online source**, next to RimesSolides. The plugin reads the
+    rhyme category the Wiktionnaire assigns to the searched word ("Rimes en français en …",
+    keeping the most specific one — /jo/ rather than /o/) and lists that category's members (up
+    to 1,000). Coverage is partial — many words have no rhyme category yet, in which case the
+    block says so — but it works as a fallback when RimesSolides is down and brings in rare words
+    and multi-word phrases. Its results go through exactly the same filters as RimesSolides
+    (strict-rhyme check, letter, syllables, quality, assonance mode); both sources now share one
+    rendering function.
+  - **The searched word's own inflections are no longer offered as rhymes** (searching *armée* no
+    longer lists *armées*, *armés*, *armé*, *armer*, *armez*), in the local dictionary and the
+    online sources alike — a word doesn't rhyme with itself. It is a heuristic without a
+    lemmatizer: the longest inflectional ending leaving a stem of at least 3 letters is removed,
+    and "stem + inflectional ending" candidates are dropped; for short words (*né*, *mer*) only
+    the -s/-x/-e/-es variants are, so *nez* still rhymes with *né*. Compounds (*réarmer*) are kept
+    on purpose: rhyming a word with its compound is discouraged, not forbidden, and prefix
+    detection would misfire (*séjour*, *réparer*).
+  - **Same layout as the Synonyms and Inspiration tabs**: a "dictionnaire local" collapsible
+    block, then one collapsible block per online source (the first open, the others folded). The
+    Wiktionnaire block's title shows the rhyme found, e.g. *armée — Wiktionnaire /me/*. The
+    "Search rhymes for the selected word" command's pop-up uses the same rendering.
 - **2.25.0** — The Inspiration tab's online part was rebuilt around lexical fields instead of
   synonyms (already covered by the Synonyms tab). Three opt-in sources, each in its own
   collapsible block below the local one: **CNRTL** (collocations, word family, sayings with their
@@ -472,19 +497,4 @@ changes going forward, but isn't a public contract either.
   still falls back to the wrong nasal family, since no dedicated "-orme" family exists yet in
   the curated `FAMILLES` list — not a regression from this fix, just the pre-existing limit of
   a non-exhaustive list.
-- **2.24.1** — The personal dictionary (`dictionnaire-perso.json`) no longer blocks plugin
-  startup while it loads. Previously, loading it was the very first thing `onload()` did,
-  `await`-ed before registering the view, ribbon icon, or any command — so on a large
-  dictionary (measured: ~750 ms for 121k words on desktop, likely several seconds on mobile
-  given the weaker CPU), nothing from the plugin appeared until that finished, which could feel
-  like the whole plugin was stalling on startup, especially on mobile. The view/icon/commands
-  now register immediately; the dictionary loads in the background right after, and the rhyme
-  engine already falls back safely to its spelling-only heuristic for the brief window before
-  it's ready (`DICO_PHONETIQUE` starts `null`, already handled everywhere it's checked).
-  A separate attempt at speeding up the parsing loop itself (skipping `trim()`/`toLowerCase()`
-  when a word is already clean) looked promising on a single measurement (189 ms → 137 ms) but
-  turned out to be measurement noise once re-tested properly across several alternated runs
-  (~46 ms vs ~43 ms median) — not shipped, since it would have added complexity to
-  dictionary-parsing code for no real gain.
-
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).

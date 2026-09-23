@@ -9,7 +9,9 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
   const resultat = chercheRimes(saisie);
 
   const appliqueFiltres = (liste) => {
-    let l = liste;
+    // Jamais le mot cherché ni ses propres flexions (armée → armées, armé,
+    // armer…) : on ne rime pas un mot avec lui-même.
+    let l = liste.filter(m => !estFlexionDe(saisie, m));
     if (filtres.lettre) {
       const lettre = normaliseMot(filtres.lettre)[0];
       l = l.filter(m => normaliseMot(m).startsWith(lettre));
@@ -32,13 +34,19 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     return l;
   };
 
+  // --- dictionnaire local (même présentation que Synonymes/Inspiration) ---
+  const detailsLocal = container.createEl('details', { cls: 'cp-syn-source-details cp-syn-source-local' });
+  detailsLocal.setAttr('open', 'true');
+  detailsLocal.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — dictionnaire local` });
+  const corpsLocal = detailsLocal.createDiv({ cls: 'cp-syn-source-corps' });
+
   if (resultat.mode === 'aucun') {
-    container.createEl('p', { cls: 'cp-vide', text: `Pas de rime trouvée pour « ${saisie} » dans les dictionnaires chargés.` });
+    corpsLocal.createEl('p', { cls: 'cp-vide', text: `Pas de rime trouvée pour « ${saisie} » dans les dictionnaires chargés.` });
   } else {
     if (resultat.mode === 'exact') {
-      container.createDiv({ cls: 'cp-son-label', text: `Rimes exactes pour « ${saisie} » (dictionnaire phonétique complet)` });
+      corpsLocal.createDiv({ cls: 'cp-son-label', text: 'Rimes exactes (dictionnaire phonétique complet)' });
     } else {
-      container.createDiv({ cls: 'cp-son-label', text: `Son ${resultat.son} — comme dans « ${resultat.exemple} » (dictionnaire approché)` });
+      corpsLocal.createDiv({ cls: 'cp-son-label', text: `Son ${resultat.son} — comme dans « ${resultat.exemple} » (dictionnaire approché)` });
     }
 
     const filtres_ = appliqueFiltres(resultat.mots);
@@ -49,11 +57,11 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     const LIMITE = 100;
 
     if (filtres_.length === 0) {
-      container.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
+      corpsLocal.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
     }
 
     const buildGroupe = (titre, liste, conteneur) => {
-      conteneur = conteneur || container;
+      conteneur = conteneur || corpsLocal;
       if (liste.length === 0) return;
       const g = conteneur.createDiv({ cls: 'cp-groupe' });
       g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
@@ -92,7 +100,7 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     buildGroupe('Rimes féminines (finale en -e muet)', feminins);
 
     if (motsAssonance.length > 0) {
-      const blocAsso = container.createDiv({ cls: 'cp-groupe cp-bloc-assonance' });
+      const blocAsso = corpsLocal.createDiv({ cls: 'cp-groupe cp-bloc-assonance' });
       blocAsso.createDiv({
         cls: 'cp-son-label cp-label-assonance',
         text: `Assonances (même voyelle, terminaison différente) (${motsAssonance.length})`
@@ -117,50 +125,100 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     }
   }
 
-  // --- source en ligne complémentaire (RimesSolides) ---
-  if ((sourcesActives || []).includes('rimessolides')) {
-    const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
-    bloc.createDiv({ cls: 'cp-son-label', text: `${saisie} — RimesSolides (en ligne)` });
-    const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
-    chercheRimesSolides(saisie).then(r => {
-      statut.remove();
-      if (!r.trouve) {
-        bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur RimesSolides pour « ${saisie} ».` });
-        return;
-      }
-      // RimesSolides accepte des rimes plus "souples" que la règle classique
-      // française (ex. "ombre"/"montre" : même voyelle nasale, mais "b" et
-      // "t" diffèrent juste avant le "r" final — une assonance, pas une
-      // vraie rime) : on applique le même filtre de cohérence vocalique
-      // que pour le dictionnaire phonétique local, et on sépare les deux.
-      const motsCoherents = r.mots.filter(m => memeRime(saisie, m));
-      const motsFiltres = appliqueFiltres(motsCoherents);
-      const motsRimeSolides = motsFiltres.filter(m => classifieRime(saisie, m) === 'rime');
-      const motsAssoSolides = MODE_ASSONANCE ? motsFiltres.filter(m => classifieRime(saisie, m) === 'assonance') : [];
-
-      const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
-      motsRimeSolides.slice(0, 150).forEach(m => {
-        const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
-        const rr = compteSyllabesMot(m, false);
-        badge.createEl('sup', { text: String(rr.min) });
-        badgeQualite(badge, m, saisie);
-      });
-      if (motsAssoSolides.length > 0) {
-        bloc.createDiv({ cls: 'cp-titre cp-label-assonance', text: `Assonances (${motsAssoSolides.length})` });
-        const motsDivAsso = bloc.createDiv({ cls: 'cp-mots' });
-        motsAssoSolides.slice(0, 150).forEach(m => {
-          const badge = motsDivAsso.createSpan({ cls: 'cp-mot cp-mot-assonance', text: m });
-          const rr = compteSyllabesMot(m, false);
-          badge.createEl('sup', { text: String(rr.min) });
-        });
-      }
-      if (motsRimeSolides.length === 0 && motsAssoSolides.length === 0) {
-        bloc.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
-      }
-    }).catch(err => {
-      console.error('[Carnet du Poète] erreur RimesSolides', err);
-      statut.setText(messageErreurSource(err, 'RimesSolides'));
-    });
+  // --- sources en ligne complémentaires ---
+  // Comme dans Synonymes : la première source active s'ouvre, les autres
+  // restent repliées pour limiter le défilement.
+  const actives = sourcesActives || [];
+  let premiere = true;
+  if (actives.includes('rimessolides')) {
+    afficheSourceRimesEnLigne(container, saisie, 'RimesSolides', chercheRimesSolides(saisie),
+      `Rien trouvé sur RimesSolides pour « ${saisie} ».`, appliqueFiltres, premiere);
+    premiere = false;
+  }
+  if (actives.includes('wiktionnaire')) {
+    afficheSourceRimesEnLigne(container, saisie, 'Wiktionnaire', chercheRimesWiktionnaire(saisie),
+      `Le Wiktionnaire ne classe « ${saisie} » dans aucune catégorie de rime.`, appliqueFiltres, premiere);
   }
 }
 
+
+/* Bloc de résultats d'une source de rimes en ligne (RimesSolides,
+   Wiktionnaire). Ces sources acceptent des rimes plus "souples" que la
+   règle classique française (ex. "ombre"/"montre" : même voyelle nasale,
+   mais "b" et "t" diffèrent juste avant le "r" final — une assonance, pas
+   une vraie rime) : on applique le même filtre de cohérence vocalique que
+   pour le dictionnaire phonétique local, et on sépare les deux. */
+function afficheSourceRimesEnLigne(container, saisie, nomSource, promesse, messageVide, appliqueFiltres, ouvert){
+  const details = container.createEl('details', { cls: 'cp-syn-source-details' });
+  if (ouvert) details.setAttr('open', 'true');
+  const titre = details.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — ${nomSource}` });
+  const bloc = details.createDiv({ cls: 'cp-syn-source-corps' });
+  const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+  promesse.then(r => {
+    statut.remove();
+    // Notation /…/ plutôt que \\…\\ du Wiktionnaire : en italique ou dans
+    // certaines polices, l'antislash ressemble à une barre verticale.
+    if (r.son) titre.setText(`${saisie} — ${nomSource} /${r.son}/`);
+    if (!r.trouve) {
+      bloc.createEl('p', { cls: 'cp-vide', text: messageVide });
+      return;
+    }
+    const motsCoherents = r.mots.filter(m => memeRime(saisie, m));
+    const motsFiltres = appliqueFiltres(motsCoherents);
+    const motsRime = motsFiltres.filter(m => classifieRime(saisie, m) === 'rime');
+    const motsAsso = MODE_ASSONANCE ? motsFiltres.filter(m => classifieRime(saisie, m) === 'assonance') : [];
+
+    const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
+    motsRime.slice(0, 150).forEach(m => {
+      const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
+      const rr = compteSyllabesMot(m, false);
+      badge.createEl('sup', { text: String(rr.min) });
+      badgeQualite(badge, m, saisie);
+    });
+    if (motsAsso.length > 0) {
+      bloc.createDiv({ cls: 'cp-titre cp-label-assonance', text: `Assonances (${motsAsso.length})` });
+      const motsDivAsso = bloc.createDiv({ cls: 'cp-mots' });
+      motsAsso.slice(0, 150).forEach(m => {
+        const badge = motsDivAsso.createSpan({ cls: 'cp-mot cp-mot-assonance', text: m });
+        const rr = compteSyllabesMot(m, false);
+        badge.createEl('sup', { text: String(rr.min) });
+      });
+    }
+    if (motsRime.length === 0 && motsAsso.length === 0) {
+      bloc.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
+    }
+  }).catch(err => {
+    console.error(`[Carnet du Poète] erreur ${nomSource}`, err);
+    statut.setText(messageErreurSource(err, nomSource));
+  });
+}
+
+/* Le candidat est-il une flexion du mot cherché (ou le mot lui-même) ?
+   Heuristique sans lemmatiseur : on retire du mot cherché la plus longue
+   terminaison flexionnelle qui laisse un radical d'au moins 3 lettres
+   (armée → arm), puis on exclut tout candidat « radical + terminaison
+   flexionnelle » (armer, armez, armé, armés, armées). Radical trop court
+   (né, mer, été) : seules les variantes en -s/-x/-e/-es comptent, pour
+   ne pas perdre de vraies rimes (né/nez). Les composés (réarmer) ne sont
+   pas visés : la rime du simple et du composé est déconseillée, pas
+   interdite, et la détection par préfixe se tromperait trop souvent. */
+const TERMINAISONS_FLEXION = ['', 'e', 's', 'es', 'x', 'é', 'ée', 'és', 'ées', 'er', 'ez', 'ent',
+  'i', 'ie', 'is', 'ies', 'it', 'ir', 'u', 'ue', 'us', 'ues'];
+const TERMINAISONS_COURTES = ['', 's', 'x', 'e', 'es'];
+
+function estFlexionDe(motCherche, candidat){
+  const a = (motCherche || '').toLowerCase().trim().normalize('NFC');
+  const b = (candidat || '').toLowerCase().trim().normalize('NFC');
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // Variantes courtes, dans les deux sens (né/nés/née, armées/armée)
+  const court = (x, y) => y.startsWith(x) && TERMINAISONS_COURTES.includes(y.slice(x.length));
+  if (court(a, b) || court(b, a)) return true;
+  let radical = null;
+  TERMINAISONS_FLEXION.slice().sort((x, y) => y.length - x.length).some(t => {
+    if (a.endsWith(t) && a.length - t.length >= 3) { radical = a.slice(0, a.length - t.length); return true; }
+    return false;
+  });
+  if (!radical) return false;
+  return b.startsWith(radical) && TERMINAISONS_FLEXION.includes(b.slice(radical.length));
+}

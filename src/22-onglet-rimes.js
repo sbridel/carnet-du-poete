@@ -44,6 +44,10 @@ function buildPanelRimes(vue, panelRimes){
   const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
   caseRimesSolides.createSpan({ text: ' RimesSolides' });
+  const caseWiktionnaire = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const inputWiktionnaire = caseWiktionnaire.createEl('input', { attr: { type: 'checkbox' } });
+  caseWiktionnaire.createSpan({ text: ' Wiktionnaire' });
+  caseWiktionnaire.setAttr('title', 'Rimes classées par le Wiktionnaire (catégories « Rimes en français »). Couverture partielle, mais utile en secours et pour les mots rares ou les locutions.');
 
   const modeDiv = sourcesDiv.createDiv({ cls: 'cp-qualite-sousfiltres' });
   const modeLabel = modeDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
@@ -76,7 +80,10 @@ function buildPanelRimes(vue, panelRimes){
     syllabes: syllabesSelect.value,
     qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
   });
-  const sourcesActives = () => (inputRimesSolides.checked ? ['rimessolides'] : []);
+  const sourcesActives = () => [
+    ...(inputRimesSolides.checked ? ['rimessolides'] : []),
+    ...(inputWiktionnaire.checked ? ['wiktionnaire'] : [])
+  ];
 
   const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value, lireFiltres(), vue.plugin, sourcesActives());
   // Même raison que _renderAnalyseSyllabes : permettre un recalcul externe
@@ -89,6 +96,7 @@ function buildPanelRimes(vue, panelRimes){
   syllabesSelect.addEventListener('change', chercher);
   Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
   inputRimesSolides.addEventListener('change', chercher);
+  inputWiktionnaire.addEventListener('change', chercher);
 
   vue._prefillRimeInput = (mot) => {
     motInput.value = mot;

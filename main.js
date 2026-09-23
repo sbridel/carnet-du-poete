@@ -2409,6 +2409,59 @@ async function chercheRimesSolides(mot){
   return { mots: [...new Set(mots)], trouve: mots.length > 0, url };
 }
 
+/* =========================================================
+   WIKTIONNAIRE — RIMES (source en ligne de secours)
+   ========================================================= */
+/* Le Wiktionnaire range les mots par rime dans des catégories
+   « Catégorie:Rimes en français en \uʁ\ ». On lit les catégories de la
+   page du mot, on garde la rime la plus précise (la plus longue : \jo\
+   plutôt que \o\), puis on liste les membres de cette catégorie. Aucune
+   conversion API → notation du moteur : c'est le Wiktionnaire qui fournit
+   la terminaison. Si la page n'est rattachée à aucune catégorie de rime,
+   rien n'est trouvé (couverture partielle, assumée). */
+const WIKT_PREFIXE_RIME = 'Catégorie:Rimes en français en ';
+const WIKT_MAX_RIMES = 1000;
+
+function extraitCategorieRime(titres){
+  let meilleure = null, meilleurSon = '';
+  (titres || []).forEach(t => {
+    if (typeof t !== 'string' || !t.startsWith(WIKT_PREFIXE_RIME)) return;
+    const son = t.slice(WIKT_PREFIXE_RIME.length).replace(/^\\|\\$/g, '');
+    if (son && [...son].length > [...meilleurSon].length) { meilleure = t; meilleurSon = son; }
+  });
+  return meilleure ? { categorie: meilleure, son: meilleurSon } : null;
+}
+
+async function chercheRimesWiktionnaire(mot){
+  const base = 'https://fr.wiktionary.org/w/api.php?format=json&formatversion=2&origin=*';
+  const titre = mot.trim();
+  const url = `https://fr.wiktionary.org/wiki/${encodeURIComponent(titre)}`;
+  const urlCats = `${base}&action=query&redirects=1&prop=categories&cllimit=max&titles=${encodeURIComponent(titre)}`;
+  const repCats = await requestUrl({ url: urlCats, headers: ENTETES_NAVIGATEUR, throw: false });
+  if (repCats.status !== 200) throw new Error(`HTTP ${repCats.status}`);
+  const pages = (repCats.json && repCats.json.query && repCats.json.query.pages) || [];
+  const titres = [];
+  pages.forEach(p => (p.categories || []).forEach(c => titres.push(c.title)));
+  const rime = extraitCategorieRime(titres);
+  if (!rime) return { mots: [], trouve: false, url, son: null };
+
+  const mots = [];
+  let suite = null;
+  do {
+    const urlMembres = `${base}&action=query&list=categorymembers&cmnamespace=0&cmlimit=500`
+      + `&cmtitle=${encodeURIComponent(rime.categorie)}` + (suite ? `&cmcontinue=${encodeURIComponent(suite)}` : '');
+    const rep = await requestUrl({ url: urlMembres, headers: ENTETES_NAVIGATEUR, throw: false });
+    if (rep.status !== 200) throw new Error(`HTTP ${rep.status}`);
+    const d = rep.json || {};
+    ((d.query && d.query.categorymembers) || []).forEach(m => {
+      if (m.title && normaliseMot(m.title) !== normaliseMot(titre)) mots.push(m.title);
+    });
+    suite = d.continue && d.continue.cmcontinue;
+  } while (suite && mots.length < WIKT_MAX_RIMES);
+
+  return { mots: [...new Set(mots)].slice(0, WIKT_MAX_RIMES), trouve: mots.length > 0, url, son: rime.son };
+}
+
 function estFeminine(mot){
   let w = normaliseMot(mot);
   if (w.endsWith('s') && !w.endsWith('ss')) w = w.slice(0, -1);
@@ -4223,7 +4276,9 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
   const resultat = chercheRimes(saisie);
 
   const appliqueFiltres = (liste) => {
-    let l = liste;
+    // Jamais le mot cherché ni ses propres flexions (armée → armées, armé,
+    // armer…) : on ne rime pas un mot avec lui-même.
+    let l = liste.filter(m => !estFlexionDe(saisie, m));
     if (filtres.lettre) {
       const lettre = normaliseMot(filtres.lettre)[0];
       l = l.filter(m => normaliseMot(m).startsWith(lettre));
@@ -4246,13 +4301,19 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     return l;
   };
 
+  // --- dictionnaire local (même présentation que Synonymes/Inspiration) ---
+  const detailsLocal = container.createEl('details', { cls: 'cp-syn-source-details cp-syn-source-local' });
+  detailsLocal.setAttr('open', 'true');
+  detailsLocal.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — dictionnaire local` });
+  const corpsLocal = detailsLocal.createDiv({ cls: 'cp-syn-source-corps' });
+
   if (resultat.mode === 'aucun') {
-    container.createEl('p', { cls: 'cp-vide', text: `Pas de rime trouvée pour « ${saisie} » dans les dictionnaires chargés.` });
+    corpsLocal.createEl('p', { cls: 'cp-vide', text: `Pas de rime trouvée pour « ${saisie} » dans les dictionnaires chargés.` });
   } else {
     if (resultat.mode === 'exact') {
-      container.createDiv({ cls: 'cp-son-label', text: `Rimes exactes pour « ${saisie} » (dictionnaire phonétique complet)` });
+      corpsLocal.createDiv({ cls: 'cp-son-label', text: 'Rimes exactes (dictionnaire phonétique complet)' });
     } else {
-      container.createDiv({ cls: 'cp-son-label', text: `Son ${resultat.son} — comme dans « ${resultat.exemple} » (dictionnaire approché)` });
+      corpsLocal.createDiv({ cls: 'cp-son-label', text: `Son ${resultat.son} — comme dans « ${resultat.exemple} » (dictionnaire approché)` });
     }
 
     const filtres_ = appliqueFiltres(resultat.mots);
@@ -4263,11 +4324,11 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     const LIMITE = 100;
 
     if (filtres_.length === 0) {
-      container.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
+      corpsLocal.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
     }
 
     const buildGroupe = (titre, liste, conteneur) => {
-      conteneur = conteneur || container;
+      conteneur = conteneur || corpsLocal;
       if (liste.length === 0) return;
       const g = conteneur.createDiv({ cls: 'cp-groupe' });
       g.createDiv({ cls: 'cp-titre', text: `${titre} (${liste.length})` });
@@ -4306,7 +4367,7 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     buildGroupe('Rimes féminines (finale en -e muet)', feminins);
 
     if (motsAssonance.length > 0) {
-      const blocAsso = container.createDiv({ cls: 'cp-groupe cp-bloc-assonance' });
+      const blocAsso = corpsLocal.createDiv({ cls: 'cp-groupe cp-bloc-assonance' });
       blocAsso.createDiv({
         cls: 'cp-son-label cp-label-assonance',
         text: `Assonances (même voyelle, terminaison différente) (${motsAssonance.length})`
@@ -4331,53 +4392,103 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     }
   }
 
-  // --- source en ligne complémentaire (RimesSolides) ---
-  if ((sourcesActives || []).includes('rimessolides')) {
-    const bloc = container.createDiv({ cls: 'cp-groupe cp-source-en-ligne' });
-    bloc.createDiv({ cls: 'cp-son-label', text: `${saisie} — RimesSolides (en ligne)` });
-    const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
-    chercheRimesSolides(saisie).then(r => {
-      statut.remove();
-      if (!r.trouve) {
-        bloc.createEl('p', { cls: 'cp-vide', text: `Rien trouvé sur RimesSolides pour « ${saisie} ».` });
-        return;
-      }
-      // RimesSolides accepte des rimes plus "souples" que la règle classique
-      // française (ex. "ombre"/"montre" : même voyelle nasale, mais "b" et
-      // "t" diffèrent juste avant le "r" final — une assonance, pas une
-      // vraie rime) : on applique le même filtre de cohérence vocalique
-      // que pour le dictionnaire phonétique local, et on sépare les deux.
-      const motsCoherents = r.mots.filter(m => memeRime(saisie, m));
-      const motsFiltres = appliqueFiltres(motsCoherents);
-      const motsRimeSolides = motsFiltres.filter(m => classifieRime(saisie, m) === 'rime');
-      const motsAssoSolides = MODE_ASSONANCE ? motsFiltres.filter(m => classifieRime(saisie, m) === 'assonance') : [];
-
-      const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
-      motsRimeSolides.slice(0, 150).forEach(m => {
-        const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
-        const rr = compteSyllabesMot(m, false);
-        badge.createEl('sup', { text: String(rr.min) });
-        badgeQualite(badge, m, saisie);
-      });
-      if (motsAssoSolides.length > 0) {
-        bloc.createDiv({ cls: 'cp-titre cp-label-assonance', text: `Assonances (${motsAssoSolides.length})` });
-        const motsDivAsso = bloc.createDiv({ cls: 'cp-mots' });
-        motsAssoSolides.slice(0, 150).forEach(m => {
-          const badge = motsDivAsso.createSpan({ cls: 'cp-mot cp-mot-assonance', text: m });
-          const rr = compteSyllabesMot(m, false);
-          badge.createEl('sup', { text: String(rr.min) });
-        });
-      }
-      if (motsRimeSolides.length === 0 && motsAssoSolides.length === 0) {
-        bloc.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
-      }
-    }).catch(err => {
-      console.error('[Carnet du Poète] erreur RimesSolides', err);
-      statut.setText(messageErreurSource(err, 'RimesSolides'));
-    });
+  // --- sources en ligne complémentaires ---
+  // Comme dans Synonymes : la première source active s'ouvre, les autres
+  // restent repliées pour limiter le défilement.
+  const actives = sourcesActives || [];
+  let premiere = true;
+  if (actives.includes('rimessolides')) {
+    afficheSourceRimesEnLigne(container, saisie, 'RimesSolides', chercheRimesSolides(saisie),
+      `Rien trouvé sur RimesSolides pour « ${saisie} ».`, appliqueFiltres, premiere);
+    premiere = false;
+  }
+  if (actives.includes('wiktionnaire')) {
+    afficheSourceRimesEnLigne(container, saisie, 'Wiktionnaire', chercheRimesWiktionnaire(saisie),
+      `Le Wiktionnaire ne classe « ${saisie} » dans aucune catégorie de rime.`, appliqueFiltres, premiere);
   }
 }
 
+
+/* Bloc de résultats d'une source de rimes en ligne (RimesSolides,
+   Wiktionnaire). Ces sources acceptent des rimes plus "souples" que la
+   règle classique française (ex. "ombre"/"montre" : même voyelle nasale,
+   mais "b" et "t" diffèrent juste avant le "r" final — une assonance, pas
+   une vraie rime) : on applique le même filtre de cohérence vocalique que
+   pour le dictionnaire phonétique local, et on sépare les deux. */
+function afficheSourceRimesEnLigne(container, saisie, nomSource, promesse, messageVide, appliqueFiltres, ouvert){
+  const details = container.createEl('details', { cls: 'cp-syn-source-details' });
+  if (ouvert) details.setAttr('open', 'true');
+  const titre = details.createEl('summary', { cls: 'cp-syn-source-details-titre', text: `${saisie} — ${nomSource}` });
+  const bloc = details.createDiv({ cls: 'cp-syn-source-corps' });
+  const statut = bloc.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+  promesse.then(r => {
+    statut.remove();
+    // Notation /…/ plutôt que \\…\\ du Wiktionnaire : en italique ou dans
+    // certaines polices, l'antislash ressemble à une barre verticale.
+    if (r.son) titre.setText(`${saisie} — ${nomSource} /${r.son}/`);
+    if (!r.trouve) {
+      bloc.createEl('p', { cls: 'cp-vide', text: messageVide });
+      return;
+    }
+    const motsCoherents = r.mots.filter(m => memeRime(saisie, m));
+    const motsFiltres = appliqueFiltres(motsCoherents);
+    const motsRime = motsFiltres.filter(m => classifieRime(saisie, m) === 'rime');
+    const motsAsso = MODE_ASSONANCE ? motsFiltres.filter(m => classifieRime(saisie, m) === 'assonance') : [];
+
+    const motsDiv = bloc.createDiv({ cls: 'cp-mots' });
+    motsRime.slice(0, 150).forEach(m => {
+      const badge = motsDiv.createSpan({ cls: 'cp-mot', text: m });
+      const rr = compteSyllabesMot(m, false);
+      badge.createEl('sup', { text: String(rr.min) });
+      badgeQualite(badge, m, saisie);
+    });
+    if (motsAsso.length > 0) {
+      bloc.createDiv({ cls: 'cp-titre cp-label-assonance', text: `Assonances (${motsAsso.length})` });
+      const motsDivAsso = bloc.createDiv({ cls: 'cp-mots' });
+      motsAsso.slice(0, 150).forEach(m => {
+        const badge = motsDivAsso.createSpan({ cls: 'cp-mot cp-mot-assonance', text: m });
+        const rr = compteSyllabesMot(m, false);
+        badge.createEl('sup', { text: String(rr.min) });
+      });
+    }
+    if (motsRime.length === 0 && motsAsso.length === 0) {
+      bloc.createEl('p', { cls: 'cp-vide', text: 'Aucun mot ne correspond à ces filtres.' });
+    }
+  }).catch(err => {
+    console.error(`[Carnet du Poète] erreur ${nomSource}`, err);
+    statut.setText(messageErreurSource(err, nomSource));
+  });
+}
+
+/* Le candidat est-il une flexion du mot cherché (ou le mot lui-même) ?
+   Heuristique sans lemmatiseur : on retire du mot cherché la plus longue
+   terminaison flexionnelle qui laisse un radical d'au moins 3 lettres
+   (armée → arm), puis on exclut tout candidat « radical + terminaison
+   flexionnelle » (armer, armez, armé, armés, armées). Radical trop court
+   (né, mer, été) : seules les variantes en -s/-x/-e/-es comptent, pour
+   ne pas perdre de vraies rimes (né/nez). Les composés (réarmer) ne sont
+   pas visés : la rime du simple et du composé est déconseillée, pas
+   interdite, et la détection par préfixe se tromperait trop souvent. */
+const TERMINAISONS_FLEXION = ['', 'e', 's', 'es', 'x', 'é', 'ée', 'és', 'ées', 'er', 'ez', 'ent',
+  'i', 'ie', 'is', 'ies', 'it', 'ir', 'u', 'ue', 'us', 'ues'];
+const TERMINAISONS_COURTES = ['', 's', 'x', 'e', 'es'];
+
+function estFlexionDe(motCherche, candidat){
+  const a = (motCherche || '').toLowerCase().trim().normalize('NFC');
+  const b = (candidat || '').toLowerCase().trim().normalize('NFC');
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // Variantes courtes, dans les deux sens (né/nés/née, armées/armée)
+  const court = (x, y) => y.startsWith(x) && TERMINAISONS_COURTES.includes(y.slice(x.length));
+  if (court(a, b) || court(b, a)) return true;
+  let radical = null;
+  TERMINAISONS_FLEXION.slice().sort((x, y) => y.length - x.length).some(t => {
+    if (a.endsWith(t) && a.length - t.length >= 3) { radical = a.slice(0, a.length - t.length); return true; }
+    return false;
+  });
+  if (!radical) return false;
+  return b.startsWith(radical) && TERMINAISONS_FLEXION.includes(b.slice(radical.length));
+}
 /* Rendu partagé des résultats d'inspiration (panneau + fenêtre modale). */
 /* Bouton "+" à côté d'un mot d'inspiration, ouvrant un petit formulaire
    inline pour l'ajouter à un champ lexical personnel (existant ou
@@ -4879,1626 +4990,1642 @@ class CarnetView extends ItemView {
     tabNotes.addEventListener('click', () => switchTab('notes'));
     this._switchTab = switchTab;
 
-    this.buildPanelSyllabes(panelSyl);
-    this.buildPanelRimes(panelRimes);
-    this.buildPanelInspiration(panelInspi);
-    this.buildPanelSynonymes(panelSyno);
-    this.buildPanelGuide(panelGuide);
-    this.buildPanelDefinitions(panelDefs);
-    this.buildPanelHasard(panelHasard);
-    this.buildPanelNotes(panelNotes);
+    buildPanelSyllabes(this, panelSyl);
+    buildPanelRimes(this, panelRimes);
+    buildPanelInspiration(this, panelInspi);
+    buildPanelSynonymes(this, panelSyno);
+    buildPanelGuide(this, panelGuide);
+    buildPanelDefinitions(this, panelDefs);
+    buildPanelHasard(this, panelHasard);
+    buildPanelNotes(this, panelNotes);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
     footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèse affichée en variante complète). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
   }
 
-  buildPanelSyllabes(panelSyl){
-    const actionsBar = panelSyl.createDiv({ cls: 'cp-toolbar-actions' });
-    const btnFlip = actionsBar.createEl('button', { cls: 'cp-icon-btn cp-icon-btn-pill cp-icon-btn-cyan' });
-    const btnFlipIcone = btnFlip.createSpan({ text: '🔄' });
-    const btnFlipLabel = btnFlip.createSpan({ cls: 'cp-icon-btn-label', text: 'Sonorités' });
-    btnFlip.setAttr('title', 'Retourner le volet pour voir les motifs sonores (allitérations, assonances internes)');
-    btnFlip.setAttr('aria-label', 'Voir les sonorités');
-    const saveState = actionsBar.createEl('span', { cls: 'cp-save-state' });
-    const btnExport = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
-    btnExport.createSpan({ text: '⬇' });
-    btnExport.createSpan({ cls: 'cp-icon-btn-label', text: 'Exporter' });
-    btnExport.setAttr('title', 'Exporter en Markdown');
-    btnExport.setAttr('aria-label', 'Exporter en Markdown');
-    const btnCopierBrouillon = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
-    btnCopierBrouillon.createSpan({ text: '⎘' });
-    btnCopierBrouillon.createSpan({ cls: 'cp-icon-btn-label', text: 'Copier' });
-    btnCopierBrouillon.setAttr('title', 'Copier le brouillon');
-    btnCopierBrouillon.setAttr('aria-label', 'Copier le brouillon');
-    const btnClear = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
-    btnClear.createSpan({ text: '🗑️' });
-    btnClear.createSpan({ cls: 'cp-icon-btn-label', text: 'Effacer' });
-    btnClear.setAttr('title', 'Effacer le brouillon');
-    btnClear.setAttr('aria-label', 'Effacer le brouillon');
-    const textarea = panelSyl.createEl('textarea', {
-      cls: 'cp-textarea',
-      attr: { placeholder: 'Écris ou colle tes vers ici, un vers par ligne…' }
-    });
-
-    const flipZone = panelSyl.createDiv({ cls: 'cp-flip-zone' });
-    const flipCard = flipZone.createDiv({ cls: 'cp-flip-card' });
-    const flipFront = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-front' });
-    const flipBack = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-back' });
-
-    const toolbar = flipFront.createDiv({ cls: 'cp-toolbar' });
-    const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
-    toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
-    const toggleRimesLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const toggleRimes = toggleRimesLabel.createEl('input', { attr: { type: 'checkbox' } });
-    toggleRimesLabel.createSpan({ text: ' Couleurs de rimes' });
-    const toggleContinuLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const toggleContinu = toggleContinuLabel.createEl('input', { attr: { type: 'checkbox' } });
-    toggleContinuLabel.createSpan({ text: ' Rimes continues entre strophes' });
-    toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
-    const analyseDiv = flipFront.createDiv({ cls: 'cp-analyse' });
-    const schemaDiv = flipFront.createDiv({ cls: 'cp-schema-rimes' });
-    const totalBar = flipFront.createDiv({ cls: 'cp-total-bar' });
-    totalBar.style.display = 'none';
-
-    // --- Face arrière : réglages + listes + brouillon surligné ---
-    const sonToolbar = flipBack.createDiv({ cls: 'cp-toolbar' });
-    const modeSonWrap = sonToolbar.createDiv({ cls: 'cp-select-wrap' });
-    const modeSonSelect = modeSonWrap.createEl('select', { cls: 'cp-son-mode-select' });
-    modeSonSelect.createEl('option', { attr: { value: 'exact' }, text: 'Sons exacts' });
-    modeSonSelect.createEl('option', { attr: { value: 'simple' }, text: 'Familles simplifiées' });
-    modeSonSelect.createEl('option', { attr: { value: 'etendu' }, text: 'Familles étendues' });
-    modeSonWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
-    modeSonSelect.setAttr('title', 'Sons exacts : chaque symbole phonétique distinct. Familles simplifiées : peu de groupes, priorité à la lisibilité. Familles étendues : classification plus complète (ex. occlusives sourdes/sonores séparées) — plus fidèle, avec davantage de couleurs.');
-    const seuilLabel = sonToolbar.createDiv({ cls: 'cp-son-seuil' });
-    seuilLabel.createSpan({ text: 'Seuil ' });
-    const seuilInput = seuilLabel.createEl('input', { attr: { type: 'number', min: '2', max: '9', value: '3' } });
-    const toggleMotsOutilsLabel = sonToolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const toggleMotsOutils = toggleMotsOutilsLabel.createEl('input', { attr: { type: 'checkbox' } });
-    toggleMotsOutilsLabel.createSpan({ text: ' Exclure mots outils' });
-    const toggleDominantsLabel = sonToolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const toggleDominants = toggleDominantsLabel.createEl('input', { attr: { type: 'checkbox' } });
-    toggleDominantsLabel.createSpan({ text: ' Surligner seulement les 3 plus fréquents' });
-    toggleDominants.setAttr('title', 'La liste reste complète ; seul le surlignage dans le brouillon se limite aux 3 allitérations et 3 assonances les plus fréquentes, pour un texte moins chargé visuellement.');
-    const sonLegendeDiv = flipBack.createDiv({ cls: 'cp-son-legende' });
-    const sonBrouillonDiv = flipBack.createDiv({ cls: 'cp-son-brouillon' });
-    // Raccourcis toujours visibles (même volet replié) : ouvrent le détail
-    // et sautent directement à la section visée.
-    const sonSautsDiv = flipBack.createDiv({ cls: 'cp-son-sauts' });
-    const sonListeDetails = flipBack.createEl('details', { cls: 'cp-son-liste-details' });
-    sonListeDetails.createEl('summary', { text: 'Voir le détail par son' });
-    const sectionTitreEls = {}; // rempli par rendSection() à chaque rendu
-    const sauteVers = (titre) => {
-      sonListeDetails.setAttr('open', 'true');
-      requestAnimationFrame(() => {
-        syncFlipHeight();
-        sectionTitreEls[titre] && sectionTitreEls[titre].scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    };
-    ['Allitérations', 'Assonances internes', 'Trame phonique', 'Homéotéleutes'].forEach(titre => {
-      const btn = sonSautsDiv.createEl('button', { cls: 'cp-hasard-toggle-pool', text: titre.replace(' internes', '') });
-      btn.addEventListener('click', (e) => { e.preventDefault(); sauteVers(titre); });
-    });
-    const sonListeDiv = sonListeDetails.createDiv({ cls: 'cp-son-liste' });
-
-    const PALETTE_SON = ['cp-son-c1','cp-son-c2','cp-son-c3','cp-son-c4','cp-son-c5','cp-son-c6','cp-son-c7'];
-    const couleurParSon = new Map(); // repli dynamique, seulement pour les homéotéleutes (terminaisons arbitraires, hors thème fixe)
-    let spotlightSon = null; // son actif en mode "Trame phonique" (clic pour isoler ses occurrences dans le brouillon)
-    const coloreSon = (titre, son) => {
-      const table = (titre === 'Allitérations' || titre === 'Trame phonique') ? THEME_CONSONNE : titre.startsWith('Assonances') ? THEME_VOYELLE : null;
-      if (table && table[son]) return table[son];
-      const cle = titre + son;
-      if (!couleurParSon.has(cle)) couleurParSon.set(cle, PALETTE_SON[couleurParSon.size % PALETTE_SON.length]);
-      return couleurParSon.get(cle);
-    };
-
-    const renderSonorites = () => {
-      couleurParSon.clear();
-      const texte = textarea.value;
-      const mode = modeSonSelect.value;
-      const famillesConsonnes = mode === 'etendu' ? FAMILLES_CONSONNES_ETENDU : mode === 'simple' ? FAMILLES_CONSONNES_SIMPLE : null;
-      const famillesVoyelles = mode === 'etendu' ? FAMILLES_VOYELLES_ETENDU : mode === 'simple' ? FAMILLES_VOYELLES_SIMPLE : null;
-      const parFamilles = mode !== 'exact';
-      const resultat = analyseSonorites(texte, {
-        exclureMotsOutils: toggleMotsOutils.checked,
-        seuilMin: parseInt(seuilInput.value, 10) || 2,
-        famillesConsonnes,
-        famillesVoyelles
-      });
-      // Même regroupement que ci-dessus, pour savoir à quelle entrée de la
-      // liste rattacher un son exact repéré dans le brouillon (surlignage).
-      const cleAllit = (son) => famillesConsonnes ? (famillesConsonnes[son] || son) : son;
-      const cleAsson = (son) => famillesVoyelles ? (famillesVoyelles[son] || son) : son;
-
-      // La liste (plus bas) montre toujours tout ; seul le surlignage dans
-      // le brouillon peut se limiter aux sons dominants si l'option est
-      // cochée — resultat.alliterations/assonances sont déjà triées par
-      // fréquence décroissante, un simple slice(0,3) suffit donc.
-      const resultatSurlignage = toggleDominants.checked
-        ? { alliterations: resultat.alliterations.slice(0, 3), assonances: resultat.assonances.slice(0, 3) }
-        : resultat;
-
-      sonListeDiv.empty();
-      const rendSection = (titre, sousTitre, liste, estFamille, onClicEntree) => {
-        if (estFamille === undefined) estFamille = parFamilles;
-        const h4 = sonListeDiv.createEl('h4', { text: titre });
-        sectionTitreEls[titre] = h4;
-        sonListeDiv.createEl('p', { cls: 'cp-son-soustitre', text: sousTitre });
-        if (liste.length === 0) {
-          sonListeDiv.createEl('p', { cls: 'cp-son-vide', text: 'Aucun motif au-dessus du seuil actuel.' });
-          return;
-        }
-        liste.forEach(entree => {
-          const ligne = sonListeDiv.createDiv({ cls: 'cp-son-ligne' });
-          const badge = ligne.createSpan({ cls: 'cp-son-badge ' + coloreSon(titre, entree.son) });
-          // En mode familles, le nom complet ("Sifflantes/chuintantes") ne
-          // tient pas dans le badge rond : on n'y montre que le début,
-          // le nom complet reste lisible juste à côté dans la liste.
-          badge.setText(estFamille ? entree.son.slice(0, 3).toUpperCase() : entree.son);
-          badge.setAttr('title', entree.son);
-          const motsUniques = [...new Set(entree.occurrences.map(o => o.mot))];
-          const lignesUniques = [...new Set(entree.occurrences.map(o => o.ligne))];
-          const prefixe = estFamille ? entree.son + ' — ' : '';
-          ligne.createSpan({ cls: 'cp-son-mots', text: prefixe + motsUniques.join(', ') + ' — vers ' + lignesUniques.join(', ') });
-          ligne.createSpan({ cls: 'cp-son-count', text: entree.count + ' mots' });
-          if (entree.ratio != null) {
-            const ratioSpan = ligne.createSpan({ cls: 'cp-son-ratio' + (entree.ratio >= 1.5 ? ' cp-son-ratio-fort' : '') });
-            ratioSpan.setText('×' + entree.ratio.toFixed(1));
-            // Deux sources différentes selon la nature du son : les
-            // consonnes (allitérations/trame) viennent de Lexique 3, les
-            // voyelles (assonances) sont toujours sur Wioland 1985 faute
-            // de mieux — jamais mélanger les deux dans la citation.
-            const source = titre.startsWith('Assonances')
-              ? 'étude Wioland, 1985 — la plus récente dont j\'ai pu vérifier les chiffres exacts ; la fréquence des phonèmes évolue très lentement, donc ce classement reste fiable malgré l\'âge de l\'étude'
-              : 'Lexique 3, New 2006, via les calculs de C. dos Santos — thèse Lyon 2, 2007 ; en tenant compte de la position dans le mot';
-            ratioSpan.setAttr('title', `Ce son revient ${entree.ratio.toFixed(1)}× plus souvent dans ce poème que dans le français courant en moyenne (référence : ${source}).`);
-          }
-          if (onClicEntree) {
-            ligne.addClass('cp-son-ligne-cliquable');
-            ligne.setAttr('title', 'Clique pour isoler ce son dans le brouillon ci-dessus.');
-            if (entree.son === spotlightSon) ligne.addClass('cp-son-ligne-active');
-            ligne.addEventListener('click', () => onClicEntree(entree.son));
-          }
-        });
-      };
-      rendSection('Allitérations', 'Son répété en début de mot', resultat.alliterations);
-      rendSection('Assonances internes', 'Voyelle qui revient dans le corps des mots, hors rimes finales', resultat.assonances);
-      const trame = analyseTramePhonique(texte, { exclureMotsOutils: toggleMotsOutils.checked, seuilMin: parseInt(seuilInput.value, 10) || 3, famillesConsonnes });
-      rendSection('Trame phonique', 'Réseau consonantique — un même son revient partout dans le mot (attaque, milieu, coda), pas seulement au début. Clique un son pour l\'isoler dans le brouillon.', trame, undefined, (son) => {
-        spotlightSon = spotlightSon === son ? null : son;
-        renderSonorites();
-        syncFlipHeight();
-        // Remonte directement au début du brouillon surligné, plutôt que
-        // de laisser l'utilisateur scroller à la main depuis la liste
-        // (souvent plus bas dans le volet, voire dans le détail replié).
-        if (spotlightSon) {
-          requestAnimationFrame(() => sonBrouillonDiv.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-        }
-      });
-      const homeoteleutes = analyseHomeoteleutes(texte, toggleMotsOutils.checked);
-      rendSection('Homéotéleutes', 'Finales proches hors rime — au moins un mot en milieu de vers, sinon c\'est déjà ta rime de fin de vers', homeoteleutes, false);
-
-      // Légende : uniquement les sons effectivement surlignés ci-dessous,
-      // avec leur couleur et leur nom exact — pour lever l'ambiguïté entre
-      // par ex. "an" (nasale) et "a" (voyelle ouverte), qui n'étaient
-      // distingués que par la couleur jusqu'ici. Regroupées par catégorie
-      // (le mot "allitération"/"assonance" affiché une seule fois par
-      // groupe, pas répété à chaque son).
-      sonLegendeDiv.empty();
-      const ajouteLegendeGroupe = (titre, liste, cls) => {
-        if (liste.length === 0) return;
-        const groupe = sonLegendeDiv.createDiv({ cls: 'cp-son-legende-groupe' });
-        groupe.createSpan({ cls: 'cp-son-legende-titre', text: titre + ' : ' });
-        liste.forEach(entree => {
-          const puce = groupe.createSpan({ cls: 'cp-son-legende-puce' });
-          puce.createSpan({ cls: 'cp-son-legende-couleur ' + cls + ' ' + coloreSon(titre, entree.son) });
-          puce.createSpan({ cls: 'cp-son-legende-texte', text: entree.son });
-        });
-      };
-      ajouteLegendeGroupe('Allitérations', resultatSurlignage.alliterations, 'cp-son-legende-init');
-      ajouteLegendeGroupe('Assonances', resultatSurlignage.assonances, 'cp-son-legende-vox');
-      if (resultatSurlignage.alliterations.length === 0 && resultatSurlignage.assonances.length === 0) {
-        sonLegendeDiv.createSpan({ cls: 'cp-son-vide', text: 'Aucun motif au-dessus du seuil actuel.' });
-      }
+  async onClose(){}
+}
 
 
-      // Brouillon surligné : reconstruit le texte ligne par ligne avec un
-      // <span> par fragment concerné (fond = allitération, soulignement =
-      // assonance), le reste en texte brut.
-      sonBrouillonDiv.empty();
-      const lignesTexte = texte.split('\n');
-      lignesTexte.forEach((ligneTexte, idxLigne) => {
-        const ligneEl = sonBrouillonDiv.createDiv({ cls: 'cp-son-brouillon-ligne' });
-        ligneEl.createSpan({ cls: 'cp-son-brouillon-numero', text: String(idxLigne + 1) });
-        if (!ligneTexte.trim()) { ligneEl.createEl('br'); return; }
-        const mots = ligneTexte.split(/(\s+)/); // garde les espaces pour un rendu fidèle
-        mots.forEach(fragment => {
-          if (!fragment.trim()) { ligneEl.createSpan({ text: fragment }); return; }
-          const mot = nettoieMot(fragment);
-          if (!mot || (toggleMotsOutils.checked && MOTS_OUTILS.has(mot))) {
-            ligneEl.createSpan({ cls: spotlightSon ? 'cp-son-brouillon-dim' : '', text: fragment });
-            return;
-          }
+function buildPanelSyllabes(vue, panelSyl){
+  const actionsBar = panelSyl.createDiv({ cls: 'cp-toolbar-actions' });
+  const btnFlip = actionsBar.createEl('button', { cls: 'cp-icon-btn cp-icon-btn-pill cp-icon-btn-cyan' });
+  const btnFlipIcone = btnFlip.createSpan({ text: '🔄' });
+  const btnFlipLabel = btnFlip.createSpan({ cls: 'cp-icon-btn-label', text: 'Sonorités' });
+  btnFlip.setAttr('title', 'Retourner le volet pour voir les motifs sonores (allitérations, assonances internes)');
+  btnFlip.setAttr('aria-label', 'Voir les sonorités');
+  const saveState = actionsBar.createEl('span', { cls: 'cp-save-state' });
+  const btnExport = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
+  btnExport.createSpan({ text: '⬇' });
+  btnExport.createSpan({ cls: 'cp-icon-btn-label', text: 'Exporter' });
+  btnExport.setAttr('title', 'Exporter en Markdown');
+  btnExport.setAttr('aria-label', 'Exporter en Markdown');
+  const btnCopierBrouillon = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
+  btnCopierBrouillon.createSpan({ text: '⎘' });
+  btnCopierBrouillon.createSpan({ cls: 'cp-icon-btn-label', text: 'Copier' });
+  btnCopierBrouillon.setAttr('title', 'Copier le brouillon');
+  btnCopierBrouillon.setAttr('aria-label', 'Copier le brouillon');
+  const btnClear = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
+  btnClear.createSpan({ text: '🗑️' });
+  btnClear.createSpan({ cls: 'cp-icon-btn-label', text: 'Effacer' });
+  btnClear.setAttr('title', 'Effacer le brouillon');
+  btnClear.setAttr('aria-label', 'Effacer le brouillon');
+  const textarea = panelSyl.createEl('textarea', {
+    cls: 'cp-textarea',
+    attr: { placeholder: 'Écris ou colle tes vers ici, un vers par ligne…' }
+  });
 
-          // Mode spotlight (clic sur un son de la Trame phonique) : on
-          // n'affiche QUE ce son-là, partout où il tombe dans le mot ; le
-          // reste du texte est grisé. Remplace entièrement le rendu
-          // allitération/assonance habituel pendant que le spotlight est
-          // actif, pour ne jamais mélanger les deux logiques de surlignage.
-          if (spotlightSon) {
-            const cleTrameMot = (son) => famillesConsonnes ? (famillesConsonnes[son] || son) : son;
-            const occsSpot = consonnesInternesMot(mot).filter(o => cleTrameMot(o.son) === spotlightSon);
-            const offsetSpot = fragment.toLowerCase().indexOf(mot);
-            if (occsSpot.length === 0 || offsetSpot < 0) {
-              ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment });
-              return;
-            }
-            let curseurSpot = 0;
-            occsSpot.forEach(o => {
-              const debutAbs = offsetSpot + o.debut, finAbs = offsetSpot + o.fin;
-              if (debutAbs > curseurSpot) ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment.slice(curseurSpot, debutAbs) });
-              ligneEl.createSpan({ cls: 'cp-son-surligne-init ' + coloreSon('Trame phonique', spotlightSon), text: fragment.slice(debutAbs, finAbs) });
-              curseurSpot = finAbs;
-            });
-            if (curseurSpot < fragment.length) ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment.slice(curseurSpot) });
-            return;
-          }
+  const flipZone = panelSyl.createDiv({ cls: 'cp-flip-zone' });
+  const flipCard = flipZone.createDiv({ cls: 'cp-flip-card' });
+  const flipFront = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-front' });
+  const flipBack = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-back' });
 
-          const si = soninitial(mot);
-          const alliRetenue = si && resultatSurlignage.alliterations.some(e => e.son === cleAllit(si));
-          const groupes = groupesVoyellesMot(mot);
-          const offsetMot = fragment.toLowerCase().indexOf(mot); // décalage si ponctuation/majuscule en tête
+  const toolbar = flipFront.createDiv({ cls: 'cp-toolbar' });
+  const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
+  const toggleRimesLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleRimes = toggleRimesLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleRimesLabel.createSpan({ text: ' Couleurs de rimes' });
+  const toggleContinuLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleContinu = toggleContinuLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleContinuLabel.createSpan({ text: ' Rimes continues entre strophes' });
+  toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
+  const analyseDiv = flipFront.createDiv({ cls: 'cp-analyse' });
+  const schemaDiv = flipFront.createDiv({ cls: 'cp-schema-rimes' });
+  const totalBar = flipFront.createDiv({ cls: 'cp-total-bar' });
+  totalBar.style.display = 'none';
 
-          let curseur = 0;
-          const nLettresSon = alliRetenue ? longueurSonInitial(mot) : 0;
-          if (alliRetenue && offsetMot >= 0) {
-            ligneEl.createSpan({ text: fragment.slice(0, offsetMot) });
-            const spanInit = ligneEl.createSpan({ cls: 'cp-son-surligne-init ' + coloreSon('Allitérations', cleAllit(si)), text: fragment.slice(offsetMot, offsetMot + nLettresSon) });
-            curseur = offsetMot + nLettresSon;
-          } else {
-            curseur = 0;
-          }
-          // Voyelles internes retenues, dans l'ordre, en soulignant seulement
-          // celles dont le son fait partie d'une assonance retenue.
-          let reste = fragment.slice(curseur);
-          let baseIdx = curseur;
-          groupes.forEach(g => {
-            if (g.debut < baseIdx - (offsetMot >= 0 ? offsetMot : 0)) return; // déjà couvert par l'allitération
-            const assonRetenue = resultatSurlignage.assonances.some(e => e.son === cleAsson(g.son));
-            if (!assonRetenue) return;
-            const debutAbs = (offsetMot >= 0 ? offsetMot : 0) + g.debut;
-            const finAbs = (offsetMot >= 0 ? offsetMot : 0) + g.fin;
-            if (debutAbs < curseur) return;
-            if (debutAbs > curseur) ligneEl.createSpan({ text: fragment.slice(curseur, debutAbs) });
-            ligneEl.createSpan({ cls: 'cp-son-surligne-vox ' + coloreSon('Assonances', cleAsson(g.son)), text: fragment.slice(debutAbs, finAbs) });
-            curseur = finAbs;
-          });
-          if (curseur < fragment.length) ligneEl.createSpan({ text: fragment.slice(curseur) });
-        });
-      });
-    };
-
-    // Resynchronise la hauteur du conteneur sur la face actuellement
-    // visible — nécessaire aussi bien au flip lui-même qu'à chaque fois
-    // que le contenu de la face arrière change de taille (toggle mots
-    // outils, seuil), sinon le conteneur garde une hauteur périmée.
-    const syncFlipHeight = () => {
-      const faceActive = flipZone.classList.contains('flipped') ? flipBack : flipFront;
-      requestAnimationFrame(() => { flipCard.style.height = faceActive.scrollHeight + 'px'; });
-    };
-
-    btnFlip.addEventListener('click', () => {
-      flipZone.classList.toggle('flipped');
-      const surLaFaceArriere = flipZone.classList.contains('flipped');
-      if (surLaFaceArriere) renderSonorites();
+  // --- Face arrière : réglages + listes + brouillon surligné ---
+  const sonToolbar = flipBack.createDiv({ cls: 'cp-toolbar' });
+  const modeSonWrap = sonToolbar.createDiv({ cls: 'cp-select-wrap' });
+  const modeSonSelect = modeSonWrap.createEl('select', { cls: 'cp-son-mode-select' });
+  modeSonSelect.createEl('option', { attr: { value: 'exact' }, text: 'Sons exacts' });
+  modeSonSelect.createEl('option', { attr: { value: 'simple' }, text: 'Familles simplifiées' });
+  modeSonSelect.createEl('option', { attr: { value: 'etendu' }, text: 'Familles étendues' });
+  modeSonWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
+  modeSonSelect.setAttr('title', 'Sons exacts : chaque symbole phonétique distinct. Familles simplifiées : peu de groupes, priorité à la lisibilité. Familles étendues : classification plus complète (ex. occlusives sourdes/sonores séparées) — plus fidèle, avec davantage de couleurs.');
+  const seuilLabel = sonToolbar.createDiv({ cls: 'cp-son-seuil' });
+  seuilLabel.createSpan({ text: 'Seuil ' });
+  const seuilInput = seuilLabel.createEl('input', { attr: { type: 'number', min: '2', max: '9', value: '3' } });
+  const toggleMotsOutilsLabel = sonToolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleMotsOutils = toggleMotsOutilsLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleMotsOutilsLabel.createSpan({ text: ' Exclure mots outils' });
+  const toggleDominantsLabel = sonToolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleDominants = toggleDominantsLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleDominantsLabel.createSpan({ text: ' Surligner seulement les 3 plus fréquents' });
+  toggleDominants.setAttr('title', 'La liste reste complète ; seul le surlignage dans le brouillon se limite aux 3 allitérations et 3 assonances les plus fréquentes, pour un texte moins chargé visuellement.');
+  const sonLegendeDiv = flipBack.createDiv({ cls: 'cp-son-legende' });
+  const sonBrouillonDiv = flipBack.createDiv({ cls: 'cp-son-brouillon' });
+  // Raccourcis toujours visibles (même volet replié) : ouvrent le détail
+  // et sautent directement à la section visée.
+  const sonSautsDiv = flipBack.createDiv({ cls: 'cp-son-sauts' });
+  const sonListeDetails = flipBack.createEl('details', { cls: 'cp-son-liste-details' });
+  sonListeDetails.createEl('summary', { text: 'Voir le détail par son' });
+  const sectionTitreEls = {}; // rempli par rendSection() à chaque rendu
+  const sauteVers = (titre) => {
+    sonListeDetails.setAttr('open', 'true');
+    requestAnimationFrame(() => {
       syncFlipHeight();
-      // Le libellé annonce la destination, pas la face actuelle : "Sonorités"
-      // pour y aller, "Structure" pour revenir aux syllabes/schéma de rimes.
-      btnFlipLabel.setText(surLaFaceArriere ? 'Structure' : 'Sonorités');
-      btnFlip.setAttr('title', surLaFaceArriere
-        ? 'Retourner le volet pour revenir aux syllabes et au schéma de rimes'
-        : 'Retourner le volet pour voir les motifs sonores (allitérations, assonances internes)');
-      // Le bouton lui-même fait un petit flip, en écho à la carte.
-      btnFlipIcone.addClass('cp-icon-flip');
-      setTimeout(() => btnFlipIcone.removeClass('cp-icon-flip'), 600);
+      sectionTitreEls[titre] && sectionTitreEls[titre].scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
-    toggleMotsOutils.checked = true;
-    modeSonSelect.value = 'simple';
-    toggleDominants.checked = true;
-    toggleMotsOutils.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
-    modeSonSelect.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
-    toggleDominants.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
-    seuilInput.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
-    sonListeDetails.addEventListener('toggle', syncFlipHeight);
+  };
+  ['Allitérations', 'Assonances internes', 'Trame phonique', 'Homéotéleutes'].forEach(titre => {
+    const btn = sonSautsDiv.createEl('button', { cls: 'cp-hasard-toggle-pool', text: titre.replace(' internes', '') });
+    btn.addEventListener('click', (e) => { e.preventDefault(); sauteVers(titre); });
+  });
+  const sonListeDiv = sonListeDetails.createDiv({ cls: 'cp-son-liste' });
 
-    (async () => {
-      const data = await this.plugin.loadData();
-      toggleDierese.checked = !data || data.afficheDierese !== false; // activé par défaut
-      toggleRimes.checked = !data || data.afficheCouleursRimes !== false; // activé par défaut
-      toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
-      RIMES_CONTINUES = toggleContinu.checked;
-      renderAnalyse();
-    })();
-    toggleDierese.addEventListener('change', async () => {
-      const data = (await this.plugin.loadData()) || {};
-      data.afficheDierese = toggleDierese.checked;
-      await this.plugin.saveData(data);
-      renderAnalyse();
-    });
-    toggleRimes.addEventListener('change', async () => {
-      const data = (await this.plugin.loadData()) || {};
-      data.afficheCouleursRimes = toggleRimes.checked;
-      await this.plugin.saveData(data);
-      renderAnalyse();
-    });
-    toggleContinu.addEventListener('change', async () => {
-      RIMES_CONTINUES = toggleContinu.checked;
-      const data = (await this.plugin.loadData()) || {};
-      data.rimesContinues = toggleContinu.checked;
-      await this.plugin.saveData(data);
-      renderAnalyse();
-    });
+  const PALETTE_SON = ['cp-son-c1','cp-son-c2','cp-son-c3','cp-son-c4','cp-son-c5','cp-son-c6','cp-son-c7'];
+  const couleurParSon = new Map(); // repli dynamique, seulement pour les homéotéleutes (terminaisons arbitraires, hors thème fixe)
+  let spotlightSon = null; // son actif en mode "Trame phonique" (clic pour isoler ses occurrences dans le brouillon)
+  const coloreSon = (titre, son) => {
+    const table = (titre === 'Allitérations' || titre === 'Trame phonique') ? THEME_CONSONNE : titre.startsWith('Assonances') ? THEME_VOYELLE : null;
+    if (table && table[son]) return table[son];
+    const cle = titre + son;
+    if (!couleurParSon.has(cle)) couleurParSon.set(cle, PALETTE_SON[couleurParSon.size % PALETTE_SON.length]);
+    return couleurParSon.get(cle);
+  };
 
-    const renderAnalyse = () => {
-      analyseDiv.empty();
-      schemaDiv.empty();
-      const texteComplet = textarea.value;
-      const nonVides = texteComplet.split('\n').filter(l => l.trim());
-      if (nonVides.length === 0) {
-        totalBar.style.display = 'none';
+  const renderSonorites = () => {
+    couleurParSon.clear();
+    const texte = textarea.value;
+    const mode = modeSonSelect.value;
+    const famillesConsonnes = mode === 'etendu' ? FAMILLES_CONSONNES_ETENDU : mode === 'simple' ? FAMILLES_CONSONNES_SIMPLE : null;
+    const famillesVoyelles = mode === 'etendu' ? FAMILLES_VOYELLES_ETENDU : mode === 'simple' ? FAMILLES_VOYELLES_SIMPLE : null;
+    const parFamilles = mode !== 'exact';
+    const resultat = analyseSonorites(texte, {
+      exclureMotsOutils: toggleMotsOutils.checked,
+      seuilMin: parseInt(seuilInput.value, 10) || 2,
+      famillesConsonnes,
+      famillesVoyelles
+    });
+    // Même regroupement que ci-dessus, pour savoir à quelle entrée de la
+    // liste rattacher un son exact repéré dans le brouillon (surlignage).
+    const cleAllit = (son) => famillesConsonnes ? (famillesConsonnes[son] || son) : son;
+    const cleAsson = (son) => famillesVoyelles ? (famillesVoyelles[son] || son) : son;
+
+    // La liste (plus bas) montre toujours tout ; seul le surlignage dans
+    // le brouillon peut se limiter aux sons dominants si l'option est
+    // cochée — resultat.alliterations/assonances sont déjà triées par
+    // fréquence décroissante, un simple slice(0,3) suffit donc.
+    const resultatSurlignage = toggleDominants.checked
+      ? { alliterations: resultat.alliterations.slice(0, 3), assonances: resultat.assonances.slice(0, 3) }
+      : resultat;
+
+    sonListeDiv.empty();
+    const rendSection = (titre, sousTitre, liste, estFamille, onClicEntree) => {
+      if (estFamille === undefined) estFamille = parFamilles;
+      const h4 = sonListeDiv.createEl('h4', { text: titre });
+      sectionTitreEls[titre] = h4;
+      sonListeDiv.createEl('p', { cls: 'cp-son-soustitre', text: sousTitre });
+      if (liste.length === 0) {
+        sonListeDiv.createEl('p', { cls: 'cp-son-vide', text: 'Aucun motif au-dessus du seuil actuel.' });
         return;
       }
-
-      const poeme = analysePoeme(texteComplet);
-      let total = 0, nb = 0;
-
-      poeme.lignes.forEach(ligneInfo => {
-        if (ligneInfo.vide) return;
-        const r = ligneInfo.r;
-        nb++;
-        total += r.total;
-        const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
-        const ligneTop = ligneEl.createDiv({ cls: 'cp-ligne-top' });
-        const texteStandard = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabes)).join(' ');
-        const texteSpan = ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
-        if (toggleRimes.checked && ligneInfo.coulIdx !== null) {
-          texteSpan.style.borderLeft = `3px solid ${PALETTE_RIMES[ligneInfo.coulIdx]}`;
-          texteSpan.style.paddingLeft = '6px';
+      liste.forEach(entree => {
+        const ligne = sonListeDiv.createDiv({ cls: 'cp-son-ligne' });
+        const badge = ligne.createSpan({ cls: 'cp-son-badge ' + coloreSon(titre, entree.son) });
+        // En mode familles, le nom complet ("Sifflantes/chuintantes") ne
+        // tient pas dans le badge rond : on n'y montre que le début,
+        // le nom complet reste lisible juste à côté dans la liste.
+        badge.setText(estFamille ? entree.son.slice(0, 3).toUpperCase() : entree.son);
+        badge.setAttr('title', entree.son);
+        const motsUniques = [...new Set(entree.occurrences.map(o => o.mot))];
+        const lignesUniques = [...new Set(entree.occurrences.map(o => o.ligne))];
+        const prefixe = estFamille ? entree.son + ' — ' : '';
+        ligne.createSpan({ cls: 'cp-son-mots', text: prefixe + motsUniques.join(', ') + ' — vers ' + lignesUniques.join(', ') });
+        ligne.createSpan({ cls: 'cp-son-count', text: entree.count + ' mots' });
+        if (entree.ratio != null) {
+          const ratioSpan = ligne.createSpan({ cls: 'cp-son-ratio' + (entree.ratio >= 1.5 ? ' cp-son-ratio-fort' : '') });
+          ratioSpan.setText('×' + entree.ratio.toFixed(1));
+          // Deux sources différentes selon la nature du son : les
+          // consonnes (allitérations/trame) viennent de Lexique 3, les
+          // voyelles (assonances) sont toujours sur Wioland 1985 faute
+          // de mieux — jamais mélanger les deux dans la citation.
+          const source = titre.startsWith('Assonances')
+            ? 'étude Wioland, 1985 — la plus récente dont j\'ai pu vérifier les chiffres exacts ; la fréquence des phonèmes évolue très lentement, donc ce classement reste fiable malgré l\'âge de l\'étude'
+            : 'Lexique 3, New 2006, via les calculs de C. dos Santos — thèse Lyon 2, 2007 ; en tenant compte de la position dans le mot';
+          ratioSpan.setAttr('title', `Ce son revient ${entree.ratio.toFixed(1)}× plus souvent dans ce poème que dans le français courant en moyenne (référence : ${source}).`);
         }
-        const badges = ligneTop.createDiv({ cls: 'cp-badges' });
-        if (toggleRimes.checked && ligneInfo.lettre) {
-          const badgeRime = badges.createSpan({ cls: 'cp-rime-lettre', text: ligneInfo.lettre });
-          badgeRime.style.color = PALETTE_RIMES[ligneInfo.coulIdx];
-          badgeRime.style.borderColor = PALETTE_RIMES[ligneInfo.coulIdx];
-          const titreQualite = ligneInfo.qualite ? ` (rime ${LABELS_QUALITE[ligneInfo.qualite] || ligneInfo.qualite})` : '';
-          badgeRime.setAttr('title', `Groupe de rime ${ligneInfo.lettre}${titreQualite}`);
-        }
-        const genre = genreDuVers(r.details);
-        if (genre) {
-          const badgeGenre = badges.createSpan({
-            cls: genre === 'F' ? 'cp-genre cp-genre-f' : 'cp-genre cp-genre-m',
-            text: genre
-          });
-          badgeGenre.setAttr('title', genre === 'F'
-            ? 'Rime féminine : le vers se termine par un e muet'
-            : 'Rime masculine : le vers ne se termine pas par un e muet');
-        }
-        if (METRES[r.total]) {
-          badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
-        }
-        if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
-          const badgeSynerese = badges.createSpan({ cls: 'cp-hiatus-badge cp-hiatus-badge-synerese', text: 'synérèse' });
-          badgeSynerese.setAttr('title', 'Lecture par défaut : les hiatus de ce vers sont lus en une seule syllabe.');
-        }
-        badges.createSpan({ cls: 'cp-compte', text: String(r.total) });
-
-        if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
-          const ligneAlt = ligneEl.createDiv({ cls: 'cp-ligne-alt' });
-          const texteAlt = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabesDierese || d.syllabes)).join(' ');
-          ligneAlt.createSpan({ cls: 'cp-texte-alt', text: texteAlt });
-          const badgesAlt = ligneAlt.createDiv({ cls: 'cp-badges' });
-          const badgeDierese = badgesAlt.createSpan({ cls: 'cp-hiatus-badge', text: 'diérèse' });
-          badgeDierese.setAttr('title', 'Les hiatus de ce vers sont lus en deux syllabes séparées.');
-          badgesAlt.createSpan({ cls: 'cp-compte cp-compte-alt', text: String(r.totalMax) });
+        if (onClicEntree) {
+          ligne.addClass('cp-son-ligne-cliquable');
+          ligne.setAttr('title', 'Clique pour isoler ce son dans le brouillon ci-dessus.');
+          if (entree.son === spotlightSon) ligne.addClass('cp-son-ligne-active');
+          ligne.addEventListener('click', () => onClicEntree(entree.son));
         }
       });
-
-      // schéma de rimes par strophe (affiché seulement s'il y a plus d'une strophe
-      // ou qu'un nom de schéma classique a été reconnu — sinon peu d'intérêt)
-      const utile = poeme.strophes.some(s => s.nom) || poeme.strophes.length > 1;
-      if (utile) {
-        poeme.strophes.forEach((s, i) => {
-          const ligne = schemaDiv.createDiv({ cls: 'cp-schema-ligne' });
-          const prefixe = poeme.strophes.length > 1 ? `Strophe ${i + 1} : ` : 'Schéma : ';
-          ligne.createSpan({ text: prefixe + s.lettres.map(l => l || '?').join('') });
-          if (s.nom) ligne.createSpan({ cls: 'cp-metre', text: s.nom });
-        });
+    };
+    rendSection('Allitérations', 'Son répété en début de mot', resultat.alliterations);
+    rendSection('Assonances internes', 'Voyelle qui revient dans le corps des mots, hors rimes finales', resultat.assonances);
+    const trame = analyseTramePhonique(texte, { exclureMotsOutils: toggleMotsOutils.checked, seuilMin: parseInt(seuilInput.value, 10) || 3, famillesConsonnes });
+    rendSection('Trame phonique', 'Réseau consonantique — un même son revient partout dans le mot (attaque, milieu, coda), pas seulement au début. Clique un son pour l\'isoler dans le brouillon.', trame, undefined, (son) => {
+      spotlightSon = spotlightSon === son ? null : son;
+      renderSonorites();
+      syncFlipHeight();
+      // Remonte directement au début du brouillon surligné, plutôt que
+      // de laisser l'utilisateur scroller à la main depuis la liste
+      // (souvent plus bas dans le volet, voire dans le détail replié).
+      if (spotlightSon) {
+        requestAnimationFrame(() => sonBrouillonDiv.scrollIntoView({ behavior: 'smooth', block: 'start' }));
       }
+    });
+    const homeoteleutes = analyseHomeoteleutes(texte, toggleMotsOutils.checked);
+    rendSection('Homéotéleutes', 'Finales proches hors rime — au moins un mot en milieu de vers, sinon c\'est déjà ta rime de fin de vers', homeoteleutes, false);
 
-      totalBar.style.display = 'flex';
-      totalBar.empty();
-      totalBar.createSpan({ text: `${nb} vers` });
-      totalBar.createEl('strong', { text: `${total} syllabes` });
-      totalBar.createSpan({ text: `≈ ${(total / nb).toFixed(1)} / vers` });
+    // Légende : uniquement les sons effectivement surlignés ci-dessous,
+    // avec leur couleur et leur nom exact — pour lever l'ambiguïté entre
+    // par ex. "an" (nasale) et "a" (voyelle ouverte), qui n'étaient
+    // distingués que par la couleur jusqu'ici. Regroupées par catégorie
+    // (le mot "allitération"/"assonance" affiché une seule fois par
+    // groupe, pas répété à chaque son).
+    sonLegendeDiv.empty();
+    const ajouteLegendeGroupe = (titre, liste, cls) => {
+      if (liste.length === 0) return;
+      const groupe = sonLegendeDiv.createDiv({ cls: 'cp-son-legende-groupe' });
+      groupe.createSpan({ cls: 'cp-son-legende-titre', text: titre + ' : ' });
+      liste.forEach(entree => {
+        const puce = groupe.createSpan({ cls: 'cp-son-legende-puce' });
+        puce.createSpan({ cls: 'cp-son-legende-couleur ' + cls + ' ' + coloreSon(titre, entree.son) });
+        puce.createSpan({ cls: 'cp-son-legende-texte', text: entree.son });
+      });
     };
-    // Exposé pour pouvoir forcer un recalcul depuis l'extérieur (ex. le
-    // toggle debug "ignorer le dictionnaire personnel" dans Settings, qui
-    // change le comportement des rimes sans que le brouillon ait changé).
-    this._renderAnalyseSyllabes = () => {
-      renderAnalyse();
-      if (flipZone.classList.contains('flipped')) renderSonorites();
-    };
+    ajouteLegendeGroupe('Allitérations', resultatSurlignage.alliterations, 'cp-son-legende-init');
+    ajouteLegendeGroupe('Assonances', resultatSurlignage.assonances, 'cp-son-legende-vox');
+    if (resultatSurlignage.alliterations.length === 0 && resultatSurlignage.assonances.length === 0) {
+      sonLegendeDiv.createSpan({ cls: 'cp-son-vide', text: 'Aucun motif au-dessus du seuil actuel.' });
+    }
 
-    btnExport.addEventListener('click', () => {
-      const poeme = analysePoeme(textarea.value);
-      const lignesUtiles = poeme.lignes.filter(l => !l.vide);
-      if (lignesUtiles.length === 0) { new Notice('Rien à exporter.'); return; }
-      let md = '| Vers | Syllabes | Genre | Rime | Qualité |\n| --- | --- | --- | --- | --- |\n';
-      lignesUtiles.forEach(l => {
-        const genre = genreDuVers(l.r.details) || '';
-        const texteEchappe = l.texte.replace(/\|/g, '\\|');
-        md += `| ${texteEchappe} | ${l.r.total} | ${genre} | ${l.lettre || ''} | ${l.qualite ? (LABELS_QUALITE[l.qualite] || l.qualite) : ''} |\n`;
-      });
-      navigator.clipboard.writeText(md).then(() => {
-        new Notice('Analyse copiée en Markdown — colle-la où tu veux.');
-      }).catch(() => {
-        new Notice('Impossible de copier automatiquement ; voir la console pour le Markdown généré.');
-        console.log(md);
-      });
-    });
 
-    btnCopierBrouillon.addEventListener('click', () => {
-      if (!textarea.value.trim()) { new Notice('Le brouillon est vide.'); return; }
-      navigator.clipboard.writeText(textarea.value).then(() => {
-        new Notice('Brouillon copié dans le presse-papier.');
-      }).catch(() => {
-        new Notice('Impossible de copier automatiquement (voir la console).');
-        console.log(textarea.value);
-      });
-    });
-
-    let saveTimeout = null;
-    textarea.addEventListener('input', () => {
-      renderAnalyse();
-      if (flipZone.classList.contains('flipped')) renderSonorites();
-      saveState.setText('…');
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(async () => {
-        const data = (await this.plugin.loadData()) || {};
-        data.poeme = textarea.value;
-        await this.plugin.saveData(data);
-        saveState.setText('brouillon enregistré');
-        setTimeout(() => saveState.setText(''), 1200);
-      }, 700);
-    });
-
-    btnClear.addEventListener('click', async () => {
-      textarea.value = '';
-      renderAnalyse();
-      const data = (await this.plugin.loadData()) || {};
-      data.poeme = '';
-      await this.plugin.saveData(data);
-    });
-
-    (async () => {
-      const data = await this.plugin.loadData();
-      if (data && data.poeme) {
-        textarea.value = data.poeme;
-        renderAnalyse();
-      }
-    })();
-  }
-
-  buildPanelRimes(panelRimes){
-    const rimeForm = panelRimes.createDiv({ cls: 'cp-rime-form' });
-    const motInput = rimeForm.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. lumière, chapeau, courage)' } });
-    const btnChercher = rimeForm.createEl('button', { text: 'Chercher' });
-
-    const filtresDiv = panelRimes.createDiv({ cls: 'cp-filtres' });
-    const lettreInput = filtresDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
-    const syllabesWrap = filtresDiv.createDiv({ cls: 'cp-select-wrap' });
-    const syllabesSelect = syllabesWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
-    syllabesWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
-    [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
-      .forEach(([val, label]) => syllabesSelect.createEl('option', { attr: { value: val }, text: label }));
-
-    const qualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres' });
-    const casesQualite = {};
-    // 5 cases indépendantes, toutes de vraies checkbox du DOM — seule
-    // source de vérité, jamais dupliquée ni resynchronisée à la main.
-    [['pauvre','Pauvre'],['suffisante','Suffisante'],['riche','Riche'],['tresriche','Très riche'],['leonine','Léonine']].forEach(([id, label]) => {
-      const lbl = qualiteDiv.createEl('label', { cls: 'cp-hasard-toggle-pool cp-qualite-pill' });
-      lbl.style.setProperty('--qcolor', COULEURS_QUALITE[id]);
-      const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
-      c.checked = (id !== 'pauvre'); // pauvre décochée par défaut
-      lbl.createSpan({ text: ' ' + label });
-      casesQualite[id] = c;
-    });
-
-    // "Riche+" n'est qu'un raccourci d'action (pas une case, pas un état
-    // à maintenir) : au clic, il lit l'état actuel de riche/tresriche/
-    // leonine et les coche/décoche tous les 3 ensemble. Aucune duplication
-    // d'état possible puisqu'il ne fait que lire/écrire les 3 vraies cases.
-    const btnRichePlus = filtresDiv.createEl('button', { cls: 'cp-link-btn', text: 'Riche+ (tout / rien)' });
-    btnRichePlus.setAttr('title', 'Coche ou décoche riche + très riche + léonine en une fois.');
-    btnRichePlus.addEventListener('click', () => {
-      const cible = !(casesQualite.riche.checked && casesQualite.tresriche.checked && casesQualite.leonine.checked);
-      casesQualite.riche.checked = cible;
-      casesQualite.tresriche.checked = cible;
-      casesQualite.leonine.checked = cible;
-      chercher();
-    });
-
-    const sourcesDiv = panelRimes.createDiv({ cls: 'cp-sources' });
-    sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
-    const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
-    caseRimesSolides.createSpan({ text: ' RimesSolides' });
-
-    const modeDiv = sourcesDiv.createDiv({ cls: 'cp-qualite-sousfiltres' });
-    const modeLabel = modeDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-    const inputModeAssonance = modeLabel.createEl('input', { attr: { type: 'checkbox' } });
-    modeLabel.createSpan({ text: ' Mode assonance (accepte les rimes approchées)' });
-    inputModeAssonance.setAttr('title', 'Rime stricte par défaut : les résultats doivent réellement rimer. Coche pour aussi accepter les assonances (même voyelle, terminaison différente — ex. « ombre »/« montre »), affichées à part.');
-
-    const resultatsDiv = panelRimes.createDiv({ cls: 'cp-resultats' });
-
-    (async () => {
-      const data = await this.plugin.loadData();
-      inputModeAssonance.checked = !!(data && data.modeAssonance);
-      MODE_ASSONANCE = inputModeAssonance.checked;
-    })();
-    inputModeAssonance.addEventListener('change', async () => {
-      MODE_ASSONANCE = inputModeAssonance.checked;
-      const data = (await this.plugin.loadData()) || {};
-      data.modeAssonance = inputModeAssonance.checked;
-      await this.plugin.saveData(data);
-      chercher();
-    });
-    // Le réglage global (Settings → Carnet du Poète) peut changer
-    // MODE_ASSONANCE pendant qu'on est sur un autre onglet ; on resynchronise
-    // la case visuellement à chaque retour sur l'onglet Rimes plutôt que de
-    // la figer à l'ouverture initiale du panneau.
-    this._rafraichitAssonanceRimes = () => { inputModeAssonance.checked = MODE_ASSONANCE; };
-
-    const lireFiltres = () => ({
-      lettre: lettreInput.value.trim(),
-      syllabes: syllabesSelect.value,
-      qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
-    });
-    const sourcesActives = () => (inputRimesSolides.checked ? ['rimessolides'] : []);
-
-    const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value, lireFiltres(), this.plugin, sourcesActives());
-    // Même raison que _renderAnalyseSyllabes : permettre un recalcul externe
-    // (toggle debug dico perso) sans avoir à retaper la recherche.
-    this._rechercherRimes = chercher;
-
-    btnChercher.addEventListener('click', chercher);
-    motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
-    lettreInput.addEventListener('input', chercher);
-    syllabesSelect.addEventListener('change', chercher);
-    Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
-    inputRimesSolides.addEventListener('change', chercher);
-
-    this._prefillRimeInput = (mot) => {
-      motInput.value = mot;
-      chercher();
-    };
-  }
-
-  buildPanelInspiration(panelInspi){
-    const intro = panelInspi.createEl('p', { cls: 'cp-inspi-intro' });
-    intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème. Clique sur un mot pour le sélectionner, puis ajoute ta sélection à un champ lexical ou comme mots rares.');
-
-    const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
-    sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
-    const cases = {};
-    SOURCES_INSPIRATION.forEach(source => {
-      const label = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-      const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
-      label.createSpan({ text: ' ' + source.nom });
-      cases[source.id] = case_;
-    });
-
-    // Légende des couleurs (même présentation que "Afficher les
-    // statistiques" de l'onglet Hasard), fermée par défaut.
-    const legende = panelInspi.createEl('details', { cls: 'cp-hasard-stats-details cp-inspi-legende' });
-    legende.createEl('summary', { text: 'Afficher la légende' });
-    NATURES_INSPIRATION.forEach(n => {
-      const ligne = legende.createDiv({ cls: `cp-inspi-legende-ligne cp-nature-${n.cle}` });
-      ligne.createSpan({ cls: 'cp-inspi-pastille' });
-      ligne.createSpan({ cls: 'cp-inspi-legende-nom', text: n.nom });
-      ligne.createSpan({ cls: 'cp-inspi-legende-detail', text: ' : ' + n.detail });
-    });
-
-    const form = panelInspi.createDiv({ cls: 'cp-rime-form' });
-    const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un thème… (ex. forêt, mer, nuit, amour, moyen-âge)' } });
-    const btnChercher = form.createEl('button', { text: 'Chercher' });
-
-    // --- sélection persistante à travers les recherches + barre d'action ---
-    const selectionMots = new Map(); // normaliseMot(mot) -> { mot, themeSuggere, note }
-    const actionBarDiv = panelInspi.createDiv({ cls: 'cp-inspi-action-bar' });
-    actionBarDiv.style.display = 'none';
-
-    const renderActionBar = () => {
-      actionBarDiv.empty();
-      if (selectionMots.size === 0) { actionBarDiv.style.display = 'none'; return; }
-      actionBarDiv.style.display = 'flex';
-
-      const chipsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-chips' });
-      chipsRow.createSpan({ cls: 'cp-sources-label', text: `${selectionMots.size} mot(s) sélectionné(s) : ` });
-      [...selectionMots.values()].forEach(({ mot }) => {
-        const chip = chipsRow.createSpan({ cls: 'cp-tag-chip' });
-        chip.createSpan({ text: mot });
-        const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
-        btnX.addEventListener('click', () => { toggleSelection(mot); });
-      });
-      const btnClear = chipsRow.createEl('button', { cls: 'cp-link-btn', text: 'Tout désélectionner' });
-      btnClear.addEventListener('click', () => { selectionMots.clear(); renderActionBar(); });
-
-      const actionsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-actions' });
-      const btnChamp = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter à un champ lexical' });
-      const btnRare = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter comme mot(s) rare(s)' });
-
-      let formChamp = null;
-      btnChamp.addEventListener('click', () => {
-        if (formChamp) { formChamp.remove(); formChamp = null; return; }
-        formChamp = actionBarDiv.createDiv({ cls: 'cp-inspi-ajout-form' });
-        const datalistId = 'cp-inspi-themes-' + Math.random().toString(36).slice(2, 8);
-        const themeInput = formChamp.createEl('input', { attr: { type: 'text', placeholder: 'thème (ex. Bretagne)', list: datalistId } });
-        const datalist = formChamp.createEl('datalist', { attr: { id: datalistId } });
-        tousLesThemesLexicaux().forEach(t => datalist.createEl('option', { attr: { value: t } }));
-        const clefsInput = formChamp.createEl('input', { attr: { type: 'text', placeholder: 'mots-clés séparés par virgule (si nouveau thème)' } });
-        const btnValider = formChamp.createEl('button', { cls: 'cp-link-btn', text: `Ajouter les ${selectionMots.size} mot(s)` });
-
-        // Suggestion affichée à part (jamais pré-remplie en silence) : si
-        // tous les mots sélectionnés viennent du même champ reconnu, on
-        // propose ce thème, mais seul un clic explicite l'applique — un
-        // mot présent dans deux champs à la fois (ex. rattaché à "Nuit &
-        // obscurité" ET à "Noir") ne doit jamais faire deviner le mauvais.
-        const themesSuggeres = [...new Set([...selectionMots.values()].map(v => v.themeSuggere).filter(Boolean))];
-        if (themesSuggeres.length === 1) {
-          const suggestion = formChamp.createDiv({ cls: 'cp-inspi-suggestion' });
-          suggestion.createSpan({ text: 'Suggestion : ' });
-          const btnSuggestion = suggestion.createEl('button', { cls: 'cp-link-btn', text: themesSuggeres[0] });
-          btnSuggestion.addEventListener('click', () => { themeInput.value = themesSuggeres[0]; themeInput.focus(); });
+    // Brouillon surligné : reconstruit le texte ligne par ligne avec un
+    // <span> par fragment concerné (fond = allitération, soulignement =
+    // assonance), le reste en texte brut.
+    sonBrouillonDiv.empty();
+    const lignesTexte = texte.split('\n');
+    lignesTexte.forEach((ligneTexte, idxLigne) => {
+      const ligneEl = sonBrouillonDiv.createDiv({ cls: 'cp-son-brouillon-ligne' });
+      ligneEl.createSpan({ cls: 'cp-son-brouillon-numero', text: String(idxLigne + 1) });
+      if (!ligneTexte.trim()) { ligneEl.createEl('br'); return; }
+      const mots = ligneTexte.split(/(\s+)/); // garde les espaces pour un rendu fidèle
+      mots.forEach(fragment => {
+        if (!fragment.trim()) { ligneEl.createSpan({ text: fragment }); return; }
+        const mot = nettoieMot(fragment);
+        if (!mot || (toggleMotsOutils.checked && MOTS_OUTILS.has(mot))) {
+          ligneEl.createSpan({ cls: spotlightSon ? 'cp-son-brouillon-dim' : '', text: fragment });
+          return;
         }
 
-        const valider = async () => {
-          const theme = themeInput.value.trim();
-          if (!theme) { new Notice('Le thème est requis.'); return; }
-          const motsClefs = clefsInput.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-          const mots = [...selectionMots.values()];
-          for (const { mot, note } of mots) {
-            await ajouteMotChampLexicalPerso(this.plugin, theme, motsClefs, mot, note || '', { silencieux: true });
+        // Mode spotlight (clic sur un son de la Trame phonique) : on
+        // n'affiche QUE ce son-là, partout où il tombe dans le mot ; le
+        // reste du texte est grisé. Remplace entièrement le rendu
+        // allitération/assonance habituel pendant que le spotlight est
+        // actif, pour ne jamais mélanger les deux logiques de surlignage.
+        if (spotlightSon) {
+          const cleTrameMot = (son) => famillesConsonnes ? (famillesConsonnes[son] || son) : son;
+          const occsSpot = consonnesInternesMot(mot).filter(o => cleTrameMot(o.son) === spotlightSon);
+          const offsetSpot = fragment.toLowerCase().indexOf(mot);
+          if (occsSpot.length === 0 || offsetSpot < 0) {
+            ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment });
+            return;
           }
-          new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) au champ lexical « ${theme} ».`);
-          selectionMots.clear();
-          renderActionBar();
-        };
-        btnValider.addEventListener('click', valider);
-        themeInput.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
-      });
+          let curseurSpot = 0;
+          occsSpot.forEach(o => {
+            const debutAbs = offsetSpot + o.debut, finAbs = offsetSpot + o.fin;
+            if (debutAbs > curseurSpot) ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment.slice(curseurSpot, debutAbs) });
+            ligneEl.createSpan({ cls: 'cp-son-surligne-init ' + coloreSon('Trame phonique', spotlightSon), text: fragment.slice(debutAbs, finAbs) });
+            curseurSpot = finAbs;
+          });
+          if (curseurSpot < fragment.length) ligneEl.createSpan({ cls: 'cp-son-brouillon-dim', text: fragment.slice(curseurSpot) });
+          return;
+        }
 
-      btnRare.addEventListener('click', async () => {
+        const si = soninitial(mot);
+        const alliRetenue = si && resultatSurlignage.alliterations.some(e => e.son === cleAllit(si));
+        const groupes = groupesVoyellesMot(mot);
+        const offsetMot = fragment.toLowerCase().indexOf(mot); // décalage si ponctuation/majuscule en tête
+
+        let curseur = 0;
+        const nLettresSon = alliRetenue ? longueurSonInitial(mot) : 0;
+        if (alliRetenue && offsetMot >= 0) {
+          ligneEl.createSpan({ text: fragment.slice(0, offsetMot) });
+          const spanInit = ligneEl.createSpan({ cls: 'cp-son-surligne-init ' + coloreSon('Allitérations', cleAllit(si)), text: fragment.slice(offsetMot, offsetMot + nLettresSon) });
+          curseur = offsetMot + nLettresSon;
+        } else {
+          curseur = 0;
+        }
+        // Voyelles internes retenues, dans l'ordre, en soulignant seulement
+        // celles dont le son fait partie d'une assonance retenue.
+        let reste = fragment.slice(curseur);
+        let baseIdx = curseur;
+        groupes.forEach(g => {
+          if (g.debut < baseIdx - (offsetMot >= 0 ? offsetMot : 0)) return; // déjà couvert par l'allitération
+          const assonRetenue = resultatSurlignage.assonances.some(e => e.son === cleAsson(g.son));
+          if (!assonRetenue) return;
+          const debutAbs = (offsetMot >= 0 ? offsetMot : 0) + g.debut;
+          const finAbs = (offsetMot >= 0 ? offsetMot : 0) + g.fin;
+          if (debutAbs < curseur) return;
+          if (debutAbs > curseur) ligneEl.createSpan({ text: fragment.slice(curseur, debutAbs) });
+          ligneEl.createSpan({ cls: 'cp-son-surligne-vox ' + coloreSon('Assonances', cleAsson(g.son)), text: fragment.slice(debutAbs, finAbs) });
+          curseur = finAbs;
+        });
+        if (curseur < fragment.length) ligneEl.createSpan({ text: fragment.slice(curseur) });
+      });
+    });
+  };
+
+  // Resynchronise la hauteur du conteneur sur la face actuellement
+  // visible — nécessaire aussi bien au flip lui-même qu'à chaque fois
+  // que le contenu de la face arrière change de taille (toggle mots
+  // outils, seuil), sinon le conteneur garde une hauteur périmée.
+  const syncFlipHeight = () => {
+    const faceActive = flipZone.classList.contains('flipped') ? flipBack : flipFront;
+    requestAnimationFrame(() => { flipCard.style.height = faceActive.scrollHeight + 'px'; });
+  };
+
+  btnFlip.addEventListener('click', () => {
+    flipZone.classList.toggle('flipped');
+    const surLaFaceArriere = flipZone.classList.contains('flipped');
+    if (surLaFaceArriere) renderSonorites();
+    syncFlipHeight();
+    // Le libellé annonce la destination, pas la face actuelle : "Sonorités"
+    // pour y aller, "Structure" pour revenir aux syllabes/schéma de rimes.
+    btnFlipLabel.setText(surLaFaceArriere ? 'Structure' : 'Sonorités');
+    btnFlip.setAttr('title', surLaFaceArriere
+      ? 'Retourner le volet pour revenir aux syllabes et au schéma de rimes'
+      : 'Retourner le volet pour voir les motifs sonores (allitérations, assonances internes)');
+    // Le bouton lui-même fait un petit flip, en écho à la carte.
+    btnFlipIcone.addClass('cp-icon-flip');
+    setTimeout(() => btnFlipIcone.removeClass('cp-icon-flip'), 600);
+  });
+  toggleMotsOutils.checked = true;
+  modeSonSelect.value = 'simple';
+  toggleDominants.checked = true;
+  toggleMotsOutils.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+  modeSonSelect.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+  toggleDominants.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+  seuilInput.addEventListener('change', () => { renderSonorites(); syncFlipHeight(); });
+  sonListeDetails.addEventListener('toggle', syncFlipHeight);
+
+  (async () => {
+    const data = await vue.plugin.loadData();
+    toggleDierese.checked = !data || data.afficheDierese !== false; // activé par défaut
+    toggleRimes.checked = !data || data.afficheCouleursRimes !== false; // activé par défaut
+    toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
+    RIMES_CONTINUES = toggleContinu.checked;
+    renderAnalyse();
+  })();
+  toggleDierese.addEventListener('change', async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.afficheDierese = toggleDierese.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+  toggleRimes.addEventListener('change', async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.afficheCouleursRimes = toggleRimes.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+  toggleContinu.addEventListener('change', async () => {
+    RIMES_CONTINUES = toggleContinu.checked;
+    const data = (await vue.plugin.loadData()) || {};
+    data.rimesContinues = toggleContinu.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+
+  const renderAnalyse = () => {
+    analyseDiv.empty();
+    schemaDiv.empty();
+    const texteComplet = textarea.value;
+    const nonVides = texteComplet.split('\n').filter(l => l.trim());
+    if (nonVides.length === 0) {
+      totalBar.style.display = 'none';
+      return;
+    }
+
+    const poeme = analysePoeme(texteComplet);
+    let total = 0, nb = 0;
+
+    poeme.lignes.forEach(ligneInfo => {
+      if (ligneInfo.vide) return;
+      const r = ligneInfo.r;
+      nb++;
+      total += r.total;
+      const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
+      const ligneTop = ligneEl.createDiv({ cls: 'cp-ligne-top' });
+      const texteStandard = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabes)).join(' ');
+      const texteSpan = ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
+      if (toggleRimes.checked && ligneInfo.coulIdx !== null) {
+        texteSpan.style.borderLeft = `3px solid ${PALETTE_RIMES[ligneInfo.coulIdx]}`;
+        texteSpan.style.paddingLeft = '6px';
+      }
+      const badges = ligneTop.createDiv({ cls: 'cp-badges' });
+      if (toggleRimes.checked && ligneInfo.lettre) {
+        const badgeRime = badges.createSpan({ cls: 'cp-rime-lettre', text: ligneInfo.lettre });
+        badgeRime.style.color = PALETTE_RIMES[ligneInfo.coulIdx];
+        badgeRime.style.borderColor = PALETTE_RIMES[ligneInfo.coulIdx];
+        const titreQualite = ligneInfo.qualite ? ` (rime ${LABELS_QUALITE[ligneInfo.qualite] || ligneInfo.qualite})` : '';
+        badgeRime.setAttr('title', `Groupe de rime ${ligneInfo.lettre}${titreQualite}`);
+      }
+      const genre = genreDuVers(r.details);
+      if (genre) {
+        const badgeGenre = badges.createSpan({
+          cls: genre === 'F' ? 'cp-genre cp-genre-f' : 'cp-genre cp-genre-m',
+          text: genre
+        });
+        badgeGenre.setAttr('title', genre === 'F'
+          ? 'Rime féminine : le vers se termine par un e muet'
+          : 'Rime masculine : le vers ne se termine pas par un e muet');
+      }
+      if (METRES[r.total]) {
+        badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
+      }
+      if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
+        const badgeSynerese = badges.createSpan({ cls: 'cp-hiatus-badge cp-hiatus-badge-synerese', text: 'synérèse' });
+        badgeSynerese.setAttr('title', 'Lecture par défaut : les hiatus de ce vers sont lus en une seule syllabe.');
+      }
+      badges.createSpan({ cls: 'cp-compte', text: String(r.total) });
+
+      if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
+        const ligneAlt = ligneEl.createDiv({ cls: 'cp-ligne-alt' });
+        const texteAlt = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabesDierese || d.syllabes)).join(' ');
+        ligneAlt.createSpan({ cls: 'cp-texte-alt', text: texteAlt });
+        const badgesAlt = ligneAlt.createDiv({ cls: 'cp-badges' });
+        const badgeDierese = badgesAlt.createSpan({ cls: 'cp-hiatus-badge', text: 'diérèse' });
+        badgeDierese.setAttr('title', 'Les hiatus de ce vers sont lus en deux syllabes séparées.');
+        badgesAlt.createSpan({ cls: 'cp-compte cp-compte-alt', text: String(r.totalMax) });
+      }
+    });
+
+    // schéma de rimes par strophe (affiché seulement s'il y a plus d'une strophe
+    // ou qu'un nom de schéma classique a été reconnu — sinon peu d'intérêt)
+    const utile = poeme.strophes.some(s => s.nom) || poeme.strophes.length > 1;
+    if (utile) {
+      poeme.strophes.forEach((s, i) => {
+        const ligne = schemaDiv.createDiv({ cls: 'cp-schema-ligne' });
+        const prefixe = poeme.strophes.length > 1 ? `Strophe ${i + 1} : ` : 'Schéma : ';
+        ligne.createSpan({ text: prefixe + s.lettres.map(l => l || '?').join('') });
+        if (s.nom) ligne.createSpan({ cls: 'cp-metre', text: s.nom });
+      });
+    }
+
+    totalBar.style.display = 'flex';
+    totalBar.empty();
+    totalBar.createSpan({ text: `${nb} vers` });
+    totalBar.createEl('strong', { text: `${total} syllabes` });
+    totalBar.createSpan({ text: `≈ ${(total / nb).toFixed(1)} / vers` });
+  };
+  // Exposé pour pouvoir forcer un recalcul depuis l'extérieur (ex. le
+  // toggle debug "ignorer le dictionnaire personnel" dans Settings, qui
+  // change le comportement des rimes sans que le brouillon ait changé).
+  vue._renderAnalyseSyllabes = () => {
+    renderAnalyse();
+    if (flipZone.classList.contains('flipped')) renderSonorites();
+  };
+
+  btnExport.addEventListener('click', () => {
+    const poeme = analysePoeme(textarea.value);
+    const lignesUtiles = poeme.lignes.filter(l => !l.vide);
+    if (lignesUtiles.length === 0) { new Notice('Rien à exporter.'); return; }
+    let md = '| Vers | Syllabes | Genre | Rime | Qualité |\n| --- | --- | --- | --- | --- |\n';
+    lignesUtiles.forEach(l => {
+      const genre = genreDuVers(l.r.details) || '';
+      const texteEchappe = l.texte.replace(/\|/g, '\\|');
+      md += `| ${texteEchappe} | ${l.r.total} | ${genre} | ${l.lettre || ''} | ${l.qualite ? (LABELS_QUALITE[l.qualite] || l.qualite) : ''} |\n`;
+    });
+    navigator.clipboard.writeText(md).then(() => {
+      new Notice('Analyse copiée en Markdown — colle-la où tu veux.');
+    }).catch(() => {
+      new Notice('Impossible de copier automatiquement ; voir la console pour le Markdown généré.');
+      console.log(md);
+    });
+  });
+
+  btnCopierBrouillon.addEventListener('click', () => {
+    if (!textarea.value.trim()) { new Notice('Le brouillon est vide.'); return; }
+    navigator.clipboard.writeText(textarea.value).then(() => {
+      new Notice('Brouillon copié dans le presse-papier.');
+    }).catch(() => {
+      new Notice('Impossible de copier automatiquement (voir la console).');
+      console.log(textarea.value);
+    });
+  });
+
+  let saveTimeout = null;
+  textarea.addEventListener('input', () => {
+    renderAnalyse();
+    if (flipZone.classList.contains('flipped')) renderSonorites();
+    saveState.setText('…');
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
+      const data = (await vue.plugin.loadData()) || {};
+      data.poeme = textarea.value;
+      await vue.plugin.saveData(data);
+      saveState.setText('brouillon enregistré');
+      setTimeout(() => saveState.setText(''), 1200);
+    }, 700);
+  });
+
+  btnClear.addEventListener('click', async () => {
+    textarea.value = '';
+    renderAnalyse();
+    const data = (await vue.plugin.loadData()) || {};
+    data.poeme = '';
+    await vue.plugin.saveData(data);
+  });
+
+  (async () => {
+    const data = await vue.plugin.loadData();
+    if (data && data.poeme) {
+      textarea.value = data.poeme;
+      renderAnalyse();
+    }
+  })();
+}
+
+
+function buildPanelRimes(vue, panelRimes){
+  const rimeForm = panelRimes.createDiv({ cls: 'cp-rime-form' });
+  const motInput = rimeForm.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. lumière, chapeau, courage)' } });
+  const btnChercher = rimeForm.createEl('button', { text: 'Chercher' });
+
+  const filtresDiv = panelRimes.createDiv({ cls: 'cp-filtres' });
+  const lettreInput = filtresDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
+  const syllabesWrap = filtresDiv.createDiv({ cls: 'cp-select-wrap' });
+  const syllabesSelect = syllabesWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
+  syllabesWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
+  [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
+    .forEach(([val, label]) => syllabesSelect.createEl('option', { attr: { value: val }, text: label }));
+
+  const qualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres' });
+  const casesQualite = {};
+  // 5 cases indépendantes, toutes de vraies checkbox du DOM — seule
+  // source de vérité, jamais dupliquée ni resynchronisée à la main.
+  [['pauvre','Pauvre'],['suffisante','Suffisante'],['riche','Riche'],['tresriche','Très riche'],['leonine','Léonine']].forEach(([id, label]) => {
+    const lbl = qualiteDiv.createEl('label', { cls: 'cp-hasard-toggle-pool cp-qualite-pill' });
+    lbl.style.setProperty('--qcolor', COULEURS_QUALITE[id]);
+    const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
+    c.checked = (id !== 'pauvre'); // pauvre décochée par défaut
+    lbl.createSpan({ text: ' ' + label });
+    casesQualite[id] = c;
+  });
+
+  // "Riche+" n'est qu'un raccourci d'action (pas une case, pas un état
+  // à maintenir) : au clic, il lit l'état actuel de riche/tresriche/
+  // leonine et les coche/décoche tous les 3 ensemble. Aucune duplication
+  // d'état possible puisqu'il ne fait que lire/écrire les 3 vraies cases.
+  const btnRichePlus = filtresDiv.createEl('button', { cls: 'cp-link-btn', text: 'Riche+ (tout / rien)' });
+  btnRichePlus.setAttr('title', 'Coche ou décoche riche + très riche + léonine en une fois.');
+  btnRichePlus.addEventListener('click', () => {
+    const cible = !(casesQualite.riche.checked && casesQualite.tresriche.checked && casesQualite.leonine.checked);
+    casesQualite.riche.checked = cible;
+    casesQualite.tresriche.checked = cible;
+    casesQualite.leonine.checked = cible;
+    chercher();
+  });
+
+  const sourcesDiv = panelRimes.createDiv({ cls: 'cp-sources' });
+  sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
+  const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
+  caseRimesSolides.createSpan({ text: ' RimesSolides' });
+  const caseWiktionnaire = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const inputWiktionnaire = caseWiktionnaire.createEl('input', { attr: { type: 'checkbox' } });
+  caseWiktionnaire.createSpan({ text: ' Wiktionnaire' });
+  caseWiktionnaire.setAttr('title', 'Rimes classées par le Wiktionnaire (catégories « Rimes en français »). Couverture partielle, mais utile en secours et pour les mots rares ou les locutions.');
+
+  const modeDiv = sourcesDiv.createDiv({ cls: 'cp-qualite-sousfiltres' });
+  const modeLabel = modeDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const inputModeAssonance = modeLabel.createEl('input', { attr: { type: 'checkbox' } });
+  modeLabel.createSpan({ text: ' Mode assonance (accepte les rimes approchées)' });
+  inputModeAssonance.setAttr('title', 'Rime stricte par défaut : les résultats doivent réellement rimer. Coche pour aussi accepter les assonances (même voyelle, terminaison différente — ex. « ombre »/« montre »), affichées à part.');
+
+  const resultatsDiv = panelRimes.createDiv({ cls: 'cp-resultats' });
+
+  (async () => {
+    const data = await vue.plugin.loadData();
+    inputModeAssonance.checked = !!(data && data.modeAssonance);
+    MODE_ASSONANCE = inputModeAssonance.checked;
+  })();
+  inputModeAssonance.addEventListener('change', async () => {
+    MODE_ASSONANCE = inputModeAssonance.checked;
+    const data = (await vue.plugin.loadData()) || {};
+    data.modeAssonance = inputModeAssonance.checked;
+    await vue.plugin.saveData(data);
+    chercher();
+  });
+  // Le réglage global (Settings → Carnet du Poète) peut changer
+  // MODE_ASSONANCE pendant qu'on est sur un autre onglet ; on resynchronise
+  // la case visuellement à chaque retour sur l'onglet Rimes plutôt que de
+  // la figer à l'ouverture initiale du panneau.
+  vue._rafraichitAssonanceRimes = () => { inputModeAssonance.checked = MODE_ASSONANCE; };
+
+  const lireFiltres = () => ({
+    lettre: lettreInput.value.trim(),
+    syllabes: syllabesSelect.value,
+    qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
+  });
+  const sourcesActives = () => [
+    ...(inputRimesSolides.checked ? ['rimessolides'] : []),
+    ...(inputWiktionnaire.checked ? ['wiktionnaire'] : [])
+  ];
+
+  const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value, lireFiltres(), vue.plugin, sourcesActives());
+  // Même raison que _renderAnalyseSyllabes : permettre un recalcul externe
+  // (toggle debug dico perso) sans avoir à retaper la recherche.
+  vue._rechercherRimes = chercher;
+
+  btnChercher.addEventListener('click', chercher);
+  motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+  lettreInput.addEventListener('input', chercher);
+  syllabesSelect.addEventListener('change', chercher);
+  Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
+  inputRimesSolides.addEventListener('change', chercher);
+  inputWiktionnaire.addEventListener('change', chercher);
+
+  vue._prefillRimeInput = (mot) => {
+    motInput.value = mot;
+    chercher();
+  };
+}
+
+
+function buildPanelInspiration(vue, panelInspi){
+  const intro = panelInspi.createEl('p', { cls: 'cp-inspi-intro' });
+  intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème. Clique sur un mot pour le sélectionner, puis ajoute ta sélection à un champ lexical ou comme mots rares.');
+
+  const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
+  sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
+  const cases = {};
+  SOURCES_INSPIRATION.forEach(source => {
+    const label = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+    const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
+    label.createSpan({ text: ' ' + source.nom });
+    cases[source.id] = case_;
+  });
+
+  // Légende des couleurs (même présentation que "Afficher les
+  // statistiques" de l'onglet Hasard), fermée par défaut.
+  const legende = panelInspi.createEl('details', { cls: 'cp-hasard-stats-details cp-inspi-legende' });
+  legende.createEl('summary', { text: 'Afficher la légende' });
+  NATURES_INSPIRATION.forEach(n => {
+    const ligne = legende.createDiv({ cls: `cp-inspi-legende-ligne cp-nature-${n.cle}` });
+    ligne.createSpan({ cls: 'cp-inspi-pastille' });
+    ligne.createSpan({ cls: 'cp-inspi-legende-nom', text: n.nom });
+    ligne.createSpan({ cls: 'cp-inspi-legende-detail', text: ' : ' + n.detail });
+  });
+
+  const form = panelInspi.createDiv({ cls: 'cp-rime-form' });
+  const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un thème… (ex. forêt, mer, nuit, amour, moyen-âge)' } });
+  const btnChercher = form.createEl('button', { text: 'Chercher' });
+
+  // --- sélection persistante à travers les recherches + barre d'action ---
+  const selectionMots = new Map(); // normaliseMot(mot) -> { mot, themeSuggere, note }
+  const actionBarDiv = panelInspi.createDiv({ cls: 'cp-inspi-action-bar' });
+  actionBarDiv.style.display = 'none';
+
+  const renderActionBar = () => {
+    actionBarDiv.empty();
+    if (selectionMots.size === 0) { actionBarDiv.style.display = 'none'; return; }
+    actionBarDiv.style.display = 'flex';
+
+    const chipsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-chips' });
+    chipsRow.createSpan({ cls: 'cp-sources-label', text: `${selectionMots.size} mot(s) sélectionné(s) : ` });
+    [...selectionMots.values()].forEach(({ mot }) => {
+      const chip = chipsRow.createSpan({ cls: 'cp-tag-chip' });
+      chip.createSpan({ text: mot });
+      const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
+      btnX.addEventListener('click', () => { toggleSelection(mot); });
+    });
+    const btnClear = chipsRow.createEl('button', { cls: 'cp-link-btn', text: 'Tout désélectionner' });
+    btnClear.addEventListener('click', () => { selectionMots.clear(); renderActionBar(); });
+
+    const actionsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-actions' });
+    const btnChamp = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter à un champ lexical' });
+    const btnRare = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter comme mot(s) rare(s)' });
+
+    let formChamp = null;
+    btnChamp.addEventListener('click', () => {
+      if (formChamp) { formChamp.remove(); formChamp = null; return; }
+      formChamp = actionBarDiv.createDiv({ cls: 'cp-inspi-ajout-form' });
+      const datalistId = 'cp-inspi-themes-' + Math.random().toString(36).slice(2, 8);
+      const themeInput = formChamp.createEl('input', { attr: { type: 'text', placeholder: 'thème (ex. Bretagne)', list: datalistId } });
+      const datalist = formChamp.createEl('datalist', { attr: { id: datalistId } });
+      tousLesThemesLexicaux().forEach(t => datalist.createEl('option', { attr: { value: t } }));
+      const clefsInput = formChamp.createEl('input', { attr: { type: 'text', placeholder: 'mots-clés séparés par virgule (si nouveau thème)' } });
+      const btnValider = formChamp.createEl('button', { cls: 'cp-link-btn', text: `Ajouter les ${selectionMots.size} mot(s)` });
+
+      // Suggestion affichée à part (jamais pré-remplie en silence) : si
+      // tous les mots sélectionnés viennent du même champ reconnu, on
+      // propose ce thème, mais seul un clic explicite l'applique — un
+      // mot présent dans deux champs à la fois (ex. rattaché à "Nuit &
+      // obscurité" ET à "Noir") ne doit jamais faire deviner le mauvais.
+      const themesSuggeres = [...new Set([...selectionMots.values()].map(v => v.themeSuggere).filter(Boolean))];
+      if (themesSuggeres.length === 1) {
+        const suggestion = formChamp.createDiv({ cls: 'cp-inspi-suggestion' });
+        suggestion.createSpan({ text: 'Suggestion : ' });
+        const btnSuggestion = suggestion.createEl('button', { cls: 'cp-link-btn', text: themesSuggeres[0] });
+        btnSuggestion.addEventListener('click', () => { themeInput.value = themesSuggeres[0]; themeInput.focus(); });
+      }
+
+      const valider = async () => {
+        const theme = themeInput.value.trim();
+        if (!theme) { new Notice('Le thème est requis.'); return; }
+        const motsClefs = clefsInput.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
         const mots = [...selectionMots.values()];
         for (const { mot, note } of mots) {
-          await ajouteMotRarePerso(this.plugin, mot, note || '', []);
+          await ajouteMotChampLexicalPerso(vue.plugin, theme, motsClefs, mot, note || '', { silencieux: true });
         }
-        new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) comme mot(s) rare(s) dans dictionnaire-perso.json.`);
+        new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) au champ lexical « ${theme} ».`);
         selectionMots.clear();
         renderActionBar();
-      });
-    };
-
-    const toggleSelection = (mot, themeSuggere, note) => {
-      const w = normaliseMot(mot);
-      if (selectionMots.has(w)) selectionMots.delete(w);
-      else selectionMots.set(w, { mot, themeSuggere, note });
-      renderActionBar();
-    };
-    const selectionApi = {
-      estSelectionne: (w) => selectionMots.has(w),
-      toggle: toggleSelection
-    };
-
-    const resultatsDiv = panelInspi.createDiv({ cls: 'cp-resultats' });
-
-    const sourcesActives = () => SOURCES_INSPIRATION.map(src => src.id).filter(id => cases[id].checked);
-
-    const sauvePreference = async () => {
-      const data = (await this.plugin.loadData()) || {};
-      data.sourcesEnLigneInspiration = sourcesActives();
-      await this.plugin.saveData(data);
-    };
-    (async () => {
-      const data = await this.plugin.loadData();
-      const prefs = (data && Array.isArray(data.sourcesEnLigneInspiration)) ? data.sourcesEnLigneInspiration : [];
-      SOURCES_INSPIRATION.forEach(src => { cases[src.id].checked = prefs.includes(src.id); });
-    })();
-    Object.values(cases).forEach(c => c.addEventListener('change', sauvePreference));
-
-    const chercher = () => renderResultatsInspiration(resultatsDiv, motInput.value, this.plugin, sourcesActives(), selectionApi);
-
-    btnChercher.addEventListener('click', chercher);
-    motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
-
-    this._prefillInspiInput = (mot) => {
-      motInput.value = mot;
-      chercher();
-    };
-  }
-
-  buildPanelSynonymes(panelSyno){
-    const intro = panelSyno.createEl('p', { cls: 'cp-inspi-intro' });
-    intro.setText('Tape un mot courant pour voir ses synonymes et ses antonymes — utile pour varier une rime ou un rythme sans changer le sens.');
-
-    const sourcesDiv = panelSyno.createDiv({ cls: 'cp-sources' });
-    sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Rechercher aussi en ligne : ' });
-    const cases = {};
-    SOURCES_EN_LIGNE_ORDRE.forEach(id => {
-      const source = SOURCES_EN_LIGNE[id];
-      const label = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
-      const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
-      label.createSpan({ text: ' ' + source.nom });
-      cases[id] = case_;
-    });
-
-    const form = panelSyno.createDiv({ cls: 'cp-rime-form' });
-    const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. beau, triste, lumière)' } });
-    const btnChercher = form.createEl('button', { text: 'Chercher' });
-
-    const rimeCibleDiv = panelSyno.createDiv({ cls: 'cp-filtres' });
-    const rimeCibleInput = rimeCibleDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', placeholder: 'Rime avec… (optionnel)', style: 'width:180px' } });
-    rimeCibleInput.setAttr('title', 'Optionnel : ne garder que les synonymes/antonymes qui riment aussi avec ce second mot — utile quand tu cherches un synonyme de X contraint par une rime déjà fixée par un autre vers.');
-    const syllabesSynoWrap = rimeCibleDiv.createDiv({ cls: 'cp-select-wrap' });
-    const syllabesSynoSelect = syllabesSynoWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
-    syllabesSynoWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
-    [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
-      .forEach(([val, label]) => syllabesSynoSelect.createEl('option', { attr: { value: val }, text: label }));
-    syllabesSynoSelect.setAttr('title', 'Ne garder que les synonymes/antonymes ayant ce nombre de syllabes — utile pour caser un mot dans un mètre précis.');
-
-    const resultatsDiv = panelSyno.createDiv({ cls: 'cp-resultats' });
-
-    const sourcesActives = () => SOURCES_EN_LIGNE_ORDRE.filter(id => cases[id].checked);
-
-    const sauvePreferenceSources = async () => {
-      const data = (await this.plugin.loadData()) || {};
-      data.sourcesEnLigne = sourcesActives();
-      await this.plugin.saveData(data);
-    };
-
-    (async () => {
-      const data = await this.plugin.loadData();
-      const prefs = (data && Array.isArray(data.sourcesEnLigne)) ? data.sourcesEnLigne : ['wiktionnaire'];
-      SOURCES_EN_LIGNE_ORDRE.forEach(id => { cases[id].checked = prefs.includes(id); });
-    })();
-
-    Object.values(cases).forEach(c => c.addEventListener('change', sauvePreferenceSources));
-
-    const chercher = () => renderResultatsSynonymes(resultatsDiv, motInput.value, this.plugin, sourcesActives(), rimeCibleInput.value, syllabesSynoSelect.value);
-    this._rechercherSynonymes = chercher;
-
-    btnChercher.addEventListener('click', chercher);
-    motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
-    rimeCibleInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
-    rimeCibleInput.addEventListener('input', chercher);
-    syllabesSynoSelect.addEventListener('change', chercher);
-
-    this._prefillSynoInput = (mot) => {
-      motInput.value = mot;
-      chercher();
-    };
-  }
-
-  buildPanelGuide(panelGuide){
-    const para = (container, texte) => { container.createEl('p', { cls: 'cp-guide-p', text: texte }); };
-    const liste = (container, items) => {
-      const ul = container.createEl('ul', { cls: 'cp-guide-liste' });
-      items.forEach(it => {
-        const li = ul.createEl('li');
-        if (typeof it === 'string') {
-          li.setText(it);
-        } else {
-          li.createEl('strong', { text: it.titre + ' — ' });
-          li.createSpan({ text: it.texte });
-        }
-      });
-    };
-
-    // Contenu regroupé par thème plutôt que dans l'ordre où les sections
-    // avaient été ajoutées au fil du temps (les rimes et les formes
-    // poétiques étaient chacune coupées en deux, séparées par du contenu
-    // sans rapport) : d'abord les unités du vers (syllabe → vers →
-    // strophe), puis les rimes, puis les sonorités, puis les formes.
-    const sections = [
-      { id:'syllabes', titre:'Compter les syllabes en français', ouvert:true, build:(c) => {
-        para(c, 'On compte les groupes de voyelles réellement prononcés dans le vers, pas les lettres.');
-        liste(c, [
-          { titre:'Le e caduc (e muet)', texte:'compté seulement s\'il est suivi d\'un mot commençant par une consonne ; jamais compté en fin de vers ; élidé (jamais compté) devant un mot commençant par une voyelle ou un h muet — ex. « la fleuve aux vagues » : le e de « fleuve » ne compte pas devant « aux ».' },
-          { titre:'Les diphtongues fixes', texte:'ai, au, eau, eu, ou, oi, ei... comptent toujours pour une seule syllabe (« beau » = 1 syllabe).' },
-          { titre:'Le hiatus et la diérèse', texte:'deux voyelles qui ne forment pas une diphtongue fixe (comme « ti-on », « pi-eu », « lu-mi-ère ») peuvent se lire en une seule syllabe (synérèse, la lecture la plus courante) ou en deux (diérèse, souvent utilisée pour allonger un vers) — c\'est un choix du poète selon le mètre recherché. Le Carnet du Poète affiche les deux lectures quand le cas se présente.' },
-          { titre:'La liaison', texte:'change la prononciation mais pas le nombre de syllabes.' },
-          { titre:'Le y intervocalique', texte:'entre deux voyelles (rayon, crayon, voyage), il sépare deux syllabes au lieu de fusionner avec elles.' }
-        ]);
-      }},
-      { id:'vers', titre:'Le vers : mètre, césure, coupe', build:(c) => {
-        para(c, 'Nom du mètre selon le nombre de syllabes du vers :');
-        liste(c, [
-          '4 : tétrasyllabe', '5 : pentasyllabe', '6 : hexasyllabe', '7 : heptasyllabe',
-          '8 : octosyllabe', '9 : ennéasyllabe', '10 : décasyllabe', '11 : hendécasyllabe',
-          '12 : alexandrin (le plus utilisé dans la poésie classique française)'
-        ]);
-        liste(c, [
-          { titre:'La césure', texte:'une pause obligatoire à l\'intérieur du vers. Dans l\'alexandrin classique, elle tombe au milieu (6/6) ; on parle de « trimètre » quand elle est remplacée par deux coupes plus légères créant trois groupes (souvent 4/4/4, fréquent chez Hugo et les romantiques).' },
-          { titre:'La coupe', texte:'une pause plus légère et facultative ailleurs dans le vers, qui structure son rythme intérieur.' }
-        ]);
-        para(c, 'Construction du vers :');
-        liste(c, [
-          { titre:'Enjambement', texte:'une phrase ou un groupe de mots déborde du vers sur le suivant, sans pause syntaxique à la rime.' },
-          { titre:'Rejet', texte:'un enjambement où un élément court est repoussé seul en tout début du vers suivant, le mettant en valeur.' },
-          { titre:'Contre-rejet', texte:'l\'inverse : un élément court annonce, en toute fin de vers, la phrase qui se développera au vers suivant.' }
-        ]);
-      }},
-      { id:'strophe', titre:'La strophe : la nommer par son nombre de vers', build:(c) => {
-        liste(c, [
-          '2 vers : distique', '3 vers : tercet', '4 vers : quatrain', '5 vers : quintil',
-          '6 vers : sizain', '7 vers : septain', '8 vers : huitain', '10 vers : dizain'
-        ]);
-      }},
-      { id:'rimes', titre:'Les rimes', build:(c) => {
-        para(c, 'Disposition des rimes dans une strophe (les trois formes courantes, détectées automatiquement dans l\'onglet Syllabes) :');
-        liste(c, [
-          { titre:'Rimes plates (ou suivies) — AABB', texte:'deux vers qui riment se suivent directement.' },
-          { titre:'Rimes croisées — ABAB', texte:'un vers sur deux rime avec le suivant du même type.' },
-          { titre:'Rimes embrassées — ABBA', texte:'deux rimes s\'enferment autour de deux autres.' }
-        ]);
-        para(c, 'Formes plus rares (non détectées automatiquement, à repérer soi-même) :');
-        liste(c, [
-          { titre:'Rimes annexées (ou concaténées)', texte:'la fin d\'un vers est reprise au début du vers suivant.' },
-          { titre:'Rimes internes (ou brisées)', texte:'une rime sonne à la fois à la césure et à la fin du même vers.' },
-          { titre:'Rimes batelées', texte:'la fin d\'un vers trouve son écho à la césure du vers suivant.' },
-          { titre:'Rimes sénées', texte:'tous les mots d\'un même vers commencent par le même son.' },
-          { titre:'Rimes couronnées', texte:'le mot-rime est répété deux fois de suite en fin de vers.' },
-          { titre:'Rimes triplées', texte:'trois vers de suite sur la même rime (aaa), plutôt romantique — la poésie classique préférait s\'arrêter à deux.' },
-          { titre:'Rimes emperières', texte:'un même son revient trois fois dans le même vers ; pure prouesse de rhétoriqueur.' }
-        ]);
-        para(c, 'Qualité d\'une rime — comptage classique du nombre de sons communs en partant de la fin des mots (2 unités pour la voyelle tonique, qui porte le son dominant ; 1 unité par consonne d\'appui) :');
-        liste(c, [
-          { titre:'Rime pauvre', texte:'un seul son commun, seule la voyelle finale (ex. « ami / parti »).' },
-          { titre:'Rime suffisante', texte:'deux sons communs (ex. « chagrin / matin »).' },
-          { titre:'Rime riche', texte:'trois sons communs ou plus (ex. « tendresse / paresse »).' },
-          { titre:'Rime très riche', texte:'la syllabe finale est intégralement identique, et la voyelle de la syllabe précédente coïncide aussi — deux syllabes homophones moins un phonème (ex. « patin / matin », « ambroisie / cramoisie »).' },
-          { titre:'Rime léonine', texte:'deux syllabes entières, consonnes d\'appui comprises, sont identiques (ex. « railleur / ferrailleur », « sultans / insultants »).' }
-        ]);
-        para(c, 'Une nuance utile : une voyelle d\'appui (la voyelle de la syllabe qui précède la rime) enrichit davantage qu\'une simple consonne d\'appui, car elle est plus audible — « harem / Jérusalem » ou « aurore / sonore » riment plus richement qu\'une consonne d\'appui seule ne le laisserait penser. C\'est cette logique qui distingue « riche » de « très riche » ci-dessus.');
-        para(c, 'Genre d\'une rime, et règle d\'alternance classique :');
-        liste(c, [
-          { titre:'Rime féminine', texte:'le vers se termine par un e muet (ex. « montagne », « chêne »).' },
-          { titre:'Rime masculine', texte:'le vers ne se termine pas par un e muet (ex. « amour », « instant »).' },
-          { titre:'Alternance', texte:'la poésie classique française alterne généralement rimes masculines et féminines d\'une strophe à l\'autre (c\'est la pastille F/M affichée dans l\'onglet Syllabes).' }
-        ]);
-        para(c, 'Deux nuances utiles, à repérer soi-même :');
-        liste(c, [
-          { titre:'Rime pour l\'œil vs rime pour l\'oreille', texte:'une rime « pour l\'œil » se ressemble à l\'écrit mais pas à l\'oral (ex. « femme » / « lame » ne riment pas vraiment à l\'oreille) ; une bonne rime classique doit fonctionner à l\'oral, pas seulement visuellement.' },
-          { titre:'Rime normande ou approximative', texte:'certains poètes jouent volontairement avec des rimes approchantes (assonances) plutôt que des rimes strictes, notamment en poésie moderne et en chanson.' }
-        ]);
-      }},
-      { id:'sonorites', titre:'Les sonorités : allitérations, assonances, trame phonique, homéotéleutes', build:(c) => {
-        para(c, 'Contrairement à la rime, qui ne concerne que la fin du vers, les sonorités sont des échos de son qui courent dans le corps des mots, n\'importe où dans le vers ou d\'un vers à l\'autre.');
-        liste(c, [
-          { titre:'Allitération', texte:'répétition d\'un même son consonne en début de mots rapprochés — ex. « Pour qui sont ces serpents qui sifflent sur vos têtes » (Racine), tissé de [s].' },
-          { titre:'Assonance', texte:'répétition d\'une même voyelle à l\'intérieur de plusieurs mots proches, indépendamment de la rime finale — à ne pas confondre avec une « rime par assonance » (voir la nuance « Rime normande » ci-dessus), qui elle concerne la fin du vers.' },
-          { titre:'Trame phonique (réseau consonantique)', texte:'un même son consonne qui revient dans un mot quelle que soit sa position — attaque, milieu ou fin —, pas seulement en début de mot comme l\'allitération classique. Une consonne qui « arme » discrètement tout un passage, même quand elle n\'est jamais en tête de mot.' },
-          { titre:'Homéotéleute', texte:'répétition d\'une finale de mot proche, ailleurs que la rime de fin de vers — un mot en milieu de vers qui fait écho à une terminaison utilisée ailleurs dans le poème.' }
-        ]);
-        para(c, 'L\'onglet Syllabes propose un volet dédié (bouton Sonorités, sous le brouillon) qui détecte ces échos automatiquement : liste par son avec ses occurrences, et surlignage directement dans le texte pour les allitérations et assonances. La trame phonique reste en liste (cliquer un son l\'isole dans le brouillon et grise le reste, plutôt qu\'un 3e code couleur permanent) ; les homéotéleutes n\'apparaissent qu\'en liste — et seulement quand au moins un des mots concernés est en milieu de vers, sinon ce ne serait qu\'une redite du schéma de rimes déjà affiché.');
-        para(c, 'Trois niveaux de regroupement, au choix, dans ce volet (pour les allitérations, la trame phonique et les assonances ; les homéotéleutes restent toujours sur leur terminaison exacte) :');
-        liste(c, [
-          { titre:'Sons exacts', texte:'chaque symbole phonétique distinct a sa propre couleur (ex. [s] et [ʃ] séparés) — le plus précis, mais potentiellement beaucoup de couleurs sur un poème riche en sonorités.' },
-          { titre:'Familles simplifiées', texte:'peu de groupes, pour repérer un motif d\'ensemble d\'un coup d\'œil. Consonnes : Sifflantes/chuintantes (s, ʃ, ʒ, z) · Occlusives (p, t, k, b, d, g) · Liquides (l, r) · Nasales (m, n, ɲ) · Fricatives (f, v). Voyelles : Voyelles claires (i, y, é, e, ai, ei) · Voyelles sombres (u, o, ou, eu) · Voyelle ouverte (a) · Nasales (in, an, on, un).' },
-          { titre:'Familles étendues', texte:'classification phonétique plus complète, qui distingue en plus sourdes et sonores (la vibration ou non des cordes vocales). Consonnes : Occlusives sourdes (p, t, k) · Occlusives sonores (b, d, g) · Fricatives sourdes (f, s, ʃ) · Fricatives sonores (v, z, ʒ) · Nasales (m, n, ɲ) · Liquides (l, r). Voyelles : Voyelles fermées (i, y, u, ou) · Voyelles moyennes/ouvertes (e, é, ai, ei, o, eu, a) · Nasales (in, an, on, un).' }
-        ]);
-        para(c, 'Comme pour le reste du plugin, la détection est une heuristique orthographique (appuyée sur le dictionnaire phonétique quand le mot y figure) : fiable sur l\'essentiel, mais pas une transcription phonétique parfaite.');
-      }},
-      { id:'formes', titre:'Formes de poèmes', build:(c) => {
-        liste(c, [
-          { titre:'Sonnet', texte:'14 vers, généralement en alexandrins : deux quatrains suivis de deux tercets. Schéma de rimes fréquent : ABBA ABBA CCD EED (ou CCD EDE).' },
-          { titre:'Rondeau', texte:'forme à refrain, souvent 13 ou 15 vers en trois strophes ; le début du premier vers revient comme refrain.' },
-          { titre:'Ballade', texte:'trois strophes suivies d\'un envoi plus court, avec un même vers-refrain répété à la fin de chaque strophe.' },
-          { titre:'Villanelle', texte:'19 vers : cinq tercets puis un quatrain, avec deux vers-refrains qui reviennent alternativement.' },
-          { titre:'Pantoum', texte:'forme d\'origine malaise : les 2e et 4e vers de chaque strophe deviennent les 1er et 3e vers de la strophe suivante.' },
-          { titre:'Ode', texte:'poème lyrique de forme régulière célébrant une personne, une chose ou une idée.' },
-          { titre:'Haïku', texte:'poème très court d\'origine japonaise, en 3 vers (5-7-5 syllabes en tradition japonaise), qui capture un instant, souvent lié à la nature.' },
-          { titre:'Fable', texte:'court récit en vers, souvent animalier, portant une morale (La Fontaine).' },
-          { titre:'Acrostiche', texte:'la première lettre de chaque vers, lue verticalement, forme un mot.' },
-          { titre:'Triolet', texte:'8 vers sur 2 rimes, avec reprise des 1er, 4e et 7e vers comme refrain.' },
-          { titre:'Virelai', texte:'forme médiévale à refrain, sur deux rimes qui s\'échangent de strophe en strophe.' },
-          { titre:'Tanka', texte:'poème japonais de 31 syllabes en 5 vers (5-7-5-7-7), qui prolonge le haïku d\'une réflexion personnelle.' },
-          { titre:'Calligramme', texte:'poème dont la disposition graphique sur la page dessine une forme en lien avec le sujet (Apollinaire).' },
-          { titre:'Vers libres', texte:'vers sans mètre fixe ni rimes obligatoires, qui s\'appuient sur le rythme et la respiration plutôt que sur des règles strictes (Rimbaud, Laforgue, et la majeure partie de la poésie depuis le XXe siècle).' },
-          { titre:'Vers blancs', texte:'vers de mètre régulier mais sans rime.' }
-        ]);
-      }}
-    ];
-
-    // Sommaire : un lien par section, qui déplie la section visée et
-    // scrolle jusqu'à elle — pratique pour une page devenue longue.
-    const sommaire = panelGuide.createDiv({ cls: 'cp-guide-sommaire' });
-    sommaire.createEl('div', { cls: 'cp-guide-sommaire-titre', text: 'Sommaire' });
-    const sommaireListe = sommaire.createEl('ul');
-
-    const details = {};
-    sections.forEach(s => {
-      const li = sommaireListe.createEl('li');
-      const lien = li.createEl('a', { text: s.titre, attr: { href: '#' } });
-      lien.addEventListener('click', (e) => {
-        e.preventDefault();
-        details[s.id].open = true;
-        details[s.id].scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    });
-
-    sections.forEach(s => {
-      const det = panelGuide.createEl('details', { cls: 'cp-guide-section' });
-      if (s.ouvert) det.setAttr('open', 'true');
-      det.createEl('summary', { cls: 'cp-guide-titre', text: s.titre });
-      const corps = det.createDiv({ cls: 'cp-guide-corps' });
-      s.build(corps);
-      details[s.id] = det;
-    });
-  }
-
-  buildPanelDefinitions(panelDefs){
-    const intro = panelDefs.createEl('p', { cls: 'cp-inspi-intro' });
-    intro.setText('Vérifie le sens exact et le registre d\'un mot rare avant de l\'utiliser — définitions et étymologie tirées du Trésor de la Langue Française informatisé (CNRTL), à la demande.');
-
-    const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
-    const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });
-    const btnChercher = form.createEl('button', { text: 'Chercher' });
-    const lienOuvrirCnrtl = form.createEl('a', { cls: 'cp-icon-btn', text: 'Ouvrir sur CNRTL ↗', attr: { target: '_blank', rel: 'noopener', href: '#' } });
-    const majLienOuvrirCnrtl = () => {
-      const m = motInput.value.trim();
-      lienOuvrirCnrtl.setAttribute('href', m ? `https://www.cnrtl.fr/definition/${encodeURIComponent(m)}` : '#');
-    };
-    motInput.addEventListener('input', majLienOuvrirCnrtl);
-    majLienOuvrirCnrtl();
-    lienOuvrirCnrtl.addEventListener('click', (e) => { if (!motInput.value.trim()) e.preventDefault(); });
-    const resultatsDiv = panelDefs.createDiv({ cls: 'cp-resultats' });
-
-    const chercher = async () => {
-      const saisie = motInput.value.trim();
-      resultatsDiv.empty();
-      if (!saisie) return;
-      resultatsDiv.createDiv({ cls: 'cp-son-label', text: `${saisie} — CNRTL` });
-      // Choix de l'homographe (nom/adjectif…) si le mot en a plusieurs ;
-      // `afficher` (ré)affiche l'entrée demandée dans `zone`.
-      const afficher = async (zone, pos) => {
-      zone.empty();
-      const statut = zone.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
-      try {
-        const r = await chercheCnrtl(saisie, pos);
-        statut.remove();
-        if (!r.trouve) {
-          zone.createEl('p', { cls: 'cp-vide', text: `« ${saisie} » n'a pas été trouvé sur le CNRTL.` });
-          return;
-        }
-        const lien = zone.createEl('a', { text: `Voir « ${saisie} » sur le CNRTL →`, attr: { href: r.url, target: '_blank', rel: 'noopener' } });
-        lien.addClass('cp-cnrtl-lien');
-        if (r.definition) {
-          const blocDef = zone.createDiv({ cls: 'cp-cnrtl-bloc' });
-          blocDef.createDiv({ cls: 'cp-cnrtl-titre', text: 'Définition rapide' });
-          blocDef.createEl('p', { cls: 'cp-cnrtl-texte', text: r.definition });
-        }
-
-        if (r.sources.length > 0) {
-          const pillsDiv = zone.createDiv({ cls: 'cp-cnrtl-source-pills' });
-          const zoneSource = zone.createDiv({ cls: 'cp-cnrtl-source-zone' });
-
-          // Découpe et affiche la source choisie en blocs pliables, la
-          // première section ouverte et les suivantes fermées. Recalculé
-          // uniquement à la sélection d'une pill, pas pour les 6 sources
-          // d'un coup (les autres sources peuvent être longues, ex. TLFi
-          // ou Littré, inutile de tout parser si l'usager n'en affiche
-          // qu'une seule à la fois).
-          const afficherSource = (source) => {
-            zoneSource.empty();
-            const blocs = decoupeSectionsCnrtl(source.htmlEntries);
-            if (blocs.length === 0) {
-              zoneSource.createEl('p', { cls: 'cp-vide', text: `Rien à afficher pour ${source.label}.` });
-              return;
-            }
-            blocs.forEach((bloc, i) => {
-              const det = zoneSource.createEl('details', { cls: 'cp-cnrtl-details' });
-              if (i === 0) det.setAttr('open', 'true');
-              det.createEl('summary', { cls: 'cp-cnrtl-details-titre', text: bloc.titre });
-              const corps = det.createDiv({ cls: 'cp-cnrtl-texte' });
-              corps.innerHTML = bloc.html;
-            });
-          };
-
-          r.sources.forEach((source, i) => {
-            const pill = pillsDiv.createEl('button', { cls: 'cp-cnrtl-source-pill', text: source.label });
-            if (i === 0) pill.addClass('active');
-            pill.addEventListener('click', () => {
-              pillsDiv.querySelectorAll('.cp-cnrtl-source-pill').forEach(b => b.removeClass('active'));
-              pill.addClass('active');
-              afficherSource(source);
-            });
-          });
-
-          afficherSource(r.sources[0]);
-        }
-      } catch (err) {
-        console.error('[Carnet du Poète] erreur CNRTL', err);
-        statut.setText('Recherche impossible (pas de connexion, ou le site a changé — voir la console).');
-      }
       };
-      brancheHomographesCnrtl(resultatsDiv, saisie, afficher);
-    };
+      btnValider.addEventListener('click', valider);
+      themeInput.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
+    });
 
-    btnChercher.addEventListener('click', chercher);
-    motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
-
-    this._prefillDefsInput = (mot) => {
-      motInput.value = mot;
-      majLienOuvrirCnrtl();
-      chercher();
-    };
-  }
-
-  buildPanelHasard(panelHasard){
-    const intro = panelHasard.createEl('p', { cls: 'cp-inspi-intro' });
-    intro.setText('Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.');
-
-    // --- stats de progression (utile pour savoir quand importer un
-    // nouveau lot de mots, ex. Méral, sans redemander à voir les mêmes).
-    // Repliées par défaut en bas de l'onglet (cf. plus bas) pour ne pas
-    // surcharger le haut du panel ; statsDiv est assigné après coup.
-    let statsDiv = null;
-    let compteurPoolEl = null;
-    const renderStats = () => {
-      if (!statsDiv) return;
-      statsDiv.empty();
-      const total = MOTS_RARES.length;
-      const exclus = MOTS_RARES.filter(e => estExclu(e.mot)).length;
-      const sansTag = MOTS_RARES.filter(e => tagsSignificatifs(e.mot).length === 0).length;
-      const vus = total - sansTag;
-      const pct = total > 0 ? Math.round((vus / total) * 100) : 0;
-      const item = (texte, cls) => statsDiv.createSpan({ cls: 'cp-hasard-stat ' + cls, text: texte });
-      item(`${total} mot(s) au total`, 'cp-hasard-stat-total');
-      item(`${exclus} exclu(s)`, 'cp-hasard-stat-exclus');
-      item(`${sansTag} sans tag`, 'cp-hasard-stat-sanstag');
-      item(`${pct}% déjà vu(s)`, 'cp-hasard-stat-vu');
-
-      // Détail par tag et par combinaison de tags RÉELLEMENT observée
-      // (pas toutes les combinaisons théoriques, qui exploseraient très
-      // vite — seulement celles qui existent dans le dictionnaire).
-      const parTag = new Map();
-      const parCombo = new Map();
-      MOTS_RARES.forEach(e => {
-        const tags = tagsSignificatifs(e.mot);
-        tags.forEach(t => parTag.set(t, (parTag.get(t) || 0) + 1));
-        if (tags.length > 0) {
-          const cle = [...tags].sort().join(' + ');
-          parCombo.set(cle, (parCombo.get(cle) || 0) + 1);
-        }
-      });
-
-      const detailsDiv = statsDiv.createDiv({ cls: 'cp-hasard-stats-detail' });
-      const blocTags = detailsDiv.createDiv({ cls: 'cp-hasard-stats-bloc' });
-      blocTags.createDiv({ cls: 'cp-titre', text: 'Par tag' });
-      const listeTags = blocTags.createDiv({ cls: 'cp-hasard-stats-liste' });
-      [...parTag.entries()].sort((a, b) => b[1] - a[1]).forEach(([tag, n]) => {
-        const chip = listeTags.createSpan({ cls: 'cp-hasard-stats-chip' });
-        const c = couleurTag(tag);
-        chip.style.borderColor = c; chip.style.color = c;
-        chip.setText(`${tag} · ${n}`);
-      });
-
-      const combosMultiples = [...parCombo.entries()].filter(([cle]) => cle.includes(' + '));
-      if (combosMultiples.length > 0) {
-        const blocCombos = detailsDiv.createDiv({ cls: 'cp-hasard-stats-bloc' });
-        blocCombos.createDiv({ cls: 'cp-titre', text: 'Combinaisons observées' });
-        const listeCombos = blocCombos.createDiv({ cls: 'cp-hasard-stats-liste' });
-        combosMultiples.sort((a, b) => b[1] - a[1]).forEach(([cle, n]) => {
-          listeCombos.createSpan({ cls: 'cp-hasard-stats-chip', text: `${cle} · ${n}` });
-        });
+    btnRare.addEventListener('click', async () => {
+      const mots = [...selectionMots.values()];
+      for (const { mot, note } of mots) {
+        await ajouteMotRarePerso(vue.plugin, mot, note || '', []);
       }
-    };
+      new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) comme mot(s) rare(s) dans dictionnaire-perso.json.`);
+      selectionMots.clear();
+      renderActionBar();
+    });
+  };
 
-    // --- filtres par tags (élargissent le pool ; OU logique). "exclu"
-    // bascule en mode revue : ne tire QUE parmi les mots exclus. ---
-    const filtresDiv = panelHasard.createDiv({ cls: 'cp-hasard-filtres' });
+  const toggleSelection = (mot, themeSuggere, note) => {
+    const w = normaliseMot(mot);
+    if (selectionMots.has(w)) selectionMots.delete(w);
+    else selectionMots.set(w, { mot, themeSuggere, note });
+    renderActionBar();
+  };
+  const selectionApi = {
+    estSelectionne: (w) => selectionMots.has(w),
+    toggle: toggleSelection
+  };
 
-    // --- Bandeau de raccourcis rapides : toujours visible, 3 pilules de
-    // même forme (auparavant "Masquer les mots déjà tagués" était une
-    // case à cocher isolée, visuellement différente des deux boutons
-    // "Explorer") ---
-    const bandeauDiv = filtresDiv.createDiv({ cls: 'cp-hasard-bandeau' });
-    bandeauDiv.createDiv({ cls: 'cp-titre', text: 'Tirage rapide' });
-    const filtresRapidesDiv = bandeauDiv.createDiv({ cls: 'cp-hasard-filtres-rapides' });
+  const resultatsDiv = panelInspi.createDiv({ cls: 'cp-resultats' });
 
-    // --- Section "Filtrer par tags" (inclusion, OU par défaut, bascule ET
-    // possible) : repliée par défaut ---
-    const sectionInclusion = creeSectionRepliable(filtresDiv, 'Filtrer par tags', 'cp-hasard-section-inclusion');
-    const ligneFormInclusion = sectionInclusion.body.createDiv({ cls: 'cp-hasard-ligne-form' });
-    const datalistId = 'cp-hasard-taglist-' + Math.random().toString(36).slice(2, 8);
-    const filtreInput = ligneFormInclusion.createEl('input', { attr: { type: 'text', placeholder: 'un tag (ou clique plusieurs pastilles ci-dessous)…', list: datalistId } });
-    const filtreDatalist = ligneFormInclusion.createEl('datalist', { attr: { id: datalistId } });
-    const btnAjouterFiltre = ligneFormInclusion.createEl('button', { cls: 'cp-link-btn', text: '+ ajouter tag' });
-    const btnTousTagsFiltre = ligneFormInclusion.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags' });
-    btnTousTagsFiltre.style.display = 'none';
-    // Bascule OU (au moins un tag coché) / ET (tous les tags cochés) —
-    // utile dès qu'un tag a un volume disproportionné par rapport aux
-    // autres (ex. un import en masse) : en OU, le cocher avec un autre tag
-    // revient presque à ne cocher que lui, il faut le mode ET pour une
-    // vraie intersection.
-    const modeETLabel = sectionInclusion.body.createEl('label', { cls: 'cp-hasard-mode-et' });
-    const modeETCase = modeETLabel.createEl('input', { attr: { type: 'checkbox' } });
-    modeETLabel.createSpan({ text: ' Tous les tags cochés (ET) plutôt qu\'au moins un (OU)' });
-    // Générique plutôt que codé pour un tag précis : "méral" + n'importe
-    // quel autre tag, ou "femme" + n'importe quel autre — même mécanique,
-    // s'applique à ce qui est coché ci-dessus, quel que soit le tag.
-    const modePlusUnAutreLabel = sectionInclusion.body.createEl('label', { cls: 'cp-hasard-mode-et' });
-    const modePlusUnAutreCase = modePlusUnAutreLabel.createEl('input', { attr: { type: 'checkbox' } });
-    modePlusUnAutreLabel.createSpan({ text: ' + au moins un tag en plus de ceux cochés' });
-    const filtresChipsDiv = sectionInclusion.body.createDiv({ cls: 'cp-hasard-filtres-chips' });
+  const sourcesActives = () => SOURCES_INSPIRATION.map(src => src.id).filter(id => cases[id].checked);
 
-    // --- Section "Exclure des tags" (NOT/NOR) : symétrique, repliée par
-    // défaut. "Masquer les mots connus" est un raccourci compact sur la
-    // même ligne que le formulaire plutôt qu'un gros bouton à part —
-    // c'est probablement l'action la plus utilisée de la zone, donc
-    // gardée à taille normale (juste alignée avec le reste, pas réduite
-    // à une mini-puce). "Masquer les mots déjà tagués" reste dans le
-    // bandeau du haut : sémantique différente (AUCUN tag, pas "pas tel
-    // tag précis"), pas pliable dans cette exclusion générique. ---
-    const sectionExclusion = creeSectionRepliable(filtresDiv, 'Exclure des tags', 'cp-hasard-section-exclusion');
-    const ligneFormExclusion = sectionExclusion.body.createDiv({ cls: 'cp-hasard-ligne-form' });
-    const exclusionRapidesDiv = ligneFormExclusion.createDiv({ cls: 'cp-hasard-filtres-rapides cp-hasard-filtres-rapides-inline' });
-    const exclusionDatalistId = 'cp-hasard-exclutaglist-' + Math.random().toString(36).slice(2, 8);
-    const exclusionInput = ligneFormExclusion.createEl('input', { attr: { type: 'text', placeholder: 'un tag à exclure (ou clique plusieurs pastilles)…', list: exclusionDatalistId } });
-    const exclusionDatalist = ligneFormExclusion.createEl('datalist', { attr: { id: exclusionDatalistId } });
-    const btnAjouterExclusion = ligneFormExclusion.createEl('button', { cls: 'cp-link-btn', text: '+ exclure' });
-    const btnTousTagsExclusion = ligneFormExclusion.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags à exclure' });
-    btnTousTagsExclusion.style.display = 'none';
-    const exclusionChipsDiv = sectionExclusion.body.createDiv({ cls: 'cp-hasard-filtres-chips' });
+  const sauvePreference = async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.sourcesEnLigneInspiration = sourcesActives();
+    await vue.plugin.saveData(data);
+  };
+  (async () => {
+    const data = await vue.plugin.loadData();
+    const prefs = (data && Array.isArray(data.sourcesEnLigneInspiration)) ? data.sourcesEnLigneInspiration : [];
+    SOURCES_INSPIRATION.forEach(src => { cases[src.id].checked = prefs.includes(src.id); });
+  })();
+  Object.values(cases).forEach(c => c.addEventListener('change', sauvePreference));
 
-    const filtresExclus = new Set();
-    const filtresActifs = new Set();
-    // Mode revue des exclus : un booléen À PART, plus un pseudo-tag dans
-    // filtresActifs comme avant — "exclu" décide dans QUEL bassin on
-    // pioche (les mis de côté, plutôt que les actifs), les tags normaux
-    // décident QUELS mots dans ce bassin. Les deux se combinent maintenant
-    // naturellement (revoir "les mots exclus tagués méral", par exemple),
-    // sans le bricolage d'exclusivité qu'il fallait avant pour éviter
-    // qu'un filtre "actif" silencieusement ignoré ne prête à confusion.
-    let modeRevueExclus = false;
-    // Datalist du champ "ajouter un tag" (créé plus bas dans le DOM) —
-    // référence assignée après coup, mais rafraîchie depuis ici pour rester
-    // synchronisée avec la liste des tags à chaque changement.
-    let tagAjoutDatalist = null;
+  const chercher = () => renderResultatsInspiration(resultatsDiv, motInput.value, vue.plugin, sourcesActives(), selectionApi);
 
-    sectionInclusion.setCompteBadge(() => filtresActifs.size);
-    sectionExclusion.setCompteBadge(() => filtresExclus.size);
+  btnChercher.addEventListener('click', chercher);
+  motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
 
-    // "déjà tagués" et "multi-tagués" (0 vs 2+ tags significatifs) sont
-    // deux booléens à part, miroirs l'un de l'autre, affichés comme
-    // pilules du bandeau, harmonisées avec les deux "Explorer".
-    const masquerTaguesCase = { checked: false };
-    const multiTaguesCase = { checked: false };
-    let btnMasquerTagues = null;
+  vue._prefillInspiInput = (mot) => {
+    motInput.value = mot;
+    chercher();
+  };
+}
 
-    const activeFiltre = (tag) => { filtresActifs.add(tag); renderFiltresTags(); };
-    const desactiveFiltre = (tag) => { filtresActifs.delete(tag); renderFiltresTags(); };
-    const panneauTousTagsFiltre = creePanneauTousTags(
-      sectionInclusion.body,
-      btnTousTagsFiltre,
-      () => tousLesTagsUtilises().filter(t => t !== TAG_EXCLU && !filtresActifs.has(t)),
-      activeFiltre
-    );
-    modeETCase.addEventListener('change', () => { renderFiltresTags(); });
-    modePlusUnAutreCase.addEventListener('change', () => { renderFiltresTags(); });
 
-    // Raccourcis toujours visibles dans le bandeau du haut : "exclu" (mode
-    // revue, booléen à part désormais — voir plus haut), "like" (fixe, pas
-    // "le tag le plus utilisé" — un import en masse comme méral peut
-    // largement dépasser en volume les tags qu'on pose soi-même, sans que
-    // ça les rende plus pertinents comme raccourci rapide), "masquer déjà
-    // tagués" et son miroir "multi-tagués" (2+ tags significatifs, plutôt
-    // que 0 — pour repérer les mots déjà bien recoupés).
-    const renderFiltresRapides = () => {
-      filtresRapidesDiv.empty();
-      const rapides = [
-        { tag: TAG_EXCLU, label: '🚫 Explorer les exclus', actif: modeRevueExclus,
-          toggle: () => { modeRevueExclus = !modeRevueExclus; renderFiltresTags(); }, couleur: couleurTag(TAG_EXCLU) },
-        ...(tousLesTagsUtilises().includes('like') ? [{ tag: 'like', label: '☆ Explorer « like »', actif: filtresActifs.has('like'),
-          toggle: () => { filtresActifs.has('like') ? desactiveFiltre('like') : activeFiltre('like'); }, couleur: couleurTag('like') }] : []),
-        { tag: '__masquerTagues', label: '📭 Masquer les mots déjà tagués', actif: masquerTaguesCase.checked,
-          toggle: () => { masquerTaguesCase.checked = !masquerTaguesCase.checked; renderFiltresTags(); }, couleur: 'var(--text-muted)' },
-        { tag: '__multiTagues', label: '🏷️ Explorer les multi-tagués', actif: multiTaguesCase.checked,
-          toggle: () => { multiTaguesCase.checked = !multiTaguesCase.checked; renderFiltresTags(); }, couleur: 'var(--text-muted)' },
-      ];
-      rapides.forEach(r => {
-        const btn = filtresRapidesDiv.createEl('button', {
-          cls: 'cp-hasard-filtre-rapide' + (r.actif ? ' cp-hasard-filtre-rapide-actif' : ''),
-          text: r.label
-        });
-        btn.style.borderColor = r.couleur;
-        if (r.actif) { btn.style.background = r.couleur; btn.style.color = '#fff'; }
-        else { btn.style.color = r.couleur; }
-        btn.addEventListener('click', r.toggle);
-        if (r.tag === '__masquerTagues') btnMasquerTagues = btn;
-      });
-    };
+function buildPanelSynonymes(vue, panelSyno){
+  const intro = panelSyno.createEl('p', { cls: 'cp-inspi-intro' });
+  intro.setText('Tape un mot courant pour voir ses synonymes et ses antonymes — utile pour varier une rime ou un rythme sans changer le sens.');
 
-    const renderFiltresTags = () => {
-      renderStats();
-      renderFiltresRapides();
-      sectionInclusion.render();
-      sectionExclusion.render();
-      if (compteurPoolEl) {
-        const n = filtrePoolMots({
-          tagsActifs: filtresActifs, modeET: modeETCase.checked, modePlusUnAutre: modePlusUnAutreCase.checked,
-          tagsExclus: filtresExclus, masquerTagues: masquerTaguesCase.checked, modeMultiTagues: multiTaguesCase.checked,
-          modeRevueExclus,
-        }).length;
-        compteurPoolEl.setText(n === 0 ? 'Aucun mot ne correspond à ces filtres' : `${n} mot${n > 1 ? 's' : ''} correspond${n > 1 ? 'ent' : ''} à ces filtres`);
+  const sourcesDiv = panelSyno.createDiv({ cls: 'cp-sources' });
+  sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Rechercher aussi en ligne : ' });
+  const cases = {};
+  SOURCES_EN_LIGNE_ORDRE.forEach(id => {
+    const source = SOURCES_EN_LIGNE[id];
+    const label = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+    const case_ = label.createEl('input', { attr: { type: 'checkbox' } });
+    label.createSpan({ text: ' ' + source.nom });
+    cases[id] = case_;
+  });
+
+  const form = panelSyno.createDiv({ cls: 'cp-rime-form' });
+  const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. beau, triste, lumière)' } });
+  const btnChercher = form.createEl('button', { text: 'Chercher' });
+
+  const rimeCibleDiv = panelSyno.createDiv({ cls: 'cp-filtres' });
+  const rimeCibleInput = rimeCibleDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', placeholder: 'Rime avec… (optionnel)', style: 'width:180px' } });
+  rimeCibleInput.setAttr('title', 'Optionnel : ne garder que les synonymes/antonymes qui riment aussi avec ce second mot — utile quand tu cherches un synonyme de X contraint par une rime déjà fixée par un autre vers.');
+  const syllabesSynoWrap = rimeCibleDiv.createDiv({ cls: 'cp-select-wrap' });
+  const syllabesSynoSelect = syllabesSynoWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
+  syllabesSynoWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
+  [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
+    .forEach(([val, label]) => syllabesSynoSelect.createEl('option', { attr: { value: val }, text: label }));
+  syllabesSynoSelect.setAttr('title', 'Ne garder que les synonymes/antonymes ayant ce nombre de syllabes — utile pour caser un mot dans un mètre précis.');
+
+  const resultatsDiv = panelSyno.createDiv({ cls: 'cp-resultats' });
+
+  const sourcesActives = () => SOURCES_EN_LIGNE_ORDRE.filter(id => cases[id].checked);
+
+  const sauvePreferenceSources = async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.sourcesEnLigne = sourcesActives();
+    await vue.plugin.saveData(data);
+  };
+
+  (async () => {
+    const data = await vue.plugin.loadData();
+    const prefs = (data && Array.isArray(data.sourcesEnLigne)) ? data.sourcesEnLigne : ['wiktionnaire'];
+    SOURCES_EN_LIGNE_ORDRE.forEach(id => { cases[id].checked = prefs.includes(id); });
+  })();
+
+  Object.values(cases).forEach(c => c.addEventListener('change', sauvePreferenceSources));
+
+  const chercher = () => renderResultatsSynonymes(resultatsDiv, motInput.value, vue.plugin, sourcesActives(), rimeCibleInput.value, syllabesSynoSelect.value);
+  vue._rechercherSynonymes = chercher;
+
+  btnChercher.addEventListener('click', chercher);
+  motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+  rimeCibleInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+  rimeCibleInput.addEventListener('input', chercher);
+  syllabesSynoSelect.addEventListener('change', chercher);
+
+  vue._prefillSynoInput = (mot) => {
+    motInput.value = mot;
+    chercher();
+  };
+}
+
+
+function buildPanelGuide(vue, panelGuide){
+  const para = (container, texte) => { container.createEl('p', { cls: 'cp-guide-p', text: texte }); };
+  const liste = (container, items) => {
+    const ul = container.createEl('ul', { cls: 'cp-guide-liste' });
+    items.forEach(it => {
+      const li = ul.createEl('li');
+      if (typeof it === 'string') {
+        li.setText(it);
+      } else {
+        li.createEl('strong', { text: it.titre + ' — ' });
+        li.createSpan({ text: it.texte });
       }
-      const tags = tousLesTagsUtilises().filter(t => t !== TAG_EXCLU);
-      filtreDatalist.empty();
-      tags.forEach(tag => {
-        if (filtresActifs.has(tag)) return;
-        filtreDatalist.createEl('option', { attr: { value: tag } });
-      });
-      if (tagAjoutDatalist) {
-        tagAjoutDatalist.empty();
-        tags.forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
-      }
-      panneauTousTagsFiltre.render();
-      filtresChipsDiv.empty();
-      if (filtresActifs.size === 0) return;
-      filtresChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Filtres actifs : ' });
-      [...filtresActifs].forEach(tag => {
-        creeChipTag(filtresChipsDiv, tag, () => desactiveFiltre(tag));
-      });
-    };
-    renderFiltresTags();
+    });
+  };
 
-    const ajouterFiltre = () => {
-      const tag = filtreInput.value.trim().toLowerCase();
-      if (!tag) return;
-      activeFiltre(tag);
-      filtreInput.value = '';
-    };
-    btnAjouterFiltre.addEventListener('click', ajouterFiltre);
-    filtreInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouterFiltre(); } });
+  // Contenu regroupé par thème plutôt que dans l'ordre où les sections
+  // avaient été ajoutées au fil du temps (les rimes et les formes
+  // poétiques étaient chacune coupées en deux, séparées par du contenu
+  // sans rapport) : d'abord les unités du vers (syllabe → vers →
+  // strophe), puis les rimes, puis les sonorités, puis les formes.
+  const sections = [
+    { id:'syllabes', titre:'Compter les syllabes en français', ouvert:true, build:(c) => {
+      para(c, 'On compte les groupes de voyelles réellement prononcés dans le vers, pas les lettres.');
+      liste(c, [
+        { titre:'Le e caduc (e muet)', texte:'compté seulement s\'il est suivi d\'un mot commençant par une consonne ; jamais compté en fin de vers ; élidé (jamais compté) devant un mot commençant par une voyelle ou un h muet — ex. « la fleuve aux vagues » : le e de « fleuve » ne compte pas devant « aux ».' },
+        { titre:'Les diphtongues fixes', texte:'ai, au, eau, eu, ou, oi, ei... comptent toujours pour une seule syllabe (« beau » = 1 syllabe).' },
+        { titre:'Le hiatus et la diérèse', texte:'deux voyelles qui ne forment pas une diphtongue fixe (comme « ti-on », « pi-eu », « lu-mi-ère ») peuvent se lire en une seule syllabe (synérèse, la lecture la plus courante) ou en deux (diérèse, souvent utilisée pour allonger un vers) — c\'est un choix du poète selon le mètre recherché. Le Carnet du Poète affiche les deux lectures quand le cas se présente.' },
+        { titre:'La liaison', texte:'change la prononciation mais pas le nombre de syllabes.' },
+        { titre:'Le y intervocalique', texte:'entre deux voyelles (rayon, crayon, voyage), il sépare deux syllabes au lieu de fusionner avec elles.' }
+      ]);
+    }},
+    { id:'vers', titre:'Le vers : mètre, césure, coupe', build:(c) => {
+      para(c, 'Nom du mètre selon le nombre de syllabes du vers :');
+      liste(c, [
+        '4 : tétrasyllabe', '5 : pentasyllabe', '6 : hexasyllabe', '7 : heptasyllabe',
+        '8 : octosyllabe', '9 : ennéasyllabe', '10 : décasyllabe', '11 : hendécasyllabe',
+        '12 : alexandrin (le plus utilisé dans la poésie classique française)'
+      ]);
+      liste(c, [
+        { titre:'La césure', texte:'une pause obligatoire à l\'intérieur du vers. Dans l\'alexandrin classique, elle tombe au milieu (6/6) ; on parle de « trimètre » quand elle est remplacée par deux coupes plus légères créant trois groupes (souvent 4/4/4, fréquent chez Hugo et les romantiques).' },
+        { titre:'La coupe', texte:'une pause plus légère et facultative ailleurs dans le vers, qui structure son rythme intérieur.' }
+      ]);
+      para(c, 'Construction du vers :');
+      liste(c, [
+        { titre:'Enjambement', texte:'une phrase ou un groupe de mots déborde du vers sur le suivant, sans pause syntaxique à la rime.' },
+        { titre:'Rejet', texte:'un enjambement où un élément court est repoussé seul en tout début du vers suivant, le mettant en valeur.' },
+        { titre:'Contre-rejet', texte:'l\'inverse : un élément court annonce, en toute fin de vers, la phrase qui se développera au vers suivant.' }
+      ]);
+    }},
+    { id:'strophe', titre:'La strophe : la nommer par son nombre de vers', build:(c) => {
+      liste(c, [
+        '2 vers : distique', '3 vers : tercet', '4 vers : quatrain', '5 vers : quintil',
+        '6 vers : sizain', '7 vers : septain', '8 vers : huitain', '10 vers : dizain'
+      ]);
+    }},
+    { id:'rimes', titre:'Les rimes', build:(c) => {
+      para(c, 'Disposition des rimes dans une strophe (les trois formes courantes, détectées automatiquement dans l\'onglet Syllabes) :');
+      liste(c, [
+        { titre:'Rimes plates (ou suivies) — AABB', texte:'deux vers qui riment se suivent directement.' },
+        { titre:'Rimes croisées — ABAB', texte:'un vers sur deux rime avec le suivant du même type.' },
+        { titre:'Rimes embrassées — ABBA', texte:'deux rimes s\'enferment autour de deux autres.' }
+      ]);
+      para(c, 'Formes plus rares (non détectées automatiquement, à repérer soi-même) :');
+      liste(c, [
+        { titre:'Rimes annexées (ou concaténées)', texte:'la fin d\'un vers est reprise au début du vers suivant.' },
+        { titre:'Rimes internes (ou brisées)', texte:'une rime sonne à la fois à la césure et à la fin du même vers.' },
+        { titre:'Rimes batelées', texte:'la fin d\'un vers trouve son écho à la césure du vers suivant.' },
+        { titre:'Rimes sénées', texte:'tous les mots d\'un même vers commencent par le même son.' },
+        { titre:'Rimes couronnées', texte:'le mot-rime est répété deux fois de suite en fin de vers.' },
+        { titre:'Rimes triplées', texte:'trois vers de suite sur la même rime (aaa), plutôt romantique — la poésie classique préférait s\'arrêter à deux.' },
+        { titre:'Rimes emperières', texte:'un même son revient trois fois dans le même vers ; pure prouesse de rhétoriqueur.' }
+      ]);
+      para(c, 'Qualité d\'une rime — comptage classique du nombre de sons communs en partant de la fin des mots (2 unités pour la voyelle tonique, qui porte le son dominant ; 1 unité par consonne d\'appui) :');
+      liste(c, [
+        { titre:'Rime pauvre', texte:'un seul son commun, seule la voyelle finale (ex. « ami / parti »).' },
+        { titre:'Rime suffisante', texte:'deux sons communs (ex. « chagrin / matin »).' },
+        { titre:'Rime riche', texte:'trois sons communs ou plus (ex. « tendresse / paresse »).' },
+        { titre:'Rime très riche', texte:'la syllabe finale est intégralement identique, et la voyelle de la syllabe précédente coïncide aussi — deux syllabes homophones moins un phonème (ex. « patin / matin », « ambroisie / cramoisie »).' },
+        { titre:'Rime léonine', texte:'deux syllabes entières, consonnes d\'appui comprises, sont identiques (ex. « railleur / ferrailleur », « sultans / insultants »).' }
+      ]);
+      para(c, 'Une nuance utile : une voyelle d\'appui (la voyelle de la syllabe qui précède la rime) enrichit davantage qu\'une simple consonne d\'appui, car elle est plus audible — « harem / Jérusalem » ou « aurore / sonore » riment plus richement qu\'une consonne d\'appui seule ne le laisserait penser. C\'est cette logique qui distingue « riche » de « très riche » ci-dessus.');
+      para(c, 'Genre d\'une rime, et règle d\'alternance classique :');
+      liste(c, [
+        { titre:'Rime féminine', texte:'le vers se termine par un e muet (ex. « montagne », « chêne »).' },
+        { titre:'Rime masculine', texte:'le vers ne se termine pas par un e muet (ex. « amour », « instant »).' },
+        { titre:'Alternance', texte:'la poésie classique française alterne généralement rimes masculines et féminines d\'une strophe à l\'autre (c\'est la pastille F/M affichée dans l\'onglet Syllabes).' }
+      ]);
+      para(c, 'Deux nuances utiles, à repérer soi-même :');
+      liste(c, [
+        { titre:'Rime pour l\'œil vs rime pour l\'oreille', texte:'une rime « pour l\'œil » se ressemble à l\'écrit mais pas à l\'oral (ex. « femme » / « lame » ne riment pas vraiment à l\'oreille) ; une bonne rime classique doit fonctionner à l\'oral, pas seulement visuellement.' },
+        { titre:'Rime normande ou approximative', texte:'certains poètes jouent volontairement avec des rimes approchantes (assonances) plutôt que des rimes strictes, notamment en poésie moderne et en chanson.' }
+      ]);
+    }},
+    { id:'sonorites', titre:'Les sonorités : allitérations, assonances, trame phonique, homéotéleutes', build:(c) => {
+      para(c, 'Contrairement à la rime, qui ne concerne que la fin du vers, les sonorités sont des échos de son qui courent dans le corps des mots, n\'importe où dans le vers ou d\'un vers à l\'autre.');
+      liste(c, [
+        { titre:'Allitération', texte:'répétition d\'un même son consonne en début de mots rapprochés — ex. « Pour qui sont ces serpents qui sifflent sur vos têtes » (Racine), tissé de [s].' },
+        { titre:'Assonance', texte:'répétition d\'une même voyelle à l\'intérieur de plusieurs mots proches, indépendamment de la rime finale — à ne pas confondre avec une « rime par assonance » (voir la nuance « Rime normande » ci-dessus), qui elle concerne la fin du vers.' },
+        { titre:'Trame phonique (réseau consonantique)', texte:'un même son consonne qui revient dans un mot quelle que soit sa position — attaque, milieu ou fin —, pas seulement en début de mot comme l\'allitération classique. Une consonne qui « arme » discrètement tout un passage, même quand elle n\'est jamais en tête de mot.' },
+        { titre:'Homéotéleute', texte:'répétition d\'une finale de mot proche, ailleurs que la rime de fin de vers — un mot en milieu de vers qui fait écho à une terminaison utilisée ailleurs dans le poème.' }
+      ]);
+      para(c, 'L\'onglet Syllabes propose un volet dédié (bouton Sonorités, sous le brouillon) qui détecte ces échos automatiquement : liste par son avec ses occurrences, et surlignage directement dans le texte pour les allitérations et assonances. La trame phonique reste en liste (cliquer un son l\'isole dans le brouillon et grise le reste, plutôt qu\'un 3e code couleur permanent) ; les homéotéleutes n\'apparaissent qu\'en liste — et seulement quand au moins un des mots concernés est en milieu de vers, sinon ce ne serait qu\'une redite du schéma de rimes déjà affiché.');
+      para(c, 'Trois niveaux de regroupement, au choix, dans ce volet (pour les allitérations, la trame phonique et les assonances ; les homéotéleutes restent toujours sur leur terminaison exacte) :');
+      liste(c, [
+        { titre:'Sons exacts', texte:'chaque symbole phonétique distinct a sa propre couleur (ex. [s] et [ʃ] séparés) — le plus précis, mais potentiellement beaucoup de couleurs sur un poème riche en sonorités.' },
+        { titre:'Familles simplifiées', texte:'peu de groupes, pour repérer un motif d\'ensemble d\'un coup d\'œil. Consonnes : Sifflantes/chuintantes (s, ʃ, ʒ, z) · Occlusives (p, t, k, b, d, g) · Liquides (l, r) · Nasales (m, n, ɲ) · Fricatives (f, v). Voyelles : Voyelles claires (i, y, é, e, ai, ei) · Voyelles sombres (u, o, ou, eu) · Voyelle ouverte (a) · Nasales (in, an, on, un).' },
+        { titre:'Familles étendues', texte:'classification phonétique plus complète, qui distingue en plus sourdes et sonores (la vibration ou non des cordes vocales). Consonnes : Occlusives sourdes (p, t, k) · Occlusives sonores (b, d, g) · Fricatives sourdes (f, s, ʃ) · Fricatives sonores (v, z, ʒ) · Nasales (m, n, ɲ) · Liquides (l, r). Voyelles : Voyelles fermées (i, y, u, ou) · Voyelles moyennes/ouvertes (e, é, ai, ei, o, eu, a) · Nasales (in, an, on, un).' }
+      ]);
+      para(c, 'Comme pour le reste du plugin, la détection est une heuristique orthographique (appuyée sur le dictionnaire phonétique quand le mot y figure) : fiable sur l\'essentiel, mais pas une transcription phonétique parfaite.');
+    }},
+    { id:'formes', titre:'Formes de poèmes', build:(c) => {
+      liste(c, [
+        { titre:'Sonnet', texte:'14 vers, généralement en alexandrins : deux quatrains suivis de deux tercets. Schéma de rimes fréquent : ABBA ABBA CCD EED (ou CCD EDE).' },
+        { titre:'Rondeau', texte:'forme à refrain, souvent 13 ou 15 vers en trois strophes ; le début du premier vers revient comme refrain.' },
+        { titre:'Ballade', texte:'trois strophes suivies d\'un envoi plus court, avec un même vers-refrain répété à la fin de chaque strophe.' },
+        { titre:'Villanelle', texte:'19 vers : cinq tercets puis un quatrain, avec deux vers-refrains qui reviennent alternativement.' },
+        { titre:'Pantoum', texte:'forme d\'origine malaise : les 2e et 4e vers de chaque strophe deviennent les 1er et 3e vers de la strophe suivante.' },
+        { titre:'Ode', texte:'poème lyrique de forme régulière célébrant une personne, une chose ou une idée.' },
+        { titre:'Haïku', texte:'poème très court d\'origine japonaise, en 3 vers (5-7-5 syllabes en tradition japonaise), qui capture un instant, souvent lié à la nature.' },
+        { titre:'Fable', texte:'court récit en vers, souvent animalier, portant une morale (La Fontaine).' },
+        { titre:'Acrostiche', texte:'la première lettre de chaque vers, lue verticalement, forme un mot.' },
+        { titre:'Triolet', texte:'8 vers sur 2 rimes, avec reprise des 1er, 4e et 7e vers comme refrain.' },
+        { titre:'Virelai', texte:'forme médiévale à refrain, sur deux rimes qui s\'échangent de strophe en strophe.' },
+        { titre:'Tanka', texte:'poème japonais de 31 syllabes en 5 vers (5-7-5-7-7), qui prolonge le haïku d\'une réflexion personnelle.' },
+        { titre:'Calligramme', texte:'poème dont la disposition graphique sur la page dessine une forme en lien avec le sujet (Apollinaire).' },
+        { titre:'Vers libres', texte:'vers sans mètre fixe ni rimes obligatoires, qui s\'appuient sur le rythme et la respiration plutôt que sur des règles strictes (Rimbaud, Laforgue, et la majeure partie de la poésie depuis le XXe siècle).' },
+        { titre:'Vers blancs', texte:'vers de mètre régulier mais sans rime.' }
+      ]);
+    }}
+  ];
 
-    // --- Exclusion (NOT/NOR) : symétrique de l'inclusion ci-dessus ---
-    const activeExclusion = (tag) => { filtresExclus.add(tag); renderExclusionTags(); };
-    const desactiveExclusion = (tag) => { filtresExclus.delete(tag); renderExclusionTags(); };
-    const panneauTousTagsExclusion = creePanneauTousTags(
-      sectionExclusion.body,
-      btnTousTagsExclusion,
-      () => tousLesTagsUtilises().filter(t => t !== TAG_EXCLU && !filtresExclus.has(t)),
-      activeExclusion,
-      'Voir tous les tags à exclure'
-    );
+  // Sommaire : un lien par section, qui déplie la section visée et
+  // scrolle jusqu'à elle — pratique pour une page devenue longue.
+  const sommaire = panelGuide.createDiv({ cls: 'cp-guide-sommaire' });
+  sommaire.createEl('div', { cls: 'cp-guide-sommaire-titre', text: 'Sommaire' });
+  const sommaireListe = sommaire.createEl('ul');
 
-    const renderExclusionRapides = () => {
-      exclusionRapidesDiv.empty();
-      if (!tousLesTagsUtilises().includes('connu')) return;
-      const actif = filtresExclus.has('connu');
-      const btn = exclusionRapidesDiv.createEl('button', {
-        cls: 'cp-hasard-filtre-rapide' + (actif ? ' cp-hasard-filtre-rapide-actif' : ''),
-        text: '🚫 Masquer les mots connus'
-      });
-      const c = couleurTag('connu');
-      btn.style.borderColor = c;
-      if (actif) { btn.style.background = c; btn.style.color = '#fff'; } else { btn.style.color = c; }
-      btn.addEventListener('click', () => { actif ? desactiveExclusion('connu') : activeExclusion('connu'); });
-    };
+  const details = {};
+  sections.forEach(s => {
+    const li = sommaireListe.createEl('li');
+    const lien = li.createEl('a', { text: s.titre, attr: { href: '#' } });
+    lien.addEventListener('click', (e) => {
+      e.preventDefault();
+      details[s.id].open = true;
+      details[s.id].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
 
-    const renderExclusionTags = () => {
-      renderFiltresTags(); // rafraîchit aussi les badges/bandeau partagés
-      renderExclusionRapides();
-      const tags = tousLesTagsUtilises().filter(t => t !== TAG_EXCLU);
-      exclusionDatalist.empty();
-      tags.forEach(tag => {
-        if (filtresExclus.has(tag)) return;
-        exclusionDatalist.createEl('option', { attr: { value: tag } });
-      });
-      panneauTousTagsExclusion.render();
-      exclusionChipsDiv.empty();
-      if (filtresExclus.size === 0) return;
-      exclusionChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Exclus : ' });
-      [...filtresExclus].forEach(tag => {
-        creeChipTag(exclusionChipsDiv, tag, () => desactiveExclusion(tag));
-      });
-    };
-    renderExclusionTags();
-
-    const ajouterExclusion = () => {
-      const tag = exclusionInput.value.trim().toLowerCase();
-      if (!tag) return;
-      activeExclusion(tag);
-      exclusionInput.value = '';
-    };
-    btnAjouterExclusion.addEventListener('click', ajouterExclusion);
-    exclusionInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouterExclusion(); } });
+  sections.forEach(s => {
+    const det = panelGuide.createEl('details', { cls: 'cp-guide-section' });
+    if (s.ouvert) det.setAttr('open', 'true');
+    det.createEl('summary', { cls: 'cp-guide-titre', text: s.titre });
+    const corps = det.createDiv({ cls: 'cp-guide-corps' });
+    s.build(corps);
+    details[s.id] = det;
+  });
+}
 
 
+function buildPanelDefinitions(vue, panelDefs){
+  const intro = panelDefs.createEl('p', { cls: 'cp-inspi-intro' });
+  intro.setText('Vérifie le sens exact et le registre d\'un mot rare avant de l\'utiliser — définitions et étymologie tirées du Trésor de la Langue Française informatisé (CNRTL), à la demande.');
 
-    const zone = panelHasard.createDiv({ cls: 'cp-hasard-zone' });
-    compteurPoolEl = zone.createDiv({ cls: 'cp-hasard-compteur-pool' });
-    const btnTirerWrap = zone.createDiv({ cls: 'cp-hasard-bouton-wrap' });
-    const btnTirer = btnTirerWrap.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
-    renderFiltresTags(); // calcule le compteur maintenant qu'il existe (il n'existait pas au tout premier appel plus haut)
-    const motEl = zone.createEl('div', { cls: 'cp-hasard-mot' });
-    const noteEl = zone.createDiv({ cls: 'cp-hasard-note' });
-    // Affiche une note en gérant le séparateur de fusion ("---" inséré par
-    // nettoieEtFusionneDictionnairePerso quand deux notes différentes sont
-    // agrégées) avec un espacement compact et maîtrisé, plutôt que de
-    // dépendre du nombre de retours à la ligne bruts stockés dans le texte
-    // — corrige aussi les notes déjà fusionnées sans avoir à les retoucher.
-    const afficheNoteHasard = (texte) => {
-      noteEl.empty();
-      const parties = (texte || '').split(/\n*\s*---\s*\n*/)
-        // Les "\n" internes viennent souvent d'une mise en page à largeur
-        // fixe dans la source scannée (retour à la ligne arbitraire au
-        // milieu d'une phrase, pas un vrai saut de paragraphe) — on les
-        // aplati en simples espaces pour laisser le texte s'enchaîner
-        // naturellement, et laisser le CSS (justify) gérer le retour à la
-        // ligne proprement plutôt que de cumuler les deux.
-        .map(p => p.replace(/\s+/g, ' ').trim())
-        .filter(Boolean);
-      parties.forEach((partie, i) => {
-        if (i > 0) noteEl.createDiv({ cls: 'cp-hasard-note-sep', text: '· · ·' });
-        noteEl.createDiv({ cls: 'cp-hasard-note-partie', text: partie });
-      });
-    };
-    const chipsDiv = zone.createDiv({ cls: 'cp-hasard-tags' });
+  const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
+  const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });
+  const btnChercher = form.createEl('button', { text: 'Chercher' });
+  const lienOuvrirCnrtl = form.createEl('a', { cls: 'cp-icon-btn', text: 'Ouvrir sur CNRTL ↗', attr: { target: '_blank', rel: 'noopener', href: '#' } });
+  const majLienOuvrirCnrtl = () => {
+    const m = motInput.value.trim();
+    lienOuvrirCnrtl.setAttribute('href', m ? `https://www.cnrtl.fr/definition/${encodeURIComponent(m)}` : '#');
+  };
+  motInput.addEventListener('input', majLienOuvrirCnrtl);
+  majLienOuvrirCnrtl();
+  lienOuvrirCnrtl.addEventListener('click', (e) => { if (!motInput.value.trim()) e.preventDefault(); });
+  const resultatsDiv = panelDefs.createDiv({ cls: 'cp-resultats' });
 
-    // actions de navigation (définition, rimes, exclusion) — séparées de
-    // la gravure et du tagging, qui vivent dans leurs propres zones plus bas
-    const actions = zone.createDiv({ cls: 'cp-hasard-actions' });
-    actions.style.display = 'none';
-    const btnDefs = actions.createEl('button', { cls: 'cp-link-btn', text: 'Voir sa définition (CNRTL) →' });
-    const btnRimes = actions.createEl('button', { cls: 'cp-link-btn', text: 'Chercher ses rimes →' });
-    const btnExclure = actions.createEl('button', { cls: 'cp-link-btn cp-btn-exclure', text: '🚫 Ne plus tirer ce mot' });
-
-    // boutons de tag rapide (presets dynamiques, les plus utilisés en
-    // premier) + accès à la liste complète, colorée et cliquable, plutôt
-    // que le datalist natif du champ texte (illisible dès qu'il y a
-    // beaucoup de tags — liste plate, non triée par pertinence, sans
-    // couleur pour s'y repérer).
-    const presetsDiv = zone.createDiv({ cls: 'cp-hasard-tag-presets' });
-    const btnTousTags = zone.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags' });
-    btnTousTags.style.display = 'none';
-
-    const choisirTag = async (tag) => {
-      if (!motCourant) return;
-      await ajouteTagMot(this.plugin, motCourant, tag);
-      renderChips();
-      renderFiltresTags();
-      renderPresets();
-    };
-    const panneauTousTags = creePanneauTousTags(zone, btnTousTags, () => {
-      const tous = tagsParFrequence();
-      return tous.length > 6 ? [...tous].sort() : [];
-    }, choisirTag);
-
-    const renderPresets = () => {
-      presetsDiv.empty();
-      tagsParFrequence().slice(0, 6).forEach(tag => {
-        const btn = presetsDiv.createEl('button', { cls: 'cp-hasard-preset-btn', text: '+ ' + tag });
-        const c = couleurTag(tag);
-        btn.style.borderColor = c;
-        btn.style.color = c;
-        btn.addEventListener('click', () => choisirTag(tag));
-      });
-      panneauTousTags.render();
-    };
-
-    // ajout de tag rapide (libre) sur le mot courant
-    const tagFormDiv = zone.createDiv({ cls: 'cp-hasard-tag-ajout' });
-    tagFormDiv.style.display = 'none';
-    const tagAjoutDatalistId = 'cp-hasard-tagajout-' + Math.random().toString(36).slice(2, 8);
-    const tagInput = tagFormDiv.createEl('input', { attr: { type: 'text', placeholder: 'ajouter un tag (ex. désuet)', list: tagAjoutDatalistId } });
-    tagAjoutDatalist = tagFormDiv.createEl('datalist', { attr: { id: tagAjoutDatalistId } });
-    tousLesTagsUtilises().forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
-    const btnAjouterTag = tagFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ tag' });
-
-    // gravure : tout en bas, APRÈS le tagging — on tague d'abord ce que le
-    // mot évoque, on grave ensuite pour committer ça dans le fichier, pas
-    // l'inverse. Sa propre zone, séparée visuellement par un filet.
-    const graverWrap = zone.createDiv({ cls: 'cp-hasard-graver-wrap' });
-    graverWrap.style.display = 'none';
-    const btnGraver = graverWrap.createEl('button', { cls: 'cp-hasard-graver-btn', text: '💾 Graver dans dictionnaire-perso.json' });
-
-    let motCourant = null;
-    let noteCourante = '';
-
-    const renderChips = () => {
-      chipsDiv.empty();
-      if (!motCourant) return;
-      tagsDuMot(motCourant).forEach(tag => {
-        creeChipTag(chipsDiv, tag, async () => {
-          await retireTagMot(this.plugin, motCourant, tag);
-          renderChips();
-          renderFiltresTags();
-          renderPresets();
-        });
-      });
-    };
-
-    const tirer = () => {
-      const entree = motAuHasard({
-        tagsActifs: filtresActifs,
-        modeET: modeETCase.checked,
-        modePlusUnAutre: modePlusUnAutreCase.checked,
-        tagsExclus: filtresExclus,
-        masquerTagues: masquerTaguesCase.checked,
-        modeMultiTagues: multiTaguesCase.checked,
-        modeRevueExclus,
-      });
-      if (!entree) {
-        motEl.setText('Aucun mot disponible avec ces filtres.');
-        afficheNoteHasard('');
-        chipsDiv.empty();
-        presetsDiv.empty();
-        actions.style.display = 'none';
-        graverWrap.style.display = 'none';
-        tagFormDiv.style.display = 'none';
-        motCourant = null;
+  const chercher = async () => {
+    const saisie = motInput.value.trim();
+    resultatsDiv.empty();
+    if (!saisie) return;
+    resultatsDiv.createDiv({ cls: 'cp-son-label', text: `${saisie} — CNRTL` });
+    // Choix de l'homographe (nom/adjectif…) si le mot en a plusieurs ;
+    // `afficher` (ré)affiche l'entrée demandée dans `zone`.
+    const afficher = async (zone, pos) => {
+    zone.empty();
+    const statut = zone.createEl('p', { cls: 'cp-vide', text: 'Recherche en cours…' });
+    try {
+      const r = await chercheCnrtl(saisie, pos);
+      statut.remove();
+      if (!r.trouve) {
+        zone.createEl('p', { cls: 'cp-vide', text: `« ${saisie} » n'a pas été trouvé sur le CNRTL.` });
         return;
       }
-      motCourant = entree.mot;
-      noteCourante = entree.note || '';
-      motEl.setText(entree.mot);
-      afficheNoteHasard(noteCourante);
-      renderChips();
-      renderPresets();
-      actions.style.display = 'flex';
-      graverWrap.style.display = 'flex';
-      tagFormDiv.style.display = 'flex';
-    };
-
-    btnDefs.addEventListener('click', () => {
-      if (!motCourant) return;
-      if (this._switchTab) this._switchTab('defs');
-      if (this._prefillDefsInput) this._prefillDefsInput(motCourant);
-    });
-    btnRimes.addEventListener('click', () => {
-      if (!motCourant) return;
-      if (this._switchTab) this._switchTab('rimes');
-      if (this._prefillRimeInput) this._prefillRimeInput(motCourant);
-    });
-    btnExclure.addEventListener('click', async () => {
-      if (!motCourant) return;
-      await ajouteTagMot(this.plugin, motCourant, TAG_EXCLU);
-      new Notice(`« ${motCourant} » ne sera plus tiré au hasard.`);
-      renderFiltresTags();
-      tirer();
-    });
-    btnGraver.addEventListener('click', async () => {
-      if (!motCourant) return;
-      const mot = motCourant;
-      const tags = tagsDuMot(mot);
-      await ajouteMotRarePerso(this.plugin, mot, noteCourante, tags);
-      await purgeMetaMot(this.plugin, mot);
-      new Notice(`« ${mot} » gravé dans dictionnaire-perso.json (zone tampon vidée).`);
-      renderFiltresTags();
-      renderPresets();
-      if (motCourant && normaliseMot(motCourant) === normaliseMot(mot)) renderChips();
-    });
-    btnAjouterTag.addEventListener('click', async () => {
-      if (!motCourant || !tagInput.value.trim()) return;
-      await ajouteTagMot(this.plugin, motCourant, tagInput.value);
-      tagInput.value = '';
-      renderChips();
-      renderFiltresTags();
-      renderPresets();
-    });
-    tagInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnAjouterTag.click(); });
-
-    btnTirer.addEventListener('click', tirer);
-    tirer();
-
-    // --- ajout manuel d'un mot rare ---
-    const ajoutDetails = panelHasard.createEl('details', { cls: 'cp-hasard-ajout' });
-    ajoutDetails.createEl('summary', { text: '+ Ajouter un mot rare manuellement' });
-    const ajoutForm = ajoutDetails.createDiv({ cls: 'cp-hasard-ajout-form' });
-    const inputMot = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'mot' } });
-    const inputNote = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'définition courte (optionnel)' } });
-    const inputTags = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'tags séparés par une virgule (optionnel)' } });
-    const btnAjouterMot = ajoutForm.createEl('button', { cls: 'cp-link-btn', text: 'Ajouter à mon dictionnaire personnel' });
-    btnAjouterMot.addEventListener('click', async () => {
-      const mot = inputMot.value.trim();
-      if (!mot) { new Notice('Le mot est requis.'); return; }
-      const tags = inputTags.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-      await ajouteMotRarePerso(this.plugin, mot, inputNote.value.trim(), tags);
-      new Notice(`« ${mot} » ajouté à ton dictionnaire personnel.`);
-      inputMot.value = ''; inputNote.value = ''; inputTags.value = '';
-      renderFiltresTags();
-    });
-
-    // --- stats, repliées en bas pour ne pas surcharger le haut du panel ---
-    const statsDetails = panelHasard.createEl('details', { cls: 'cp-hasard-stats-details' });
-    statsDetails.createEl('summary', { text: 'Afficher les statistiques' });
-    statsDiv = statsDetails.createDiv({ cls: 'cp-hasard-stats' });
-    statsDetails.addEventListener('toggle', () => { if (statsDetails.open) renderStats(); });
-    renderStats();
-  }
-
-  buildPanelNotes(panelNotes){
-    const intro = panelNotes.createEl('p', { cls: 'cp-inspi-intro' });
-    intro.setText('Mots ajoutés sans définition (import en masse, sélection Inspiration...) — complète-les à la main, enregistré directement dans dictionnaire-perso.json.');
-
-    const btnRefresh = panelNotes.createEl('button', { cls: 'cp-link-btn', text: '↻ Rafraîchir la liste' });
-
-    const secRares = panelNotes.createDiv({ cls: 'cp-groupe' });
-    secRares.createDiv({ cls: 'cp-son-label', text: 'Mots rares sans note' });
-    const listeRares = secRares.createDiv({ cls: 'cp-inspi-liste' });
-
-    const secChamps = panelNotes.createDiv({ cls: 'cp-groupe' });
-    secChamps.createDiv({ cls: 'cp-son-label', text: 'Champs lexicaux : mots sans note' });
-    const listeChamps = secChamps.createDiv({ cls: 'cp-inspi-liste' });
-
-    const renderLigneEdition = (container, mot, sousTexte, enregistrer) => {
-      const ligne = container.createDiv({ cls: 'cp-inspi-mot' });
-      ligne.createSpan({ cls: 'cp-inspi-terme', text: mot });
-      if (sousTexte) ligne.createSpan({ cls: 'cp-inspi-note', text: sousTexte });
-      const input = ligne.createEl('input', { attr: { type: 'text', placeholder: 'note / définition courte' } });
-      const btn = ligne.createEl('button', { cls: 'cp-link-btn', text: 'Enregistrer' });
-      const valider = async () => {
-        const note = input.value.trim();
-        if (!note) return;
-        await enregistrer(note);
-        new Notice(`Carnet du Poète : note ajoutée pour « ${mot} ».`);
-        ligne.remove();
-      };
-      btn.addEventListener('click', valider);
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
-    };
-
-    const rerender = () => {
-      listeRares.empty();
-      listeChamps.empty();
-
-      const raresSansNote = MOTS_RARES.filter(e => e && e.mot && !e.note);
-      if (raresSansNote.length === 0) {
-        listeRares.createEl('p', { cls: 'cp-vide', text: 'Tous tes mots rares ont une note.' });
-      } else {
-        raresSansNote.forEach(e => {
-          renderLigneEdition(listeRares, e.mot, '', async (note) => {
-            await ajouteMotRarePerso(this.plugin, e.mot, note, []);
-          });
-        });
+      const lien = zone.createEl('a', { text: `Voir « ${saisie} » sur le CNRTL →`, attr: { href: r.url, target: '_blank', rel: 'noopener' } });
+      lien.addClass('cp-cnrtl-lien');
+      if (r.definition) {
+        const blocDef = zone.createDiv({ cls: 'cp-cnrtl-bloc' });
+        blocDef.createDiv({ cls: 'cp-cnrtl-titre', text: 'Définition rapide' });
+        blocDef.createEl('p', { cls: 'cp-cnrtl-texte', text: r.definition });
       }
 
-      const champsSansNote = [];
-      CHAMPS_LEXICAUX.forEach(champ => {
-        champ.mots.forEach(m => {
-          if (m && m.mot && !m.note) champsSansNote.push({ mot: m.mot, theme: champ.theme });
+      if (r.sources.length > 0) {
+        const pillsDiv = zone.createDiv({ cls: 'cp-cnrtl-source-pills' });
+        const zoneSource = zone.createDiv({ cls: 'cp-cnrtl-source-zone' });
+
+        // Découpe et affiche la source choisie en blocs pliables, la
+        // première section ouverte et les suivantes fermées. Recalculé
+        // uniquement à la sélection d'une pill, pas pour les 6 sources
+        // d'un coup (les autres sources peuvent être longues, ex. TLFi
+        // ou Littré, inutile de tout parser si l'usager n'en affiche
+        // qu'une seule à la fois).
+        const afficherSource = (source) => {
+          zoneSource.empty();
+          const blocs = decoupeSectionsCnrtl(source.htmlEntries);
+          if (blocs.length === 0) {
+            zoneSource.createEl('p', { cls: 'cp-vide', text: `Rien à afficher pour ${source.label}.` });
+            return;
+          }
+          blocs.forEach((bloc, i) => {
+            const det = zoneSource.createEl('details', { cls: 'cp-cnrtl-details' });
+            if (i === 0) det.setAttr('open', 'true');
+            det.createEl('summary', { cls: 'cp-cnrtl-details-titre', text: bloc.titre });
+            const corps = det.createDiv({ cls: 'cp-cnrtl-texte' });
+            corps.innerHTML = bloc.html;
+          });
+        };
+
+        r.sources.forEach((source, i) => {
+          const pill = pillsDiv.createEl('button', { cls: 'cp-cnrtl-source-pill', text: source.label });
+          if (i === 0) pill.addClass('active');
+          pill.addEventListener('click', () => {
+            pillsDiv.querySelectorAll('.cp-cnrtl-source-pill').forEach(b => b.removeClass('active'));
+            pill.addClass('active');
+            afficherSource(source);
+          });
+        });
+
+        afficherSource(r.sources[0]);
+      }
+    } catch (err) {
+      console.error('[Carnet du Poète] erreur CNRTL', err);
+      statut.setText('Recherche impossible (pas de connexion, ou le site a changé — voir la console).');
+    }
+    };
+    brancheHomographesCnrtl(resultatsDiv, saisie, afficher);
+  };
+
+  btnChercher.addEventListener('click', chercher);
+  motInput.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+
+  vue._prefillDefsInput = (mot) => {
+    motInput.value = mot;
+    majLienOuvrirCnrtl();
+    chercher();
+  };
+}
+
+
+function buildPanelHasard(vue, panelHasard){
+  const intro = panelHasard.createEl('p', { cls: 'cp-inspi-intro' });
+  intro.setText('Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.');
+
+  // --- stats de progression (utile pour savoir quand importer un
+  // nouveau lot de mots, ex. Méral, sans redemander à voir les mêmes).
+  // Repliées par défaut en bas de l'onglet (cf. plus bas) pour ne pas
+  // surcharger le haut du panel ; statsDiv est assigné après coup.
+  let statsDiv = null;
+  let compteurPoolEl = null;
+  const renderStats = () => {
+    if (!statsDiv) return;
+    statsDiv.empty();
+    const total = MOTS_RARES.length;
+    const exclus = MOTS_RARES.filter(e => estExclu(e.mot)).length;
+    const sansTag = MOTS_RARES.filter(e => tagsSignificatifs(e.mot).length === 0).length;
+    const vus = total - sansTag;
+    const pct = total > 0 ? Math.round((vus / total) * 100) : 0;
+    const item = (texte, cls) => statsDiv.createSpan({ cls: 'cp-hasard-stat ' + cls, text: texte });
+    item(`${total} mot(s) au total`, 'cp-hasard-stat-total');
+    item(`${exclus} exclu(s)`, 'cp-hasard-stat-exclus');
+    item(`${sansTag} sans tag`, 'cp-hasard-stat-sanstag');
+    item(`${pct}% déjà vu(s)`, 'cp-hasard-stat-vu');
+
+    // Détail par tag et par combinaison de tags RÉELLEMENT observée
+    // (pas toutes les combinaisons théoriques, qui exploseraient très
+    // vite — seulement celles qui existent dans le dictionnaire).
+    const parTag = new Map();
+    const parCombo = new Map();
+    MOTS_RARES.forEach(e => {
+      const tags = tagsSignificatifs(e.mot);
+      tags.forEach(t => parTag.set(t, (parTag.get(t) || 0) + 1));
+      if (tags.length > 0) {
+        const cle = [...tags].sort().join(' + ');
+        parCombo.set(cle, (parCombo.get(cle) || 0) + 1);
+      }
+    });
+
+    const detailsDiv = statsDiv.createDiv({ cls: 'cp-hasard-stats-detail' });
+    const blocTags = detailsDiv.createDiv({ cls: 'cp-hasard-stats-bloc' });
+    blocTags.createDiv({ cls: 'cp-titre', text: 'Par tag' });
+    const listeTags = blocTags.createDiv({ cls: 'cp-hasard-stats-liste' });
+    [...parTag.entries()].sort((a, b) => b[1] - a[1]).forEach(([tag, n]) => {
+      const chip = listeTags.createSpan({ cls: 'cp-hasard-stats-chip' });
+      const c = couleurTag(tag);
+      chip.style.borderColor = c; chip.style.color = c;
+      chip.setText(`${tag} · ${n}`);
+    });
+
+    const combosMultiples = [...parCombo.entries()].filter(([cle]) => cle.includes(' + '));
+    if (combosMultiples.length > 0) {
+      const blocCombos = detailsDiv.createDiv({ cls: 'cp-hasard-stats-bloc' });
+      blocCombos.createDiv({ cls: 'cp-titre', text: 'Combinaisons observées' });
+      const listeCombos = blocCombos.createDiv({ cls: 'cp-hasard-stats-liste' });
+      combosMultiples.sort((a, b) => b[1] - a[1]).forEach(([cle, n]) => {
+        listeCombos.createSpan({ cls: 'cp-hasard-stats-chip', text: `${cle} · ${n}` });
+      });
+    }
+  };
+
+  // --- filtres par tags (élargissent le pool ; OU logique). "exclu"
+  // bascule en mode revue : ne tire QUE parmi les mots exclus. ---
+  const filtresDiv = panelHasard.createDiv({ cls: 'cp-hasard-filtres' });
+
+  // --- Bandeau de raccourcis rapides : toujours visible, 3 pilules de
+  // même forme (auparavant "Masquer les mots déjà tagués" était une
+  // case à cocher isolée, visuellement différente des deux boutons
+  // "Explorer") ---
+  const bandeauDiv = filtresDiv.createDiv({ cls: 'cp-hasard-bandeau' });
+  bandeauDiv.createDiv({ cls: 'cp-titre', text: 'Tirage rapide' });
+  const filtresRapidesDiv = bandeauDiv.createDiv({ cls: 'cp-hasard-filtres-rapides' });
+
+  // --- Section "Filtrer par tags" (inclusion, OU par défaut, bascule ET
+  // possible) : repliée par défaut ---
+  const sectionInclusion = creeSectionRepliable(filtresDiv, 'Filtrer par tags', 'cp-hasard-section-inclusion');
+  const ligneFormInclusion = sectionInclusion.body.createDiv({ cls: 'cp-hasard-ligne-form' });
+  const datalistId = 'cp-hasard-taglist-' + Math.random().toString(36).slice(2, 8);
+  const filtreInput = ligneFormInclusion.createEl('input', { attr: { type: 'text', placeholder: 'un tag (ou clique plusieurs pastilles ci-dessous)…', list: datalistId } });
+  const filtreDatalist = ligneFormInclusion.createEl('datalist', { attr: { id: datalistId } });
+  const btnAjouterFiltre = ligneFormInclusion.createEl('button', { cls: 'cp-link-btn', text: '+ ajouter tag' });
+  const btnTousTagsFiltre = ligneFormInclusion.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags' });
+  btnTousTagsFiltre.style.display = 'none';
+  // Bascule OU (au moins un tag coché) / ET (tous les tags cochés) —
+  // utile dès qu'un tag a un volume disproportionné par rapport aux
+  // autres (ex. un import en masse) : en OU, le cocher avec un autre tag
+  // revient presque à ne cocher que lui, il faut le mode ET pour une
+  // vraie intersection.
+  const modeETLabel = sectionInclusion.body.createEl('label', { cls: 'cp-hasard-mode-et' });
+  const modeETCase = modeETLabel.createEl('input', { attr: { type: 'checkbox' } });
+  modeETLabel.createSpan({ text: ' Tous les tags cochés (ET) plutôt qu\'au moins un (OU)' });
+  // Générique plutôt que codé pour un tag précis : "méral" + n'importe
+  // quel autre tag, ou "femme" + n'importe quel autre — même mécanique,
+  // s'applique à ce qui est coché ci-dessus, quel que soit le tag.
+  const modePlusUnAutreLabel = sectionInclusion.body.createEl('label', { cls: 'cp-hasard-mode-et' });
+  const modePlusUnAutreCase = modePlusUnAutreLabel.createEl('input', { attr: { type: 'checkbox' } });
+  modePlusUnAutreLabel.createSpan({ text: ' + au moins un tag en plus de ceux cochés' });
+  const filtresChipsDiv = sectionInclusion.body.createDiv({ cls: 'cp-hasard-filtres-chips' });
+
+  // --- Section "Exclure des tags" (NOT/NOR) : symétrique, repliée par
+  // défaut. "Masquer les mots connus" est un raccourci compact sur la
+  // même ligne que le formulaire plutôt qu'un gros bouton à part —
+  // c'est probablement l'action la plus utilisée de la zone, donc
+  // gardée à taille normale (juste alignée avec le reste, pas réduite
+  // à une mini-puce). "Masquer les mots déjà tagués" reste dans le
+  // bandeau du haut : sémantique différente (AUCUN tag, pas "pas tel
+  // tag précis"), pas pliable dans cette exclusion générique. ---
+  const sectionExclusion = creeSectionRepliable(filtresDiv, 'Exclure des tags', 'cp-hasard-section-exclusion');
+  const ligneFormExclusion = sectionExclusion.body.createDiv({ cls: 'cp-hasard-ligne-form' });
+  const exclusionRapidesDiv = ligneFormExclusion.createDiv({ cls: 'cp-hasard-filtres-rapides cp-hasard-filtres-rapides-inline' });
+  const exclusionDatalistId = 'cp-hasard-exclutaglist-' + Math.random().toString(36).slice(2, 8);
+  const exclusionInput = ligneFormExclusion.createEl('input', { attr: { type: 'text', placeholder: 'un tag à exclure (ou clique plusieurs pastilles)…', list: exclusionDatalistId } });
+  const exclusionDatalist = ligneFormExclusion.createEl('datalist', { attr: { id: exclusionDatalistId } });
+  const btnAjouterExclusion = ligneFormExclusion.createEl('button', { cls: 'cp-link-btn', text: '+ exclure' });
+  const btnTousTagsExclusion = ligneFormExclusion.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags à exclure' });
+  btnTousTagsExclusion.style.display = 'none';
+  const exclusionChipsDiv = sectionExclusion.body.createDiv({ cls: 'cp-hasard-filtres-chips' });
+
+  const filtresExclus = new Set();
+  const filtresActifs = new Set();
+  // Mode revue des exclus : un booléen À PART, plus un pseudo-tag dans
+  // filtresActifs comme avant — "exclu" décide dans QUEL bassin on
+  // pioche (les mis de côté, plutôt que les actifs), les tags normaux
+  // décident QUELS mots dans ce bassin. Les deux se combinent maintenant
+  // naturellement (revoir "les mots exclus tagués méral", par exemple),
+  // sans le bricolage d'exclusivité qu'il fallait avant pour éviter
+  // qu'un filtre "actif" silencieusement ignoré ne prête à confusion.
+  let modeRevueExclus = false;
+  // Datalist du champ "ajouter un tag" (créé plus bas dans le DOM) —
+  // référence assignée après coup, mais rafraîchie depuis ici pour rester
+  // synchronisée avec la liste des tags à chaque changement.
+  let tagAjoutDatalist = null;
+
+  sectionInclusion.setCompteBadge(() => filtresActifs.size);
+  sectionExclusion.setCompteBadge(() => filtresExclus.size);
+
+  // "déjà tagués" et "multi-tagués" (0 vs 2+ tags significatifs) sont
+  // deux booléens à part, miroirs l'un de l'autre, affichés comme
+  // pilules du bandeau, harmonisées avec les deux "Explorer".
+  const masquerTaguesCase = { checked: false };
+  const multiTaguesCase = { checked: false };
+  let btnMasquerTagues = null;
+
+  const activeFiltre = (tag) => { filtresActifs.add(tag); renderFiltresTags(); };
+  const desactiveFiltre = (tag) => { filtresActifs.delete(tag); renderFiltresTags(); };
+  const panneauTousTagsFiltre = creePanneauTousTags(
+    sectionInclusion.body,
+    btnTousTagsFiltre,
+    () => tousLesTagsUtilises().filter(t => t !== TAG_EXCLU && !filtresActifs.has(t)),
+    activeFiltre
+  );
+  modeETCase.addEventListener('change', () => { renderFiltresTags(); });
+  modePlusUnAutreCase.addEventListener('change', () => { renderFiltresTags(); });
+
+  // Raccourcis toujours visibles dans le bandeau du haut : "exclu" (mode
+  // revue, booléen à part désormais — voir plus haut), "like" (fixe, pas
+  // "le tag le plus utilisé" — un import en masse comme méral peut
+  // largement dépasser en volume les tags qu'on pose soi-même, sans que
+  // ça les rende plus pertinents comme raccourci rapide), "masquer déjà
+  // tagués" et son miroir "multi-tagués" (2+ tags significatifs, plutôt
+  // que 0 — pour repérer les mots déjà bien recoupés).
+  const renderFiltresRapides = () => {
+    filtresRapidesDiv.empty();
+    const rapides = [
+      { tag: TAG_EXCLU, label: '🚫 Explorer les exclus', actif: modeRevueExclus,
+        toggle: () => { modeRevueExclus = !modeRevueExclus; renderFiltresTags(); }, couleur: couleurTag(TAG_EXCLU) },
+      ...(tousLesTagsUtilises().includes('like') ? [{ tag: 'like', label: '☆ Explorer « like »', actif: filtresActifs.has('like'),
+        toggle: () => { filtresActifs.has('like') ? desactiveFiltre('like') : activeFiltre('like'); }, couleur: couleurTag('like') }] : []),
+      { tag: '__masquerTagues', label: '📭 Masquer les mots déjà tagués', actif: masquerTaguesCase.checked,
+        toggle: () => { masquerTaguesCase.checked = !masquerTaguesCase.checked; renderFiltresTags(); }, couleur: 'var(--text-muted)' },
+      { tag: '__multiTagues', label: '🏷️ Explorer les multi-tagués', actif: multiTaguesCase.checked,
+        toggle: () => { multiTaguesCase.checked = !multiTaguesCase.checked; renderFiltresTags(); }, couleur: 'var(--text-muted)' },
+    ];
+    rapides.forEach(r => {
+      const btn = filtresRapidesDiv.createEl('button', {
+        cls: 'cp-hasard-filtre-rapide' + (r.actif ? ' cp-hasard-filtre-rapide-actif' : ''),
+        text: r.label
+      });
+      btn.style.borderColor = r.couleur;
+      if (r.actif) { btn.style.background = r.couleur; btn.style.color = '#fff'; }
+      else { btn.style.color = r.couleur; }
+      btn.addEventListener('click', r.toggle);
+      if (r.tag === '__masquerTagues') btnMasquerTagues = btn;
+    });
+  };
+
+  const renderFiltresTags = () => {
+    renderStats();
+    renderFiltresRapides();
+    sectionInclusion.render();
+    sectionExclusion.render();
+    if (compteurPoolEl) {
+      const n = filtrePoolMots({
+        tagsActifs: filtresActifs, modeET: modeETCase.checked, modePlusUnAutre: modePlusUnAutreCase.checked,
+        tagsExclus: filtresExclus, masquerTagues: masquerTaguesCase.checked, modeMultiTagues: multiTaguesCase.checked,
+        modeRevueExclus,
+      }).length;
+      compteurPoolEl.setText(n === 0 ? 'Aucun mot ne correspond à ces filtres' : `${n} mot${n > 1 ? 's' : ''} correspond${n > 1 ? 'ent' : ''} à ces filtres`);
+    }
+    const tags = tousLesTagsUtilises().filter(t => t !== TAG_EXCLU);
+    filtreDatalist.empty();
+    tags.forEach(tag => {
+      if (filtresActifs.has(tag)) return;
+      filtreDatalist.createEl('option', { attr: { value: tag } });
+    });
+    if (tagAjoutDatalist) {
+      tagAjoutDatalist.empty();
+      tags.forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
+    }
+    panneauTousTagsFiltre.render();
+    filtresChipsDiv.empty();
+    if (filtresActifs.size === 0) return;
+    filtresChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Filtres actifs : ' });
+    [...filtresActifs].forEach(tag => {
+      creeChipTag(filtresChipsDiv, tag, () => desactiveFiltre(tag));
+    });
+  };
+  renderFiltresTags();
+
+  const ajouterFiltre = () => {
+    const tag = filtreInput.value.trim().toLowerCase();
+    if (!tag) return;
+    activeFiltre(tag);
+    filtreInput.value = '';
+  };
+  btnAjouterFiltre.addEventListener('click', ajouterFiltre);
+  filtreInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouterFiltre(); } });
+
+  // --- Exclusion (NOT/NOR) : symétrique de l'inclusion ci-dessus ---
+  const activeExclusion = (tag) => { filtresExclus.add(tag); renderExclusionTags(); };
+  const desactiveExclusion = (tag) => { filtresExclus.delete(tag); renderExclusionTags(); };
+  const panneauTousTagsExclusion = creePanneauTousTags(
+    sectionExclusion.body,
+    btnTousTagsExclusion,
+    () => tousLesTagsUtilises().filter(t => t !== TAG_EXCLU && !filtresExclus.has(t)),
+    activeExclusion,
+    'Voir tous les tags à exclure'
+  );
+
+  const renderExclusionRapides = () => {
+    exclusionRapidesDiv.empty();
+    if (!tousLesTagsUtilises().includes('connu')) return;
+    const actif = filtresExclus.has('connu');
+    const btn = exclusionRapidesDiv.createEl('button', {
+      cls: 'cp-hasard-filtre-rapide' + (actif ? ' cp-hasard-filtre-rapide-actif' : ''),
+      text: '🚫 Masquer les mots connus'
+    });
+    const c = couleurTag('connu');
+    btn.style.borderColor = c;
+    if (actif) { btn.style.background = c; btn.style.color = '#fff'; } else { btn.style.color = c; }
+    btn.addEventListener('click', () => { actif ? desactiveExclusion('connu') : activeExclusion('connu'); });
+  };
+
+  const renderExclusionTags = () => {
+    renderFiltresTags(); // rafraîchit aussi les badges/bandeau partagés
+    renderExclusionRapides();
+    const tags = tousLesTagsUtilises().filter(t => t !== TAG_EXCLU);
+    exclusionDatalist.empty();
+    tags.forEach(tag => {
+      if (filtresExclus.has(tag)) return;
+      exclusionDatalist.createEl('option', { attr: { value: tag } });
+    });
+    panneauTousTagsExclusion.render();
+    exclusionChipsDiv.empty();
+    if (filtresExclus.size === 0) return;
+    exclusionChipsDiv.createSpan({ cls: 'cp-sources-label', text: 'Exclus : ' });
+    [...filtresExclus].forEach(tag => {
+      creeChipTag(exclusionChipsDiv, tag, () => desactiveExclusion(tag));
+    });
+  };
+  renderExclusionTags();
+
+  const ajouterExclusion = () => {
+    const tag = exclusionInput.value.trim().toLowerCase();
+    if (!tag) return;
+    activeExclusion(tag);
+    exclusionInput.value = '';
+  };
+  btnAjouterExclusion.addEventListener('click', ajouterExclusion);
+  exclusionInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouterExclusion(); } });
+
+
+
+  const zone = panelHasard.createDiv({ cls: 'cp-hasard-zone' });
+  compteurPoolEl = zone.createDiv({ cls: 'cp-hasard-compteur-pool' });
+  const btnTirerWrap = zone.createDiv({ cls: 'cp-hasard-bouton-wrap' });
+  const btnTirer = btnTirerWrap.createEl('button', { text: '🎲 Tire un mot au hasard', cls: 'cp-hasard-bouton' });
+  renderFiltresTags(); // calcule le compteur maintenant qu'il existe (il n'existait pas au tout premier appel plus haut)
+  const motEl = zone.createEl('div', { cls: 'cp-hasard-mot' });
+  const noteEl = zone.createDiv({ cls: 'cp-hasard-note' });
+  // Affiche une note en gérant le séparateur de fusion ("---" inséré par
+  // nettoieEtFusionneDictionnairePerso quand deux notes différentes sont
+  // agrégées) avec un espacement compact et maîtrisé, plutôt que de
+  // dépendre du nombre de retours à la ligne bruts stockés dans le texte
+  // — corrige aussi les notes déjà fusionnées sans avoir à les retoucher.
+  const afficheNoteHasard = (texte) => {
+    noteEl.empty();
+    const parties = (texte || '').split(/\n*\s*---\s*\n*/)
+      // Les "\n" internes viennent souvent d'une mise en page à largeur
+      // fixe dans la source scannée (retour à la ligne arbitraire au
+      // milieu d'une phrase, pas un vrai saut de paragraphe) — on les
+      // aplati en simples espaces pour laisser le texte s'enchaîner
+      // naturellement, et laisser le CSS (justify) gérer le retour à la
+      // ligne proprement plutôt que de cumuler les deux.
+      .map(p => p.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    parties.forEach((partie, i) => {
+      if (i > 0) noteEl.createDiv({ cls: 'cp-hasard-note-sep', text: '· · ·' });
+      noteEl.createDiv({ cls: 'cp-hasard-note-partie', text: partie });
+    });
+  };
+  const chipsDiv = zone.createDiv({ cls: 'cp-hasard-tags' });
+
+  // actions de navigation (définition, rimes, exclusion) — séparées de
+  // la gravure et du tagging, qui vivent dans leurs propres zones plus bas
+  const actions = zone.createDiv({ cls: 'cp-hasard-actions' });
+  actions.style.display = 'none';
+  const btnDefs = actions.createEl('button', { cls: 'cp-link-btn', text: 'Voir sa définition (CNRTL) →' });
+  const btnRimes = actions.createEl('button', { cls: 'cp-link-btn', text: 'Chercher ses rimes →' });
+  const btnExclure = actions.createEl('button', { cls: 'cp-link-btn cp-btn-exclure', text: '🚫 Ne plus tirer ce mot' });
+
+  // boutons de tag rapide (presets dynamiques, les plus utilisés en
+  // premier) + accès à la liste complète, colorée et cliquable, plutôt
+  // que le datalist natif du champ texte (illisible dès qu'il y a
+  // beaucoup de tags — liste plate, non triée par pertinence, sans
+  // couleur pour s'y repérer).
+  const presetsDiv = zone.createDiv({ cls: 'cp-hasard-tag-presets' });
+  const btnTousTags = zone.createEl('button', { cls: 'cp-link-btn cp-hasard-voir-tous-tags', text: 'Voir tous les tags' });
+  btnTousTags.style.display = 'none';
+
+  const choisirTag = async (tag) => {
+    if (!motCourant) return;
+    await ajouteTagMot(vue.plugin, motCourant, tag);
+    renderChips();
+    renderFiltresTags();
+    renderPresets();
+  };
+  const panneauTousTags = creePanneauTousTags(zone, btnTousTags, () => {
+    const tous = tagsParFrequence();
+    return tous.length > 6 ? [...tous].sort() : [];
+  }, choisirTag);
+
+  const renderPresets = () => {
+    presetsDiv.empty();
+    tagsParFrequence().slice(0, 6).forEach(tag => {
+      const btn = presetsDiv.createEl('button', { cls: 'cp-hasard-preset-btn', text: '+ ' + tag });
+      const c = couleurTag(tag);
+      btn.style.borderColor = c;
+      btn.style.color = c;
+      btn.addEventListener('click', () => choisirTag(tag));
+    });
+    panneauTousTags.render();
+  };
+
+  // ajout de tag rapide (libre) sur le mot courant
+  const tagFormDiv = zone.createDiv({ cls: 'cp-hasard-tag-ajout' });
+  tagFormDiv.style.display = 'none';
+  const tagAjoutDatalistId = 'cp-hasard-tagajout-' + Math.random().toString(36).slice(2, 8);
+  const tagInput = tagFormDiv.createEl('input', { attr: { type: 'text', placeholder: 'ajouter un tag (ex. désuet)', list: tagAjoutDatalistId } });
+  tagAjoutDatalist = tagFormDiv.createEl('datalist', { attr: { id: tagAjoutDatalistId } });
+  tousLesTagsUtilises().forEach(tag => tagAjoutDatalist.createEl('option', { attr: { value: tag } }));
+  const btnAjouterTag = tagFormDiv.createEl('button', { cls: 'cp-link-btn', text: '+ tag' });
+
+  // gravure : tout en bas, APRÈS le tagging — on tague d'abord ce que le
+  // mot évoque, on grave ensuite pour committer ça dans le fichier, pas
+  // l'inverse. Sa propre zone, séparée visuellement par un filet.
+  const graverWrap = zone.createDiv({ cls: 'cp-hasard-graver-wrap' });
+  graverWrap.style.display = 'none';
+  const btnGraver = graverWrap.createEl('button', { cls: 'cp-hasard-graver-btn', text: '💾 Graver dans dictionnaire-perso.json' });
+
+  let motCourant = null;
+  let noteCourante = '';
+
+  const renderChips = () => {
+    chipsDiv.empty();
+    if (!motCourant) return;
+    tagsDuMot(motCourant).forEach(tag => {
+      creeChipTag(chipsDiv, tag, async () => {
+        await retireTagMot(vue.plugin, motCourant, tag);
+        renderChips();
+        renderFiltresTags();
+        renderPresets();
+      });
+    });
+  };
+
+  const tirer = () => {
+    const entree = motAuHasard({
+      tagsActifs: filtresActifs,
+      modeET: modeETCase.checked,
+      modePlusUnAutre: modePlusUnAutreCase.checked,
+      tagsExclus: filtresExclus,
+      masquerTagues: masquerTaguesCase.checked,
+      modeMultiTagues: multiTaguesCase.checked,
+      modeRevueExclus,
+    });
+    if (!entree) {
+      motEl.setText('Aucun mot disponible avec ces filtres.');
+      afficheNoteHasard('');
+      chipsDiv.empty();
+      presetsDiv.empty();
+      actions.style.display = 'none';
+      graverWrap.style.display = 'none';
+      tagFormDiv.style.display = 'none';
+      motCourant = null;
+      return;
+    }
+    motCourant = entree.mot;
+    noteCourante = entree.note || '';
+    motEl.setText(entree.mot);
+    afficheNoteHasard(noteCourante);
+    renderChips();
+    renderPresets();
+    actions.style.display = 'flex';
+    graverWrap.style.display = 'flex';
+    tagFormDiv.style.display = 'flex';
+  };
+
+  btnDefs.addEventListener('click', () => {
+    if (!motCourant) return;
+    if (vue._switchTab) vue._switchTab('defs');
+    if (vue._prefillDefsInput) vue._prefillDefsInput(motCourant);
+  });
+  btnRimes.addEventListener('click', () => {
+    if (!motCourant) return;
+    if (vue._switchTab) vue._switchTab('rimes');
+    if (vue._prefillRimeInput) vue._prefillRimeInput(motCourant);
+  });
+  btnExclure.addEventListener('click', async () => {
+    if (!motCourant) return;
+    await ajouteTagMot(vue.plugin, motCourant, TAG_EXCLU);
+    new Notice(`« ${motCourant} » ne sera plus tiré au hasard.`);
+    renderFiltresTags();
+    tirer();
+  });
+  btnGraver.addEventListener('click', async () => {
+    if (!motCourant) return;
+    const mot = motCourant;
+    const tags = tagsDuMot(mot);
+    await ajouteMotRarePerso(vue.plugin, mot, noteCourante, tags);
+    await purgeMetaMot(vue.plugin, mot);
+    new Notice(`« ${mot} » gravé dans dictionnaire-perso.json (zone tampon vidée).`);
+    renderFiltresTags();
+    renderPresets();
+    if (motCourant && normaliseMot(motCourant) === normaliseMot(mot)) renderChips();
+  });
+  btnAjouterTag.addEventListener('click', async () => {
+    if (!motCourant || !tagInput.value.trim()) return;
+    await ajouteTagMot(vue.plugin, motCourant, tagInput.value);
+    tagInput.value = '';
+    renderChips();
+    renderFiltresTags();
+    renderPresets();
+  });
+  tagInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnAjouterTag.click(); });
+
+  btnTirer.addEventListener('click', tirer);
+  tirer();
+
+  // --- ajout manuel d'un mot rare ---
+  const ajoutDetails = panelHasard.createEl('details', { cls: 'cp-hasard-ajout' });
+  ajoutDetails.createEl('summary', { text: '+ Ajouter un mot rare manuellement' });
+  const ajoutForm = ajoutDetails.createDiv({ cls: 'cp-hasard-ajout-form' });
+  const inputMot = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'mot' } });
+  const inputNote = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'définition courte (optionnel)' } });
+  const inputTags = ajoutForm.createEl('input', { attr: { type: 'text', placeholder: 'tags séparés par une virgule (optionnel)' } });
+  const btnAjouterMot = ajoutForm.createEl('button', { cls: 'cp-link-btn', text: 'Ajouter à mon dictionnaire personnel' });
+  btnAjouterMot.addEventListener('click', async () => {
+    const mot = inputMot.value.trim();
+    if (!mot) { new Notice('Le mot est requis.'); return; }
+    const tags = inputTags.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    await ajouteMotRarePerso(vue.plugin, mot, inputNote.value.trim(), tags);
+    new Notice(`« ${mot} » ajouté à ton dictionnaire personnel.`);
+    inputMot.value = ''; inputNote.value = ''; inputTags.value = '';
+    renderFiltresTags();
+  });
+
+  // --- stats, repliées en bas pour ne pas surcharger le haut du panel ---
+  const statsDetails = panelHasard.createEl('details', { cls: 'cp-hasard-stats-details' });
+  statsDetails.createEl('summary', { text: 'Afficher les statistiques' });
+  statsDiv = statsDetails.createDiv({ cls: 'cp-hasard-stats' });
+  statsDetails.addEventListener('toggle', () => { if (statsDetails.open) renderStats(); });
+  renderStats();
+}
+
+
+function buildPanelNotes(vue, panelNotes){
+  const intro = panelNotes.createEl('p', { cls: 'cp-inspi-intro' });
+  intro.setText('Mots ajoutés sans définition (import en masse, sélection Inspiration...) — complète-les à la main, enregistré directement dans dictionnaire-perso.json.');
+
+  const btnRefresh = panelNotes.createEl('button', { cls: 'cp-link-btn', text: '↻ Rafraîchir la liste' });
+
+  const secRares = panelNotes.createDiv({ cls: 'cp-groupe' });
+  secRares.createDiv({ cls: 'cp-son-label', text: 'Mots rares sans note' });
+  const listeRares = secRares.createDiv({ cls: 'cp-inspi-liste' });
+
+  const secChamps = panelNotes.createDiv({ cls: 'cp-groupe' });
+  secChamps.createDiv({ cls: 'cp-son-label', text: 'Champs lexicaux : mots sans note' });
+  const listeChamps = secChamps.createDiv({ cls: 'cp-inspi-liste' });
+
+  const renderLigneEdition = (container, mot, sousTexte, enregistrer) => {
+    const ligne = container.createDiv({ cls: 'cp-inspi-mot' });
+    ligne.createSpan({ cls: 'cp-inspi-terme', text: mot });
+    if (sousTexte) ligne.createSpan({ cls: 'cp-inspi-note', text: sousTexte });
+    const input = ligne.createEl('input', { attr: { type: 'text', placeholder: 'note / définition courte' } });
+    const btn = ligne.createEl('button', { cls: 'cp-link-btn', text: 'Enregistrer' });
+    const valider = async () => {
+      const note = input.value.trim();
+      if (!note) return;
+      await enregistrer(note);
+      new Notice(`Carnet du Poète : note ajoutée pour « ${mot} ».`);
+      ligne.remove();
+    };
+    btn.addEventListener('click', valider);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
+  };
+
+  const rerender = () => {
+    listeRares.empty();
+    listeChamps.empty();
+
+    const raresSansNote = MOTS_RARES.filter(e => e && e.mot && !e.note);
+    if (raresSansNote.length === 0) {
+      listeRares.createEl('p', { cls: 'cp-vide', text: 'Tous tes mots rares ont une note.' });
+    } else {
+      raresSansNote.forEach(e => {
+        renderLigneEdition(listeRares, e.mot, '', async (note) => {
+          await ajouteMotRarePerso(vue.plugin, e.mot, note, []);
         });
       });
-      if (champsSansNote.length === 0) {
-        listeChamps.createEl('p', { cls: 'cp-vide', text: 'Tous les mots de tes champs lexicaux ont une note.' });
-      } else {
-        champsSansNote.forEach(({ mot, theme }) => {
-          renderLigneEdition(listeChamps, mot, `(${theme})`, async (note) => {
-            await ajouteMotChampLexicalPerso(this.plugin, theme, [], mot, note, { silencieux: true });
-          });
-        });
-      }
-    };
-    rerender();
-    btnRefresh.addEventListener('click', rerender);
-    this._rafraichitPanelNotes = rerender;
-  }
+    }
 
-  async onClose(){}
+    const champsSansNote = [];
+    CHAMPS_LEXICAUX.forEach(champ => {
+      champ.mots.forEach(m => {
+        if (m && m.mot && !m.note) champsSansNote.push({ mot: m.mot, theme: champ.theme });
+      });
+    });
+    if (champsSansNote.length === 0) {
+      listeChamps.createEl('p', { cls: 'cp-vide', text: 'Tous les mots de tes champs lexicaux ont une note.' });
+    } else {
+      champsSansNote.forEach(({ mot, theme }) => {
+        renderLigneEdition(listeChamps, mot, `(${theme})`, async (note) => {
+          await ajouteMotChampLexicalPerso(vue.plugin, theme, [], mot, note, { silencieux: true });
+        });
+      });
+    }
+  };
+  rerender();
+  btnRefresh.addEventListener('click', rerender);
+  vue._rafraichitPanelNotes = rerender;
 }
 
 /* =========================================================

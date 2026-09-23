@@ -21,7 +21,7 @@ const A_EXPORTER = [
   // Rimes
   'preparerMotRime', 'normaliseSonsFinal', 'cleFinApprox', 'cleRicheMot',
   'classifieRime', 'memeRime', 'classeRime', 'coeurVocalique',
-  'analysePoeme',
+  'analysePoeme', 'extraitCategorieRime', 'estFlexionDe',
   // Sonorités
   'soninitial', 'groupesVoyellesMot', 'consonnesInternesMot',
   'analyseSonorites', 'analyseTramePhonique', 'analyseHomeoteleutes',

@@ -95,4 +95,38 @@ module.exports = function testsRimes(m) {
       assertEqual(lettreZephyr, lettreDormir, 'zéphyr vs dormir (le cas qui a débusqué le bug y=i)');
     });
   });
+  groupe('Wiktionnaire — catégorie de rime', () => {
+    test('garde la rime la plus précise (\\jo\\ plutôt que \\o\\)', () => {
+      const r = m.extraitCategorieRime([
+        'Catégorie:Lemmes en français',
+        'Catégorie:Rimes en français en \\o\\',
+        'Catégorie:Rimes en français en \\jo\\'
+      ]);
+      assertEqual(r && r.son, 'jo');
+      assertEqual(r && r.categorie, 'Catégorie:Rimes en français en \\jo\\');
+    });
+    test('aucune catégorie de rime → null', () => {
+      assertEqual(m.extraitCategorieRime(['Catégorie:Noms communs en français']), null);
+      assertEqual(m.extraitCategorieRime([]), null);
+    });
+  });
+  groupe('Rimes — le mot cherché et ses flexions sont exclus', () => {
+    test('armée exclut armées, armés, armé, armer, armez', () => {
+      ['armée', 'armées', 'armés', 'armé', 'armer', 'armez'].forEach(c =>
+        assertTrue(m.estFlexionDe('armée', c), c));
+    });
+    test('armée garde réarmer, réarmé (composés) et fumée', () => {
+      ['réarmer', 'réarmé', 'fumée'].forEach(c => assertFalse(m.estFlexionDe('armée', c), c));
+    });
+    test('radical court : né exclut nés/née mais garde nez', () => {
+      assertTrue(m.estFlexionDe('né', 'nés'));
+      assertTrue(m.estFlexionDe('né', 'née'));
+      assertFalse(m.estFlexionDe('né', 'nez'));
+    });
+    test('amour exclut amours, aimer exclut aimé mais garde semer', () => {
+      assertTrue(m.estFlexionDe('amour', 'amours'));
+      assertTrue(m.estFlexionDe('aimer', 'aimé'));
+      assertFalse(m.estFlexionDe('aimer', 'semer'));
+    });
+  });
 };

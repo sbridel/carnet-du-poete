@@ -2,6 +2,27 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.26.0** — Rhymes tab: a second online source, and the same layout as Synonyms/Inspiration.
+  - **Wiktionnaire as a second opt-in online source**, next to RimesSolides. The plugin reads the
+    rhyme category the Wiktionnaire assigns to the searched word ("Rimes en français en …",
+    keeping the most specific one — /jo/ rather than /o/) and lists that category's members (up
+    to 1,000). Coverage is partial — many words have no rhyme category yet, in which case the
+    block says so — but it works as a fallback when RimesSolides is down and brings in rare words
+    and multi-word phrases. Its results go through exactly the same filters as RimesSolides
+    (strict-rhyme check, letter, syllables, quality, assonance mode); both sources now share one
+    rendering function.
+  - **The searched word's own inflections are no longer offered as rhymes** (searching *armée* no
+    longer lists *armées*, *armés*, *armé*, *armer*, *armez*), in the local dictionary and the
+    online sources alike — a word doesn't rhyme with itself. It is a heuristic without a
+    lemmatizer: the longest inflectional ending leaving a stem of at least 3 letters is removed,
+    and "stem + inflectional ending" candidates are dropped; for short words (*né*, *mer*) only
+    the -s/-x/-e/-es variants are, so *nez* still rhymes with *né*. Compounds (*réarmer*) are kept
+    on purpose: rhyming a word with its compound is discouraged, not forbidden, and prefix
+    detection would misfire (*séjour*, *réparer*).
+  - **Same layout as the Synonyms and Inspiration tabs**: a "dictionnaire local" collapsible
+    block, then one collapsible block per online source (the first open, the others folded). The
+    Wiktionnaire block's title shows the rhyme found, e.g. *armée — Wiktionnaire /me/*. The
+    "Search rhymes for the selected word" command's pop-up uses the same rendering.
 - **2.25.0** — The Inspiration tab's online part was rebuilt around lexical fields instead of
   synonyms (already covered by the Synonyms tab). Three opt-in sources, each in its own
   collapsible block below the local one: **CNRTL** (collocations, word family, sayings with their
