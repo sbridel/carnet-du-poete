@@ -67,14 +67,19 @@ class CarnetView extends ItemView {
     tabNotes.addEventListener('click', () => switchTab('notes'));
     this._switchTab = switchTab;
 
-    this.buildPanelSyllabes(panelSyl);
-    this.buildPanelRimes(panelRimes);
-    this.buildPanelInspiration(panelInspi);
-    this.buildPanelSynonymes(panelSyno);
-    this.buildPanelGuide(panelGuide);
-    this.buildPanelDefinitions(panelDefs);
-    this.buildPanelHasard(panelHasard);
-    this.buildPanelNotes(panelNotes);
+    buildPanelSyllabes(this, panelSyl);
+    buildPanelRimes(this, panelRimes);
+    buildPanelInspiration(this, panelInspi);
+    buildPanelSynonymes(this, panelSyno);
+    buildPanelGuide(this, panelGuide);
+    buildPanelDefinitions(this, panelDefs);
+    buildPanelHasard(this, panelHasard);
+    buildPanelNotes(this, panelNotes);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
     footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèse affichée en variante complète). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
+  }
+
+  async onClose(){}
+}
+
