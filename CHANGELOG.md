@@ -2,6 +2,12 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.27.1** — The Rhymes tab now remembers its ticked online sources (RimesSolides,
+  Wiktionnaire) between sessions, like the Synonyms and Inspiration tabs already did; they
+  start unticked by default. The README was reorganised for easier reading: a quick start, a
+  two-level table of contents, one sub-section per tab, proper headings for the
+  `dictionnaire-perso.json` formats (A–F) and a table of online sources — and a few outdated
+  statements were corrected along the way.
 - **2.27.0** — A bigger, more accurate rhyme dictionary.
   - **The published `dictionnaire-perso.json` grows from ~121,000 to ~210,000 words**: ~89,000
     forms from **Morphalou 3.1** (nouns, adjectives, participles, infinitives, adverbs) join the

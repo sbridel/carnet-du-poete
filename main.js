@@ -5618,6 +5618,19 @@ function buildPanelRimes(vue, panelRimes){
     ...(inputRimesSolides.checked ? ['rimessolides'] : []),
     ...(inputWiktionnaire.checked ? ['wiktionnaire'] : [])
   ];
+  // Sources cochées mémorisées d'une session à l'autre, comme dans
+  // Synonymes et Inspiration (décochées par défaut).
+  const sauvePreferenceSources = async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.sourcesEnLigneRimes = sourcesActives();
+    await vue.plugin.saveData(data);
+  };
+  (async () => {
+    const data = await vue.plugin.loadData();
+    const prefs = (data && Array.isArray(data.sourcesEnLigneRimes)) ? data.sourcesEnLigneRimes : [];
+    inputRimesSolides.checked = prefs.includes('rimessolides');
+    inputWiktionnaire.checked = prefs.includes('wiktionnaire');
+  })();
 
   const chercher = () => renderResultatsRimes(resultatsDiv, motInput.value, lireFiltres(), vue.plugin, sourcesActives());
   // Même raison que _renderAnalyseSyllabes : permettre un recalcul externe
@@ -5631,6 +5644,8 @@ function buildPanelRimes(vue, panelRimes){
   Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
   inputRimesSolides.addEventListener('change', chercher);
   inputWiktionnaire.addEventListener('change', chercher);
+  inputRimesSolides.addEventListener('change', sauvePreferenceSources);
+  inputWiktionnaire.addEventListener('change', sauvePreferenceSources);
 
   vue._prefillRimeInput = (mot) => {
     motInput.value = mot;

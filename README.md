@@ -7,160 +7,190 @@ breakdown, a rhyming dictionary, thematic vocabulary, synonyms/antonyms (includi
 lookup from external sources), and a quick reference on French versification — all in one
 side panel, no internet connection required for the core features.
 
-## Sommaire
+## Quick start
+
+1. Install the plugin (see [Manual installation](#manual-installation)) and enable it in
+   **Settings → Community plugins**.
+2. Click the quill 🪶 icon in the left ribbon to open the notebook.
+3. Type or paste a verse in the **Syllables** tab, or a word in the **Rhymes** tab.
+4. Optional: put the published `dictionnaire-perso.json` in your vault for ~210,000
+   phonetically transcribed words (see [Where the plugin looks for it](#where-the-plugin-looks-for-it)).
+
+## Contents
 
 - [Features](#features)
+  - [Syllables](#syllables) · [Rhymes](#rhymes) · [Inspiration](#inspiration) ·
+    [Synonyms](#synonyms) · [Definitions](#definitions) · [Hasard](#hasard) ·
+    [Notes](#notes) · [Guide](#guide) · [Commands](#commands)
 - [Manual installation](#manual-installation)
-- [Extending your dictionaries with `dictionnaire-perso.json`](#extending-your-dictionaries-with-dictionnaire-personjson)
+- [Extending your dictionaries with `dictionnaire-perso.json`](#extending-your-dictionaries-with-dictionnaire-persojson)
+  - [Where the plugin looks for it](#where-the-plugin-looks-for-it)
+  - [Supported formats](#supported-formats): [A](#format-a-custom-rhyme-families) ·
+    [B](#format-b-complete-phonetic-rhyme-dictionary) ·
+    [C](#format-c-vocabulary-themes-for-the-inspiration-tab) ·
+    [D](#format-d-synonyms-and-antonyms) · [E](#format-e-rare-words-for-the-hasard-tab) ·
+    [F](#format-f-extended-phonetic-dictionary)
 - [Online sources](#online-sources)
 - [Data sources & licences](#data-sources--licences)
 - [Known limitations](#known-limitations)
-- [Changelog](#changelog) — 5 most recent versions
-- [Full changelog](CHANGELOG.md) — complete version history (separate file)
+- [Changelog](#changelog) — 5 most recent versions · [Full changelog](CHANGELOG.md)
 
 ## Features
 
-- **Syllables** — paste or type your verses; each line is broken down into syllables in
-  real time (`mon/ta/gne`), following the classic rule for the silent *e* (counted only when
-  it is neither at the end of a line nor followed by a word starting with a vowel). The metre
-  (octosyllable, alexandrine, etc.) and the **rhyme's gender** (a small F/M badge — feminine if
-  the line ends on a silent *e*, masculine otherwise) are detected automatically. When a word
-  contains an ambiguous hiatus (e.g. *nation*, *poésie*, *paupière*), the main line is labelled
-  **synérèse** (the default reading, hiatus read as one syllable) and a second line underneath,
-  labelled **diérèse**, shows the full breakdown with that hiatus split into two syllables — you
-  decide which reading fits your verse. This second line can be toggled on/off with the
-  "Variante diérèse" checkbox if you'd rather keep the view lighter.
-  - **Rhyme scheme detection** — the poem is split into stanzas (blank-line separated); each
-    stanza's end-rhymes are grouped and labelled A/B/C..., and a 4-line stanza matching AABB,
-    ABAB or ABBA is named accordingly, shown just below the syllable counts. By default each
-    stanza restarts its own lettering from A; toggle "Rimes continues entre strophes" to keep
-    the lettering going across the whole poem instead (e.g. a sonnet's two tercets labelled
-    CCD/EED following on from the quatrains' ABBA/ABBA, rather than restarting at AAB/AAB).
-  - **Rhyme colour-coding** — toggle "Couleurs de rimes" to give each line a coloured badge and
-    border matching its rhyme group, making rhyme pairs easy to spot at a glance in the analysis
-    view. (This applies to the rendered analysis, not the raw text box itself — colouring live
-    text inside a plain editable text area isn't something a text `<textarea>` supports.)
-  - **Markdown export** — the "📋 Exporter en Markdown" button copies a table (verse / syllable
-    count / rhyme gender / rhyme letter / rhyme quality) to your clipboard, ready to paste into
-    any note. Rhyme quality is only filled in for the second (and later) line of each rhyme
-    group, relative to the first line that introduced it. A separate "📄 Copier le brouillon"
-    button copies the raw draft text as-is, without the table formatting.
-- **Rhymes** — type a word and get masculine/feminine rhyme suggestions with their syllable
-  count, drawn from roughly sixty built-in sound families. If you supply a complete phonetic
-  rhyme dictionary (see below), exact matches from it take priority over the built-in
-  approximation. Results can be narrowed down with filters (first letter, syllable count, and
-  rhyme quality — *pauvre* / *suffisante* / *riche+*, with **Très riche** and **Léonine** as
-  optional sub-filters that narrow the "riche+" bucket further). Quality is estimated from how
-  many trailing sounds the candidate shares with your word, with a syllable-aware check (attack
-  + vowel + coda, using French syllabification rules) distinguishing riche / très riche / léonine
-  once the basic count reaches "riche". Each group shows a colour-coded quality summary (counts
-  per quality) and every word chip carries a matching coloured border and badge, with a tooltip
-  explaining the criterion, for a quick visual read of the list. You can also tick
-  **RimesSolides** to pull in additional live results from
-  [rimessolides.com](https://www.rimessolides.com), and/or **Wiktionnaire** (the words it files
-  under the same rhyme category — partial coverage, handy as a fallback and for rare words) — and every filter above (letter, syllable
-  count, quality) applies to those results too, on top of the site's own pagination, so you can
-  narrow down a 4000+-word RimesSolides list the same way you'd narrow the local dictionary,
-  something the site's own interface doesn't offer. The searched word's own inflections (*armée* →
-  *armées*, *armé*, *armer*…) are left out of every list, since a word doesn't rhyme with itself. A global **"Mode assonance"**
-  toggle (off by default — strict rhymes only) additionally surfaces words that share the same
-  vowel but differ in what follows it (e.g. *ombre*/*montre* — same nasal vowel, but "b" vs "t"
-  right before the final "r"), shown in a clearly separate, dashed-border section so they're
-  never mixed in with true rhymes. This mode also loosens the rhyme-scheme detection and
-  colour-coding in the Syllables tab, since both features share the same underlying check.
-- **Inspiration** — type a common word (*forest*, *sea*, *night*, *love*, *medieval*...) and get
-  rarer, more literary or archaic vocabulary on the same theme (e.g. *forest* → canopy-related
-  words such as *canopée*, *sylve*, *futaie*, *orée*), each with a short gloss. About thirty
-  themes are built in, including one dedicated to old/archaic French vocabulary. You can
-  optionally tick CNRTL, Wiktionnaire and/or JeuxDeMots to pull in lexical-field material fetched
-  live (collocations, related vocabulary, derived words, sayings, characteristics, parts…), each
-  sub-section coloured by its nature rather than its source (see the collapsible legend). **Click any word** (from a recognised theme or an online source) to
-  select it — the selection persists across successive searches, so you can build one field from
-  several related queries (e.g. *sea* + *colour*). Once at least one word is selected, an action
-  bar lets you add the whole selection in one go, either to a **lexical field** (existing —
-  autocompleted — or a brand-new one, created on the fly with its own trigger keywords) or
-  directly as **rare word(s)** into `dictionnaire-perso.json`. Definitions already known for a
-  selected word (from a recognised theme) are carried over automatically; words coming from an
-  online source have no definition and can be completed afterwards from the **Notes** tab.
-- **Synonyms** — type a word to see synonyms and antonyms. A small built-in dictionary answers
-  instantly offline, extended by any Format C entries in your personal dictionary; you can
-  additionally enable live lookups from **Wiktionnaire** and/or **CRISCO** (Université de
-  Caen's synonym dictionary), toggled independently with checkboxes, with a one-click button
-  to save any online result into your personal dictionary for future offline use — click any
-  chip first to exclude it from that save if a source returned a bad match. Every
-  synonym/antonym that genuinely rhymes with your search word gets a rhyme-quality badge, and
-  an optional **"Rime avec…"** field narrows the list down to only the ones that also rhyme
-  with a second word of your choice — handy when a rhyme is already fixed by another line.
-  See [Online sources](#online-sources) below.
-- **Definitions** — look up a rare word before using it: a quick one-line definition is shown
-  immediately, then pick from up to seven dictionary sources (TLFi, Wiktionnaire, Académie
-  9th/8th/4th editions, Littré, DMF for Middle French — only the ones that actually cover the
-  word are offered) via a row of pills, TLFi selected by default. Each source is broken down into
-  collapsible sections (numbered senses, locutions, historical notes...) instead of one long
-  block of text, with pure-definition text highlighted the same way the CNRTL site itself does.
-  A quick "Ouvrir sur CNRTL ↗" link opens the real site directly for whatever you've typed, no
-  lookup required. On-demand only — nothing is looked up automatically.
-- **Hasard** — one button, one rare or forgotten French word at random (*smaragdin*,
-  *coruscant*, *pétrichor*, *s'ennuiter*...), with a short gloss and quick links to look it up
-  in the Definitions or Rhymes tab. A live counter above the button shows how many words match
-  the current filters *before* you draw. Every word can carry free-form **tags** (désuet,
-  savant, poétique...), each with its own stable colour (reused everywhere the tag appears),
-  addable/removable on the fly from the drawn word — via dynamic preset buttons (your most-used
-  tags first) or a free-text field with autocomplete (or click straight through several pills in
-  the "voir tous les tags" panel, no need to re-type one at a time).
-  - **Filtrer par tags** (collapsible, purple) — checking several tags is **OR by default**
-    (any word carrying *at least one* of them): fine on its own, but if one tag has a much
-    bigger volume than the others (e.g. after a bulk import), combining it with a smaller one
-    in OR mostly just gives you the big one back. Tick **"Tous les tags cochés (ET)"** to
-    require *every* checked tag at once instead — that's how you get a real intersection
-    (e.g. "méral" + "poésie" together, not either). A further **"+ au moins un tag en plus de
-    ceux cochés"** toggle asks for one checked tag (or an ET combination) *plus* any other tag
-    on top — handy for "this tag, but already categorised further", without hardcoding which
-    tag or which other one.
-  - **Exclure des tags** (collapsible, gold) — the mirror, NOT/NOR logic: subtracts any word
-    carrying at least one of the checked tags, regardless of the include filters above. A
-    compact "🚫 Masquer les mots connus" shortcut lives here (toggles the reserved "connu" tag
-    into this same exclusion set).
-  - Always-visible shortcuts: "🚫 Explorer les exclus" (review mode: draws *only* from words
-    you've excluded — combines properly with the tag filters above now, e.g. review just the
-    excluded words also tagged "méral"), "☆ Explorer « like »" (fixed to your "like" tag, not
-    "whichever tag is most common" — a bulk import can otherwise dwarf your own tags in
-    frequency), "📭 Masquer les mots déjà tagués" (0 tags) and its mirror "🏷️ Explorer les
-    multi-tagués" (2+ tags at once).
-  - A "💾 Graver dans dictionnaire-perso.json" button (now placed *after* the tagging controls,
-    not before — tag first, commit second) writes the currently-drawn word's tags permanently
-    into your personal dictionary and clears its temporary session record (a bulk "Graver en
-    masse" version lives in Settings). Merging (via that button, or the "🧹 Nettoyer et
-    fusionner" Settings action) never silently drops one note in favour of another anymore: if
-    the two differ and neither contains the other, both are kept, joined by a visible "· · ·"
-    separator.
-  - A collapsible stats panel at the bottom shows total word count, excluded/untagged counts,
-    "% already seen", a per-tag breakdown, and every tag *combination* actually observed in
-    your dictionary (not all theoretically possible combinations, just the ones that exist) —
-    handy for deciding when it's time to import a fresh batch of words, or spotting an
-    over-used tag. Tags can also be declared directly in `dictionnaire-perso.json` (see below)
-    — useful for pre-tagging a bulk import — and merge with tags added from the UI. The draw
-    itself avoids repeating recently-shown words (a rolling window that adapts to the size of
-    the current filtered pool, so a narrow filter never gets stuck empty). A small form lets you
-    add a rare word manually (word, optional gloss, optional tags) straight into your personal
-    dictionary without going through an external source.
-- **Notes** — a maintenance tab: lists every rare word and every lexical-field word that's
-  missing a definition (typically after a bulk import, or a word added from an online source
-  with no gloss available), each with an inline text field to write one by hand — saved directly
-  to `dictionnaire-perso.json` on save, disappearing from the list once done.
-- **Guide** — a quick reference: how French syllable counting works, metre names, caesura,
-  enjambment, stanza names, a handful of classic poem forms (sonnet, rondeau, ballade,
-  villanelle, pantoum, triolet, virelai, tanka, calligramme, ode, haiku, fable, acrostic, free
-  verse...), and the basics of rhyme (rhyme schemes, rhyme quality, masculine/feminine
-  alternation, eye-rhymes vs. ear-rhymes).
-- **Persistent draft** — your syllable-counter text is saved automatically between sessions.
-- **Commands** (Command palette, `Ctrl/Cmd+P`):
-  - *Open the Carnet du Poete*
-  - *Count the syllables in the selection (or the current line)* — shows the result, including
-    rhyme gender and diaeresis alternative, in a notification.
-  - *Search for rhymes for the selected word*
-  - *Search for inspiration (vocabulary) for the selected word*
-  - *Reload the personal dictionary (dictionnaire-perso.json)*
+The plugin opens as a side panel with eight tabs. Everything below works offline, except the
+sources you choose to query online (see [Online sources](#online-sources)).
+
+### Syllables
+
+Paste or type your verses: each line is broken down into syllables in real time
+(`mon/ta/gne`).
+
+- **Silent *e*** — counted following the classic rule: only when it is neither at the end of a
+  line nor followed by a word starting with a vowel.
+- **Metre and rhyme gender** — the metre (octosyllable, alexandrine…) is detected
+  automatically, and a small **F/M badge** gives the rhyme's gender (feminine if the line ends
+  on a silent *e*, masculine otherwise).
+- **Synérèse / diérèse** — when a word contains an ambiguous hiatus (*nation*, *poésie*,
+  *paupière*), the main line shows the **synérèse** reading (hiatus as one syllable) and a
+  second line underneath shows the **diérèse** (hiatus split in two). You choose the reading
+  that fits your verse; the "Variante diérèse" checkbox hides that second line.
+- **Rhyme scheme detection** — the poem is split into stanzas (blank-line separated); each
+  stanza's end-rhymes are labelled A/B/C…, and a quatrain matching AABB, ABAB or ABBA is named
+  accordingly. By default each stanza restarts at A; tick "Rimes continues entre strophes" to
+  keep the lettering going across the whole poem (a sonnet's tercets as CCD/EED after its
+  ABBA/ABBA quatrains).
+- **Rhyme colour-coding** — "Couleurs de rimes" gives each line a coloured badge and border
+  matching its rhyme group, in the analysis view (not in the raw text box, which a plain
+  `<textarea>` cannot colour).
+- **Markdown export** — "📋 Exporter en Markdown" copies a table (verse / syllables / rhyme
+  gender / rhyme letter / rhyme quality) to your clipboard. Rhyme quality is filled in from the
+  second line of each rhyme group, relative to the first. "📄 Copier le brouillon" copies the
+  raw draft as-is.
+- **Persistent draft** — your text is saved automatically between sessions.
+
+### Rhymes
+
+Type a word and get masculine/feminine rhyme suggestions with their syllable count.
+
+- **Sources** — roughly sixty built-in sound families, overridden by exact matches from a
+  complete phonetic dictionary when you have one (see
+  [Extending your dictionaries](#extending-your-dictionaries-with-dictionnaire-persojson)). The
+  ready-made `dictionnaire-perso.json` published here covers ~210,000 words.
+- **Filters** — first letter, syllable count and rhyme quality (*pauvre* / *suffisante* /
+  *riche+*, with **Très riche** and **Léonine** as sub-filters of *riche+*). Quality is
+  estimated from the trailing sounds shared with your word, with a syllable-aware check
+  (attack + vowel + coda) separating riche / très riche / léonine.
+- **Visual read** — each group shows a colour-coded quality summary, and every word chip
+  carries a matching coloured border and badge, with a tooltip explaining the criterion.
+- **Online complements** — tick **RimesSolides** ([rimessolides.com](https://www.rimessolides.com))
+  and/or **Wiktionnaire** (the words it files under the same rhyme category — partial coverage,
+  handy as a fallback and for rare words). All filters apply to their results too, so you can
+  narrow a 4,000-word RimesSolides list the way the site itself can't. Local and online results
+  appear in separate collapsible blocks.
+- **No self-rhymes** — the searched word's own inflections (*armée* → *armées*, *armé*,
+  *armer*…) are left out, since a word doesn't rhyme with itself.
+- **Mode assonance** (off by default) — also shows words sharing the same vowel but differing
+  after it (*ombre*/*montre*), in a separate dashed-border section, never mixed with true
+  rhymes. It also loosens rhyme-scheme detection and colour-coding in the Syllables tab, which
+  share the same check.
+
+### Inspiration
+
+Type a common word (*forest*, *sea*, *night*, *love*, *medieval*…) and get rarer, more
+literary or archaic vocabulary on the same theme (*forest* → *canopée*, *sylve*, *futaie*,
+*orée*), each with a short gloss.
+
+- **Built-in themes** — about thirty, including one dedicated to old/archaic French.
+- **Online sources** — optionally tick CNRTL, Wiktionnaire and/or JeuxDeMots for lexical-field
+  material fetched live (collocations, related vocabulary, derived words, sayings,
+  characteristics, parts…). Sub-sections are coloured by nature, not by source (see the
+  collapsible legend).
+- **Build your own fields** — click any word to select it; the selection persists across
+  searches, so you can combine several queries (*sea* + *colour*). An action bar then adds the
+  whole selection to a **lexical field** (existing, autocompleted, or created on the fly with its
+  own trigger keywords) or as **rare words** into `dictionnaire-perso.json`. Known definitions
+  are carried over; words from online sources can be defined later in the **Notes** tab.
+
+### Synonyms
+
+Type a word to see synonyms and antonyms.
+
+- **Offline first** — a small built-in dictionary answers instantly, extended by the synonyms of
+  your personal dictionary.
+- **Online sources** — CNRTL, CRISCO (Université de Caen) and/or Wiktionnaire, each toggled
+  independently. A one-click button saves any online result into your personal dictionary for
+  offline use; click a chip first to exclude it from that save.
+- **Rhyme-aware** — every synonym/antonym that rhymes with your word gets a quality badge, and
+  the optional **"Rime avec…"** field keeps only those that also rhyme with a second word —
+  handy when another line has already fixed the rhyme.
+
+### Definitions
+
+Look up a rare word before using it.
+
+- A quick one-line definition appears immediately, then up to seven dictionaries (TLFi,
+  Wiktionnaire, Académie 9th/8th/4th editions, Littré, DMF for Middle French — only those that
+  cover the word) are offered as pills, TLFi first.
+- Each source is split into collapsible sections (numbered senses, locutions, historical
+  notes…), with pure-definition text highlighted as on the CNRTL site.
+- "Ouvrir sur CNRTL ↗" opens the real site for whatever you've typed. Nothing is looked up
+  automatically.
+
+### Hasard
+
+One button, one rare or forgotten French word at random (*smaragdin*, *coruscant*,
+*pétrichor*, *s'ennuiter*…), with a short gloss and quick links to the Definitions and Rhymes
+tabs. A live counter shows how many words match the current filters *before* you draw, and the
+draw avoids repeating recent words (a rolling window adapted to the filtered pool).
+
+- **Tags** — every word can carry free-form tags (désuet, savant, poétique…), each with its own
+  stable colour, added or removed on the fly: preset buttons (your most-used tags first), a
+  free-text field with autocomplete, or several pills at once in the "voir tous les tags" panel.
+- **Filtrer par tags** (collapsible, purple) — **OR by default** (at least one checked tag).
+  Tick **"Tous les tags cochés (ET)"** for a real intersection (*méral* + *poésie* together).
+  **"+ au moins un tag en plus de ceux cochés"** asks for the checked tag(s) *plus* any other
+  tag — "this tag, but already categorised further".
+- **Exclure des tags** (collapsible, gold) — the NOT logic: removes any word carrying one of the
+  checked tags, whatever the include filters. "🚫 Masquer les mots connus" toggles the reserved
+  "connu" tag into this set.
+- **Shortcuts** — "🚫 Explorer les exclus" (review mode, combinable with tag filters), "☆ Explorer
+  « like »" (your "like" tag), "📭 Masquer les mots déjà tagués" (0 tags) and "🏷️ Explorer les
+  multi-tagués" (2+ tags).
+- **Saving** — "💾 Graver dans dictionnaire-perso.json" (after the tagging controls: tag first,
+  commit second) writes the drawn word's tags permanently and clears its session record; a bulk
+  "Graver en masse" lives in Settings. Merging never silently drops a note: if two differ and
+  neither contains the other, both are kept, joined by "· · ·".
+- **Stats** (collapsible) — total words, excluded/untagged counts, "% already seen", a per-tag
+  breakdown and every tag *combination* actually present — handy to decide when to import new
+  words or spot an over-used tag.
+- **Manual entry** — a small form adds a rare word (word, optional gloss, optional tags)
+  straight into your personal dictionary. Tags can also be declared directly in the file (see
+  [Format E](#format-e-rare-words-for-the-hasard-tab)), e.g. to pre-tag a bulk import.
+
+### Notes
+
+A maintenance tab listing every rare word and lexical-field word still missing a definition
+(typically after a bulk import or an online source with no gloss), each with an inline field
+to write one — saved to `dictionnaire-perso.json`, and removed from the list once done.
+
+### Guide
+
+A quick reference on French versification: syllable counting, metre names, caesura,
+enjambment, stanza names, classic forms (sonnet, rondeau, ballade, villanelle, pantoum,
+triolet, virelai, tanka, calligramme, ode, haiku, fable, acrostic, free verse…), and the basics
+of rhyme (schemes, quality, masculine/feminine alternation, eye-rhymes vs. ear-rhymes).
+
+### Commands
+
+From the Command palette (`Ctrl/Cmd+P`):
+
+- *Open the Carnet du Poete*
+- *Count the syllables in the selection (or the current line)* — result in a notification,
+  with rhyme gender and diaeresis alternative.
+- *Search for rhymes for the selected word* — opens a pop-up with the same results as the
+  Rhymes tab.
+- *Search for inspiration (vocabulary) for the selected word*
+- *Reload the personal dictionary (dictionnaire-perso.json)*
 
 ## Manual installation
 
@@ -205,7 +235,9 @@ what was found, or tell you it searched everywhere and found nothing.
 
 All of the following top-level keys are optional and can be combined freely in the same file.
 
-**A) Custom rhyme families** (added to the built-in ones):
+#### Format A: custom rhyme families
+
+Added to the built-in ones:
 
 ```json
 {
@@ -222,8 +254,9 @@ All of the following top-level keys are optional and can be combined freely in t
 `terms` are the spelling endings that trigger this family (longer, more specific endings win
 ties). `mots` is the list of words offered as rhymes.
 
-**B) A complete phonetic rhyme dictionary** (exact matches from it take priority over the
-built-in approximation):
+#### Format B: complete phonetic rhyme dictionary
+
+Exact matches from it take priority over the built-in approximation:
 
 ```json
 {
@@ -238,7 +271,9 @@ pronunciation rather than spelling. This is the export format used by projects s
 phonetic lexicon such as Lexique383), drop it in as-is. Very large groups (some verb-conjugation
 endings exceed a thousand words) are shown 100 at a time with a button to reveal the rest.
 
-**C) Custom vocabulary themes for the Inspiration tab** (added to the built-in ones):
+#### Format C: vocabulary themes for the Inspiration tab
+
+Added to the built-in ones:
 
 ```json
 {
@@ -263,8 +298,10 @@ and repair auto-generated keyword lists from before the fix (a multi-word theme 
 into one unsearchable glued string, e.g. "Night & darkness" → `nightdarkness` instead of
 `["night", "darkness"]`).
 
-**D) Custom synonyms/antonyms** (added to the built-in ones — this is also exactly what the
-"💾 Save to my personal dictionary" button in the Synonyms tab writes for you automatically):
+#### Format D: synonyms and antonyms
+
+Added to the built-in ones — this is also exactly what the "💾 Save to my personal dictionary"
+button in the Synonyms tab writes for you automatically:
 
 ```json
 {
@@ -274,8 +311,9 @@ into one unsearchable glued string, e.g. "Night & darkness" → `nightdarkness` 
 }
 ```
 
-**E) Custom words for the Hasard tab** (added to the built-in pool of rare/forgotten words),
-with optional tags for filtering the random draw (also addable/removable later from the UI):
+#### Format E: rare words for the Hasard tab
+
+Added to the built-in pool of rare/forgotten words, with optional tags for filtering the random draw (also addable/removable later from the UI):
 
 ```json
 {
@@ -289,8 +327,10 @@ fine performance-wise). Tags added from the UI during a session live temporarily
 plugin data, not in this file — use the "💾 Graver" button (per word, Hasard tab) or "Graver en
 masse" (Settings, all at once) to commit them here permanently.
 
-**F) Extended phonetic dictionary** (a richer variant of format B, informally called "Format
-C" in the changelog — can coexist with format B keys in the same file): instead of a flat
+#### Format F: extended phonetic dictionary
+
+A richer variant of format B, informally called "Format C" in the changelog, which can coexist
+with format B keys in the same file. Instead of a flat
 list of words, each key maps to an object of `word → details`, giving the word's full
 phonetic transcription and its own synonyms/antonyms:
 
@@ -320,51 +360,35 @@ heuristic — see [Known limitations](#known-limitations).
 
 ## Online sources
 
-Several tabs can query external sites live, directly from your device (the plugin uses
-Obsidian's `requestUrl` API, which works the same way on desktop and mobile, without running
-into browser CORS restrictions). Five sources are built in:
+Several tabs can query external sites live, directly from your device (through Obsidian's
+`requestUrl` API, which works the same on desktop and mobile, without browser CORS
+restrictions).
 
-- **Wiktionnaire** (`fr.wiktionary.org`) — the French Wiktionary's own API. Its
-  "Synonymes"/"Antonymes" sections feed the Synonyms tab; its "Vocabulaire apparenté par le
-  sens", "Dérivés", "Apparentés étymologiques", "Locutions" and "Proverbes" sections feed the
-  Inspiration tab.
-- **CRISCO** (`crisco4.unicaen.fr`) — Université de Caen's *Dictionnaire Électronique des
-  Synonymes*, an academic resource with tens of thousands of curated entries. Used in the
-  Synonyms tab.
-- **JeuxDeMots** (`jdm-api.demo.lirmm.fr`) — the LIRMM's crowd-built, weighted French lexical
-  network, through its public demo API. Used in the Inspiration tab (associated ideas,
-  characteristics, parts), sorted by association weight. Being a demo endpoint, it may change
-  or go offline without notice.
-- **RimesSolides** (`rimessolides.com`) — a French rhyming dictionary with IPA transcriptions.
-  Used in the Rhymes tab.
-- **Wiktionnaire rhyme categories** — the "Rimes en français en \\…\\" categories, queried
-  through the same Wiktionnaire API. Used in the Rhymes tab as a second, opt-in source.
-- **CNRTL** (`cnrtl.fr`) — the CNRTL portal's own internal JSON API, covering seven dictionaries
-  at once (TLFi, Wiktionnaire, Académie 9th/8th/4th editions, Littré, DMF), used in the
-  Definitions tab, and as an opt-in source in the Synonyms and Inspiration tabs. When a word has
-  several entries (e.g. *os* adjective vs noun), an "Entrée" pill row lets you pick one — the
-  noun by default. Unlike the other three, this one has no opt-in checkbox: it is only ever
-  queried when you explicitly search in the Definitions tab.
+| Source | Used in | What it brings |
+|---|---|---|
+| **CNRTL** (`cnrtl.fr`) | Definitions, Synonyms, Inspiration | The portal's internal JSON API: seven dictionaries (TLFi, Wiktionnaire, Académie 9th/8th/4th, Littré, DMF), synonyms, collocations, word family, sayings. When a word has several entries (*os* adjective vs noun), an "Entrée" pill row lets you pick one — the noun by default. |
+| **Wiktionnaire** (`fr.wiktionary.org`) | Synonyms, Inspiration, Rhymes | Its API: "Synonymes"/"Antonymes" sections; related vocabulary, derived words, etymological relatives, locutions and sayings; and the "Rimes en français" categories for rhymes. |
+| **CRISCO** (`crisco4.unicaen.fr`) | Synonyms | Université de Caen's *Dictionnaire Électronique des Synonymes*, tens of thousands of curated entries. |
+| **JeuxDeMots** (`jdm-api.demo.lirmm.fr`) | Inspiration | The LIRMM's crowd-built, weighted lexical network (associated ideas, characteristics, parts), sorted by weight. A demo endpoint: it may change or go offline without notice. |
+| **RimesSolides** (`rimessolides.com`) | Rhymes | A French rhyming dictionary with IPA transcriptions. |
 
-The Wiktionnaire/CRISCO/RimesSolides checkboxes are opt-in (your choice is remembered per tab).
-Nothing is queried unless you tick a box and press *Search* — nothing is sent anywhere by
-default. In the Synonyms and Inspiration tabs, when a source returns results, a **"💾 Save to my
-personal dictionary"** button lets you write them into `dictionnaire-perso.json` in one click
-(creating the file at the root of your vault if none exists yet), so the word becomes available
-offline from then on.
+**Nothing is sent by default.** In the Rhymes, Synonyms and Inspiration tabs every online source
+is an opt-in checkbox, queried only when ticked (your ticked sources are remembered per tab); the Definitions tab queries CNRTL only when you
+search. In the Synonyms and Inspiration tabs, a **"💾 Save to my personal dictionary"** button
+writes results into `dictionnaire-perso.json` in one click (creating it at the root of your vault
+if needed), so they stay available offline.
 
-Adding another source to the Synonyms/Inspiration tabs is a small, self-contained change: it
-needs a function that takes a word and returns `{ synonymes: [...], antonymes: [...], trouve:
-true|false }`, registered in the `SOURCES_EN_LIGNE` table near the top of `main.js`. Open an
-issue or ask if you'd like a specific source added.
+**Adding a source** to the Synonyms/Inspiration tabs is a small, self-contained change: a
+function that takes a word and returns `{ synonymes: [...], antonymes: [...], trouve: true|false }`,
+registered in the `SOURCES_EN_LIGNE` table (`src/07-sources-en-ligne.js`). Open an issue if
+you'd like a specific source added.
 
 *Fair use note:* these are third-party sites without a public API contract; the plugin fetches
-their normal pages (or, for CNRTL, its own internal JSON API) and extracts the relevant section.
-If a site changes its layout, that source may temporarily return no results — the other
-source(s) and the local dictionaries are unaffected. CNRTL's announced portal redesign did
-happen on schedule and broke the plugin's HTML scraping entirely (see 2.24.3): the Definitions
-tab now talks to their JSON API instead, which should be more resilient to further front-end
-changes going forward, but isn't a public contract either.
+their normal pages (or, for CNRTL, its internal JSON API) and extracts the relevant section. If a
+site changes its layout, that source may temporarily return nothing — the other sources and the
+local dictionaries are unaffected. CNRTL's portal redesign did break the plugin's HTML scraping
+(see 2.24.3); the Definitions tab now uses their JSON API, more resilient but not a public
+contract either.
 
 ## Data sources & licences
 
@@ -425,6 +449,12 @@ transcribes as [ɛ].
 
 ## Changelog
 
+- **2.27.1** — The Rhymes tab now remembers its ticked online sources (RimesSolides,
+  Wiktionnaire) between sessions, like the Synonyms and Inspiration tabs already did; they
+  start unticked by default. The README was reorganised for easier reading: a quick start, a
+  two-level table of contents, one sub-section per tab, proper headings for the
+  `dictionnaire-perso.json` formats (A–F) and a table of online sources — and a few outdated
+  statements were corrected along the way.
 - **2.27.0** — A bigger, more accurate rhyme dictionary.
   - **The published `dictionnaire-perso.json` grows from ~121,000 to ~210,000 words**: ~89,000
     forms from **Morphalou 3.1** (nouns, adjectives, participles, infinitives, adverbs) join the
@@ -497,26 +527,5 @@ transcribes as [ɛ].
   across the plugin (quality filters, RimesSolides, online sources, this new relevance filter)
   render as solid-filled pills when active instead of showing a checkbox glyph next to a
   colour-outlined pill.
-- **2.24.3** — CNRTL definitions were silently broken: the portal's announced September 1, 2026
-  redesign (flagged as a risk in earlier notes) turned out to be a full rewrite to client-side
-  rendering — the `/definition/{word}` page the plugin was scraping no longer contains any
-  article text in its raw HTML at all, just an empty shell, so every lookup silently returned
-  "not found" regardless of the word (caught by Alucard: "aucun mot n'est trouvé"). Fixed by
-  switching to CNRTL's own internal JSON API (`/api/word/{word}/`), found by inspecting the
-  site's network requests — far more reliable than HTML scraping, and considerably richer: the
-  Définitions tab now exposes all seven dictionary sources this API bundles per word (TLFi,
-  Wiktionnaire, Académie 9th/8th/4th editions, Littré, DMF/Middle French — only the ones actually
-  present for a given word are shown), selectable via pills with TLFi selected by default. Each
-  source is broken down into its own collapsible sections (numbered senses, locutions, historical
-  notes...) instead of one wall of text — parsed generically from the HTML structure shared
-  across all seven sources (numbered sense lists, annex sections, named locutions), so nothing is
-  filtered or hard-coded per source; whatever doesn't match a recognised pattern still gets kept,
-  in a catch-all "Complément" block, rather than silently dropped. Pure-definition spans
-  (`s-definition` in CNRTL's own markup) are now visually highlighted, matching the site's own
-  convention. A quick "Ouvrir sur CNRTL ↗" link next to the search box opens the real site
-  directly for the currently typed word, with no lookup of our own involved. The previous
-  text-based extraction (regex hunting for "Étymol. et Hist.", stripping an announcement banner,
-  guessing where an article starts from "MOT," patterns...) is gone entirely — none of it is
-  needed against structured JSON.
 
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).
