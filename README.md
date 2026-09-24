@@ -77,17 +77,23 @@ Type a word and get masculine/feminine rhyme suggestions with their syllable cou
   complete phonetic dictionary when you have one (see
   [Extending your dictionaries](#extending-your-dictionaries-with-dictionnaire-persojson)). The
   base dictionary downloaded on first launch covers ~210,000 words.
-- **Filters** — first letter, syllable count and rhyme quality (*pauvre* / *suffisante* /
-  *riche+*, with **Très riche** and **Léonine** as sub-filters of *riche+*). Quality is
-  estimated from the trailing sounds shared with your word, with a syllable-aware check
-  (attack + vowel + coda) separating riche / très riche / léonine.
+- **Filters** — first letter, syllable count, rhyme quality (*pauvre* / *suffisante* /
+  *riche+*, with **Très riche** and **Léonine** as sub-filters of *riche+*), and, since 2.29,
+  **grammatical category** (Nom / Verbe / Adjectif / Adverbe / Autres — a word can match
+  several, e.g. *abaissé* is both verb and adjective). Quality is estimated from the trailing
+  sounds shared with your word, with a syllable-aware check (attack + vowel + coda) separating
+  riche / très riche / léonine. The grammatical category comes from Lexique383 and, for words
+  Lexique doesn't cover, Morphalou; a local-dictionary word it can't categorize is never hidden
+  by this filter, and it doesn't apply at all to RimesSolides/Wiktionnaire results (see below).
 - **Visual read** — each group shows a colour-coded quality summary, and every word chip
   carries a matching coloured border and badge, with a tooltip explaining the criterion.
 - **Online complements** — tick **RimesSolides** ([rimessolides.com](https://www.rimessolides.com))
   and/or **Wiktionnaire** (the words it files under the same rhyme category — partial coverage,
-  handy as a fallback and for rare words). All filters apply to their results too, so you can
-  narrow a 4,000-word RimesSolides list the way the site itself can't. Local and online results
-  appear in separate collapsible blocks.
+  handy as a fallback and for rare words). Letter, syllable count and quality filters apply to
+  their results too, so you can narrow a 4,000-word RimesSolides list the way the site itself
+  can't — the grammatical category filter, though, only applies to the local dictionary, since
+  its data comes from Lexique383/Morphalou, not from these online sources. Local and online
+  results appear in separate collapsible blocks.
 - **No self-rhymes** — the searched word's own inflections (*armée* → *armées*, *armé*,
   *armer*…) are left out, since a word doesn't rhyme with itself.
 - **Mode assonance** (off by default) — also shows words sharing the same vowel but differing
@@ -474,6 +480,18 @@ transcribes as [ɛ].
 
 ## Changelog
 
+- **2.29.0** — Grammatical filter in the Rhymes tab.
+  - New checkboxes — Nom, Verbe, Adjectif, Adverbe, Autres — narrow rhyme results by
+    grammatical category, on top of the existing letter/syllable/quality filters. A word can
+    match several categories at once (e.g. *abaissé*, verb and adjective) and passes if any
+    checked box fits.
+  - The base dictionary now carries this category for every word, from Lexique383 and, where
+    Lexique has no entry, Morphalou. A local-dictionary word with no known category is never
+    hidden by the filter, and the filter doesn't apply at all to RimesSolides/Wiktionnaire
+    results — unlike the letter/syllable/quality filters, which do.
+  - Old dictionaries migrating straight from 2.27 or earlier are unaffected: the new field is
+    ignored when deciding what counts as a personal change, so it can't inflate your personal
+    file.
 - **2.28.0** — The dictionary is split into a published base and your personal layer.
   - **`dictionnaire-base.json.gz`** (the ~210,000-word dictionary, 1.9 MB compressed instead of
     13 MB) is **downloaded automatically** from the GitHub release on first launch, and again

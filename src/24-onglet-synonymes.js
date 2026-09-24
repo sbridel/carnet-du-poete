@@ -1,7 +1,5 @@
 
 function buildPanelSynonymes(vue, panelSyno){
-  const intro = panelSyno.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Tape un mot courant pour voir ses synonymes et ses antonymes — utile pour varier une rime ou un rythme sans changer le sens.');
 
   const sourcesDiv = panelSyno.createDiv({ cls: 'cp-sources' });
   sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Rechercher aussi en ligne : ' });

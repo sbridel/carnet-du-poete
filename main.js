@@ -2546,6 +2546,7 @@ let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
    sur l'heuristique orthographique, dès que le mot y figure. */
 let PHONETIQUE_MOT = null;         // Map: mot (minuscule) -> transcription phonétique complète
 let SYNONYMES_PHONETIQUE = null;   // Map: mot (minuscule) -> { synonymes: [{mot,phonetique}], antonymes: [...] }
+let CGRAM_MOT = null;              // Map: mot (minuscule) -> ['NOM','ADJ',...] (catégories grammaticales connues)
 
 /* =========================================================
    BASE PUBLIÉE + CALQUE PERSONNEL (depuis 2.28)
@@ -2561,7 +2562,7 @@ let SYNONYMES_PHONETIQUE = null;   // Map: mot (minuscule) -> { synonymes: [{mot
    Un ancien dictionnaire-perso.json « tout-en-un » (2.27 et avant) est
    migré automatiquement, après copie de sauvegarde horodatée.
    ========================================================= */
-const VERSION_BASE = '2.28.0'; // à changer uniquement quand la base change
+const VERSION_BASE = '2.29.0'; // à changer uniquement quand la base change
 const NOM_FICHIER_BASE = 'dictionnaire-base.json.gz';
 const URL_BASE = `https://github.com/sbridel/carnet-du-poete/releases/download/${VERSION_BASE}/${NOM_FICHIER_BASE}`;
 const FORMAT_PERSO = 1;
@@ -2658,11 +2659,21 @@ function extraitDifferencesPerso(ancien, base){
     }
   });
   if (rares.length > 0) perso.motsRares = rares;
+  // Champs ajoutés à la base après la 2.28 (ex. cgram, 2.29) : un ancien
+  // fichier ne les a jamais eus, donc leur seule présence ne doit pas faire
+  // passer un mot pour "modifié" par l'utilisateur.
+  const CHAMPS_IGNORES_MIGRATION = ['cgram'];
+  const sansChampsIgnores = (e) => {
+    if (CHAMPS_IGNORES_MIGRATION.every(c => !(c in (e || {})))) return e;
+    const c2 = Object.assign({}, e);
+    CHAMPS_IGNORES_MIGRATION.forEach(c => delete c2[c]);
+    return c2;
+  };
   clesGroupesPhonetiques(ancien).forEach(cle => {
     const groupeBase = (base[cle] && typeof base[cle] === 'object' && !Array.isArray(base[cle])) ? base[cle] : {};
     Object.keys(ancien[cle]).forEach(mot => {
       const e = ancien[cle][mot];
-      if (JSON.stringify(groupeBase[mot]) === JSON.stringify(e)) return;
+      if (JSON.stringify(sansChampsIgnores(groupeBase[mot])) === JSON.stringify(sansChampsIgnores(e))) return;
       (perso[cle] = perso[cle] || {})[mot] = e;
     });
   });
@@ -3193,6 +3204,7 @@ async function chargeDictionnairePerso(plugin, opts){
   MOTS_RARES.push(...MOTS_RARES_BASE);
   reconstruitIndexMotsRares();
   DICO_PHONETIQUE = null;
+  CGRAM_MOT = null;
   DICO_PHONETIQUE_GROUPES = null;
   PHONETIQUE_MOT = null;
   SYNONYMES_PHONETIQUE = null;
@@ -3355,6 +3367,7 @@ async function chargeDictionnairePerso(plugin, opts){
     // Format C : chaque clé -> { mot -> {phonetique, synonymes, antonymes} }
     const phonMap = new Map();
     const synoMap = new Map();
+    const cgramMap = new Map();
     let totalMotsPhon = 0;
     let totalMotsAvecSynonymes = 0;
 
@@ -3389,6 +3402,8 @@ async function chargeDictionnairePerso(plugin, opts){
           synoMap.set(motNorm, { synonymes: syn, antonymes: anto });
           totalMotsAvecSynonymes++;
         }
+
+        if (typeof infos.cgram === 'string' && infos.cgram) cgramMap.set(motNorm, infos.cgram.split(','));
       });
     });
 
@@ -3396,6 +3411,7 @@ async function chargeDictionnairePerso(plugin, opts){
     DICO_PHONETIQUE_GROUPES = groupesPhonetiquesUniquement;
     if (phonMap.size > 0) PHONETIQUE_MOT = phonMap;
     if (synoMap.size > 0) SYNONYMES_PHONETIQUE = synoMap;
+    if (cgramMap.size > 0) CGRAM_MOT = cgramMap;
 
     const nbGroupes = clesFormatB.length + clesFormatC.length;
     let messageCharge = `Carnet du Poète : dictionnaire de rimes complet chargé — ${nbGroupes} groupes phonétiques, ${totalMots} mots`;
@@ -3790,6 +3806,17 @@ function chercheRimes(motSaisi){
    de mots (ex. toutes les conjugaisons en -erai) : on n'affiche que
    les 100 premiers par défaut, avec un bouton pour dérouler le reste. */
 const COULEURS_QUALITE = { pauvre: '#a1a8a8', suffisante: '#5f9ac0', riche: '#c26f66', tresriche: '#a478b6', leonine: '#ccb97c' };
+
+/* Catégories grammaticales connues d'un mot (NOM/VER/ADJ/ADV/AUTRE), depuis
+   CGRAM_MOT (base 2.29+, voir 10-dico-perso.js). Renvoie [] si inconnu :
+   le filtre grammatical laisse alors passer le mot (voir renderResultatsRimes),
+   plutôt que de faire disparaître les mots rares ou les résultats en ligne,
+   qui n'ont pas cette donnée. */
+function categoriesDuMot(mot){
+  if (typeof CGRAM_MOT === 'undefined' || !CGRAM_MOT) return [];
+  return CGRAM_MOT.get(normaliseMot(mot)) || [];
+}
+const COULEURS_CGRAM = { NOM: '#6b7f99', VER: '#a1735c', ADJ: '#8a6a94', ADV: '#748c6b', AUTRE: '#8a8a8a' };
 const LABELS_QUALITE = { pauvre: 'pauvre', suffisante: 'suffisante', riche: 'riche', tresriche: 'très riche', leonine: 'léonine' };
 const LETTRES_QUALITE = { pauvre: 'P', suffisante: 'S', riche: 'R', tresriche: 'T', leonine: 'L' };
 const EXPLICATIONS_QUALITE = {
@@ -4392,7 +4419,12 @@ function analyseHomeoteleutes(texteComplet, exclureMotsOutils){
 
 
 /* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
-   filtres : { lettre, syllabes, qualites: Set } — tous optionnels. */
+   filtres : { lettre, syllabes, qualites: Set, cgram: Set } — tous optionnels.
+   Tous les filtres, cgram compris, s'appliquent aussi aux sources en ligne
+   (RimesSolides, Wiktionnaire) : un mot en ligne qui existe aussi dans le
+   dictionnaire local (donc avec une catégorie connue) est filtré comme
+   n'importe quel mot local ; un mot totalement absent du dictionnaire
+   local reste affiché quoi qu'il arrive (voir categoriesDuMot). */
 function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActives){
   container.empty();
   const saisie = (motSaisi || '').trim();
@@ -4423,6 +4455,17 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     // "0 coché = pas de filtre".
     if (filtres.qualites) {
       l = l.filter(m => filtres.qualites.has(classeRime(saisie, m)));
+    }
+    // Filtre grammatical (base 2.29+) : s'applique aussi aux sources en
+    // ligne, comme les autres filtres (voir l'en-tête de fichier). Un mot
+    // sans catégorie connue n'est jamais retiré (voir categoriesDuMot). 5
+    // cases : si toutes cochées, no-op ; si aucune, seuls les mots sans
+    // catégorie connue restent.
+    if (filtres.cgram) {
+      l = l.filter(m => {
+        const cats = categoriesDuMot(m);
+        return cats.length === 0 || cats.some(c => filtres.cgram.has(c));
+      });
     }
     return l;
   };
@@ -5072,13 +5115,21 @@ class CarnetView extends ItemView {
 
     const tabBar = container.createDiv({ cls: 'cp-tabs' });
     const tabSyl = tabBar.createEl('button', { text: 'Syllabes', cls: 'cp-tab active' });
+    tabSyl.setAttr('title', 'Colle ou écris tes vers pour compter leurs syllabes et repérer le schéma de rimes (AABB, ABBA...).\nLe volet « Sonorités » (bouton en haut) affiche en plus les allitérations et assonances internes.');
     const tabRimes = tabBar.createEl('button', { text: 'Rimes', cls: 'cp-tab' });
+    tabRimes.setAttr('title', 'Cherche les rimes d\'un mot dans le dictionnaire local, complété à la demande par RimesSolides et le Wiktionnaire.\nFiltre les résultats par lettre, nombre de syllabes, qualité de la rime et catégorie grammaticale.');
     const tabInspi = tabBar.createEl('button', { text: 'Inspiration', cls: 'cp-tab' });
+    tabInspi.setAttr('title', 'Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème.\nClique sur un mot pour le sélectionner, puis ajoute ta sélection à un champ lexical ou comme mots rares.');
     const tabSyno = tabBar.createEl('button', { text: 'Synonymes', cls: 'cp-tab' });
+    tabSyno.setAttr('title', 'Tape un mot courant pour voir ses synonymes et ses antonymes.\nUtile pour varier une rime ou un rythme sans changer le sens.');
     const tabGuide = tabBar.createEl('button', { text: 'Guide', cls: 'cp-tab' });
+    tabGuide.setAttr('title', 'Aide-mémoire des règles de versification utilisées par le plugin : syllabes, mètres, schémas et qualité de rime, sonorités.\nÀ consulter pour comprendre un terme ou un critère affiché ailleurs dans le plugin.');
     const tabDefs = tabBar.createEl('button', { text: 'Définitions', cls: 'cp-tab' });
+    tabDefs.setAttr('title', 'Vérifie le sens exact et le registre d\'un mot rare avant de l\'utiliser.\nPlusieurs dictionnaires du CNRTL (TLFi, Wiktionnaire, Académie, Littré, Dictionnaire du Moyen Français), sélectionnables à la demande.');
     const tabHasard = tabBar.createEl('button', { text: 'Hasard', cls: 'cp-tab' });
+    tabHasard.setAttr('title', 'Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.\nMarque-le (like, exclu, tag libre) pour affiner tes futurs tirages.');
     const tabNotes = tabBar.createEl('button', { text: 'Notes', cls: 'cp-tab' });
+    tabNotes.setAttr('title', 'Retrouve les mots ajoutés sans définition (import en masse, sélection dans Inspiration...).\nComplète-les à la main ; c\'est enregistré directement dans ton dictionnaire personnel.');
 
     const panelSyl = container.createDiv({ cls: 'cp-panel active' });
     const panelRimes = container.createDiv({ cls: 'cp-panel' });
@@ -5129,7 +5180,7 @@ class CarnetView extends ItemView {
     buildPanelNotes(this, panelNotes);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
-    footer.setText('Comptage heuristique : règle du e caduc + détection des hiatus (diérèse affichée en variante complète). Dictionnaires curatés, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
+    footer.setText('Dictionnaires phonétiques et lexicaux compilés à la main, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
   }
 
   async onClose(){}
@@ -5641,15 +5692,25 @@ function buildPanelRimes(vue, panelRimes){
   const motInput = rimeForm.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. lumière, chapeau, courage)' } });
   const btnChercher = rimeForm.createEl('button', { text: 'Chercher' });
 
-  const filtresDiv = panelRimes.createDiv({ cls: 'cp-filtres' });
-  const lettreInput = filtresDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
-  const syllabesWrap = filtresDiv.createDiv({ cls: 'cp-select-wrap' });
+  // Bloc filtres : 3 lignes étiquetées (Lettre/syllabe, Qualité de rime,
+  // Nature), séparées par un fin trait, dans une boîte à part du bloc
+  // recherche et du bloc sources en ligne (voir plus bas).
+  const filtresBox = panelRimes.createDiv({ cls: 'cp-boite cp-filtres' });
+
+  const ligneLettreSyllabe = filtresBox.createDiv({ cls: 'cp-filtres-ligne' });
+  ligneLettreSyllabe.createSpan({ cls: 'cp-filtres-ligne-label', text: 'Lettre / syllabe : ' });
+  const lettreInput = ligneLettreSyllabe.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
+  const syllabesWrap = ligneLettreSyllabe.createDiv({ cls: 'cp-select-wrap' });
   const syllabesSelect = syllabesWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
   syllabesWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
   [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
     .forEach(([val, label]) => syllabesSelect.createEl('option', { attr: { value: val }, text: label }));
 
-  const qualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres' });
+  filtresBox.createDiv({ cls: 'cp-filtres-separateur' });
+
+  const ligneQualite = filtresBox.createDiv({ cls: 'cp-filtres-ligne' });
+  ligneQualite.createSpan({ cls: 'cp-filtres-ligne-label', text: 'Qualité de rime : ' });
+  const qualiteDiv = ligneQualite.createDiv({ cls: 'cp-qualite-filtres' });
   const casesQualite = {};
   // 5 cases indépendantes, toutes de vraies checkbox du DOM — seule
   // source de vérité, jamais dupliquée ni resynchronisée à la main.
@@ -5666,7 +5727,7 @@ function buildPanelRimes(vue, panelRimes){
   // à maintenir) : au clic, il lit l'état actuel de riche/tresriche/
   // leonine et les coche/décoche tous les 3 ensemble. Aucune duplication
   // d'état possible puisqu'il ne fait que lire/écrire les 3 vraies cases.
-  const btnRichePlus = filtresDiv.createEl('button', { cls: 'cp-link-btn', text: 'Riche+ (tout / rien)' });
+  const btnRichePlus = ligneQualite.createEl('button', { cls: 'cp-link-btn', text: 'Riche+ (tout / rien)' });
   btnRichePlus.setAttr('title', 'Coche ou décoche riche + très riche + léonine en une fois.');
   btnRichePlus.addEventListener('click', () => {
     const cible = !(casesQualite.riche.checked && casesQualite.tresriche.checked && casesQualite.leonine.checked);
@@ -5676,7 +5737,31 @@ function buildPanelRimes(vue, panelRimes){
     chercher();
   });
 
-  const sourcesDiv = panelRimes.createDiv({ cls: 'cp-sources' });
+  filtresBox.createDiv({ cls: 'cp-filtres-separateur' });
+
+  // Filtre grammatical (base 2.29+). Un mot peut porter plusieurs catégories
+  // (ex. « abaissé » verbe et adjectif) : le filtre est un OU logique, comme
+  // pour les cases de qualité. Un mot sans catégorie connue (mot rare de
+  // Méral, résultat en ligne RimesSolides/Wiktionnaire) n'est jamais caché :
+  // le filtre ne porte que sur ce qu'on sait (voir categoriesDuMot).
+  // Style volontairement plus discret que la qualité (contour seul, jamais
+  // de fond plein) : ces catégories ne sont reprises nulle part ailleurs
+  // dans l'affichage, contrairement aux couleurs de qualité.
+  const ligneCgram = filtresBox.createDiv({ cls: 'cp-filtres-ligne' });
+  ligneCgram.createSpan({ cls: 'cp-filtres-ligne-label', text: 'Nature : ' });
+  const cgramDiv = ligneCgram.createDiv({ cls: 'cp-cgram-filtres' });
+  const casesCgram = {};
+  [['NOM','Nom'],['VER','Verbe'],['ADJ','Adjectif'],['ADV','Adverbe'],['AUTRE','Autres']].forEach(([id, label]) => {
+    const lbl = cgramDiv.createEl('label', { cls: 'cp-cgram-pill' });
+    lbl.style.setProperty('--ccolor', COULEURS_CGRAM[id]);
+    const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
+    c.checked = true; // tout coché par défaut : le filtre ne restreint rien tant qu'on ne décoche pas
+    lbl.createSpan({ text: ' ' + label });
+    casesCgram[id] = c;
+  });
+
+  // Bloc sources en ligne, dans sa propre boîte.
+  const sourcesDiv = panelRimes.createDiv({ cls: 'cp-boite cp-sources' });
   sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
   const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
@@ -5691,6 +5776,7 @@ function buildPanelRimes(vue, panelRimes){
   const inputModeAssonance = modeLabel.createEl('input', { attr: { type: 'checkbox' } });
   modeLabel.createSpan({ text: ' Mode assonance (accepte les rimes approchées)' });
   inputModeAssonance.setAttr('title', 'Rime stricte par défaut : les résultats doivent réellement rimer. Coche pour aussi accepter les assonances (même voyelle, terminaison différente — ex. « ombre »/« montre »), affichées à part.');
+
 
   const resultatsDiv = panelRimes.createDiv({ cls: 'cp-resultats' });
 
@@ -5715,7 +5801,8 @@ function buildPanelRimes(vue, panelRimes){
   const lireFiltres = () => ({
     lettre: lettreInput.value.trim(),
     syllabes: syllabesSelect.value,
-    qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
+    qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked)),
+    cgram: new Set(Object.keys(casesCgram).filter(id => casesCgram[id].checked))
   });
   const sourcesActives = () => [
     ...(inputRimesSolides.checked ? ['rimessolides'] : []),
@@ -5745,6 +5832,7 @@ function buildPanelRimes(vue, panelRimes){
   lettreInput.addEventListener('input', chercher);
   syllabesSelect.addEventListener('change', chercher);
   Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
+  Object.values(casesCgram).forEach(c => c.addEventListener('change', chercher));
   inputRimesSolides.addEventListener('change', chercher);
   inputWiktionnaire.addEventListener('change', chercher);
   inputRimesSolides.addEventListener('change', sauvePreferenceSources);
@@ -5759,8 +5847,6 @@ function buildPanelRimes(vue, panelRimes){
 
 
 function buildPanelInspiration(vue, panelInspi){
-  const intro = panelInspi.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème. Clique sur un mot pour le sélectionner, puis ajoute ta sélection à un champ lexical ou comme mots rares.');
 
   const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
   sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
@@ -5904,8 +5990,6 @@ function buildPanelInspiration(vue, panelInspi){
 
 
 function buildPanelSynonymes(vue, panelSyno){
-  const intro = panelSyno.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Tape un mot courant pour voir ses synonymes et ses antonymes — utile pour varier une rime ou un rythme sans changer le sens.');
 
   const sourcesDiv = panelSyno.createDiv({ cls: 'cp-sources' });
   sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Rechercher aussi en ligne : ' });
@@ -6128,8 +6212,6 @@ function buildPanelGuide(vue, panelGuide){
 
 
 function buildPanelDefinitions(vue, panelDefs){
-  const intro = panelDefs.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Vérifie le sens exact et le registre d\'un mot rare avant de l\'utiliser — définitions et étymologie tirées du Trésor de la Langue Française informatisé (CNRTL), à la demande.');
 
   const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
   const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });
@@ -6228,8 +6310,6 @@ function buildPanelDefinitions(vue, panelDefs){
 
 
 function buildPanelHasard(vue, panelHasard){
-  const intro = panelHasard.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.');
 
   // --- stats de progression (utile pour savoir quand importer un
   // nouveau lot de mots, ex. Méral, sans redemander à voir les mêmes).
@@ -6714,8 +6794,6 @@ function buildPanelHasard(vue, panelHasard){
 
 
 function buildPanelNotes(vue, panelNotes){
-  const intro = panelNotes.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Mots ajoutés sans définition (import en masse, sélection Inspiration...) — complète-les à la main, enregistré directement dans dictionnaire-perso.json.');
 
   const btnRefresh = panelNotes.createEl('button', { cls: 'cp-link-btn', text: '↻ Rafraîchir la liste' });
 
@@ -6869,7 +6947,17 @@ const CARNET_CSS = `
 .cp-total-bar{ display:flex; flex-wrap:wrap; justify-content: space-between; gap:8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.82em; color: var(--text-muted); }
 .cp-total-bar strong{ color: var(--text-normal); }
 .cp-rime-form{ display:flex; gap:6px; margin-bottom: 16px; }
-.cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:0.82em; color: var(--text-muted); }
+.cp-boite{ border:1px solid var(--background-modifier-border); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
+.cp-filtres-ligne{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:0.95em; }
+.cp-filtres-ligne-label{ font-weight:600; color: var(--text-muted); white-space:nowrap; }
+.cp-filtres-separateur{ border-top:1px solid var(--background-modifier-border); margin:9px 0; }
+/* Le bloc filtres a son propre gabarit de taille, un cran au-dessus des
+   pastilles partagées ailleurs (sources en ligne, Hasard...), qu'on ne
+   touche pas ici pour ne pas les faire grossir aussi. */
+.cp-filtres .cp-hasard-toggle-pool, .cp-filtres .cp-cgram-pill{ font-size:0.92em; padding:5px 13px; }
+.cp-filtres .cp-filtre-syllabes{ font-size:1em; }
+.cp-filtres .cp-link-btn{ font-size:0.88em; }
+.cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:0.82em; color: var(--text-muted); }
 .cp-sources-label{ font-weight:600; }
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-hasard-ligne-raccourcis{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px; }
@@ -6912,6 +7000,13 @@ const CARNET_CSS = `
 .cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
 .cp-qualite-pill{ border-color: var(--qcolor); color: var(--qcolor); }
 .cp-qualite-pill:has(input:checked){ background: var(--qcolor); border-color: var(--qcolor); color:#2a2a2a; }
+/* Nature (filtre grammatical) : contour seul, jamais de fond plein — ces
+   catégories ne sont reprises nulle part ailleurs dans l'affichage,
+   contrairement aux couleurs de qualité, d'où un style plus discret. */
+.cp-cgram-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
+.cp-cgram-pill{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8em; font-weight:500; background:transparent; border:1.5px solid var(--background-modifier-border); border-radius:14px; padding:4px 12px; color: var(--text-faint); }
+.cp-cgram-pill:has(input:checked){ border-color: var(--ccolor); color: var(--ccolor); }
+.cp-cgram-pill input{ position:absolute; opacity:0; width:0; height:0; margin:0; pointer-events:none; }
 .cp-select-wrap{ position:relative; display:inline-flex; align-items:center; }
 .cp-select-wrap select{ padding-right:20px; }
 .cp-select-arrow{ position:absolute; right:8px; font-size:0.7em; color: var(--text-muted); pointer-events:none; }
@@ -7132,7 +7227,6 @@ const CARNET_CSS = `
 .cp-guide-section summary.cp-guide-titre{ cursor: pointer; margin: 10px 0; list-style: revert; }
 .cp-guide-corps{ padding: 4px 4px 8px 4px; }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
-.cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
 .cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }
 .cp-inspi-mot{ display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; padding:5px 0; border-bottom:1px dashed var(--background-modifier-border); }
 .cp-inspi-mot:last-child{ border-bottom:none; }

@@ -186,6 +186,17 @@ function chercheRimes(motSaisi){
    de mots (ex. toutes les conjugaisons en -erai) : on n'affiche que
    les 100 premiers par défaut, avec un bouton pour dérouler le reste. */
 const COULEURS_QUALITE = { pauvre: '#a1a8a8', suffisante: '#5f9ac0', riche: '#c26f66', tresriche: '#a478b6', leonine: '#ccb97c' };
+
+/* Catégories grammaticales connues d'un mot (NOM/VER/ADJ/ADV/AUTRE), depuis
+   CGRAM_MOT (base 2.29+, voir 10-dico-perso.js). Renvoie [] si inconnu :
+   le filtre grammatical laisse alors passer le mot (voir renderResultatsRimes),
+   plutôt que de faire disparaître les mots rares ou les résultats en ligne,
+   qui n'ont pas cette donnée. */
+function categoriesDuMot(mot){
+  if (typeof CGRAM_MOT === 'undefined' || !CGRAM_MOT) return [];
+  return CGRAM_MOT.get(normaliseMot(mot)) || [];
+}
+const COULEURS_CGRAM = { NOM: '#6b7f99', VER: '#a1735c', ADJ: '#8a6a94', ADV: '#748c6b', AUTRE: '#8a8a8a' };
 const LABELS_QUALITE = { pauvre: 'pauvre', suffisante: 'suffisante', riche: 'riche', tresriche: 'très riche', leonine: 'léonine' };
 const LETTRES_QUALITE = { pauvre: 'P', suffisante: 'S', riche: 'R', tresriche: 'T', leonine: 'L' };
 const EXPLICATIONS_QUALITE = {

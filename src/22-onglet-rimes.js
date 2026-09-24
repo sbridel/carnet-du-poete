@@ -4,15 +4,25 @@ function buildPanelRimes(vue, panelRimes){
   const motInput = rimeForm.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. lumière, chapeau, courage)' } });
   const btnChercher = rimeForm.createEl('button', { text: 'Chercher' });
 
-  const filtresDiv = panelRimes.createDiv({ cls: 'cp-filtres' });
-  const lettreInput = filtresDiv.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
-  const syllabesWrap = filtresDiv.createDiv({ cls: 'cp-select-wrap' });
+  // Bloc filtres : 3 lignes étiquetées (Lettre/syllabe, Qualité de rime,
+  // Nature), séparées par un fin trait, dans une boîte à part du bloc
+  // recherche et du bloc sources en ligne (voir plus bas).
+  const filtresBox = panelRimes.createDiv({ cls: 'cp-boite cp-filtres' });
+
+  const ligneLettreSyllabe = filtresBox.createDiv({ cls: 'cp-filtres-ligne' });
+  ligneLettreSyllabe.createSpan({ cls: 'cp-filtres-ligne-label', text: 'Lettre / syllabe : ' });
+  const lettreInput = ligneLettreSyllabe.createEl('input', { cls: 'cp-filtre-lettre', attr: { type: 'text', maxlength: '1', placeholder: 'Lettre' } });
+  const syllabesWrap = ligneLettreSyllabe.createDiv({ cls: 'cp-select-wrap' });
   const syllabesSelect = syllabesWrap.createEl('select', { cls: 'cp-filtre-syllabes' });
   syllabesWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
   [['', 'Toutes syllabes'], ['1','1 syll.'], ['2','2 syll.'], ['3','3 syll.'], ['4','4 syll.'], ['5+','5+ syll.']]
     .forEach(([val, label]) => syllabesSelect.createEl('option', { attr: { value: val }, text: label }));
 
-  const qualiteDiv = filtresDiv.createDiv({ cls: 'cp-qualite-filtres' });
+  filtresBox.createDiv({ cls: 'cp-filtres-separateur' });
+
+  const ligneQualite = filtresBox.createDiv({ cls: 'cp-filtres-ligne' });
+  ligneQualite.createSpan({ cls: 'cp-filtres-ligne-label', text: 'Qualité de rime : ' });
+  const qualiteDiv = ligneQualite.createDiv({ cls: 'cp-qualite-filtres' });
   const casesQualite = {};
   // 5 cases indépendantes, toutes de vraies checkbox du DOM — seule
   // source de vérité, jamais dupliquée ni resynchronisée à la main.
@@ -29,7 +39,7 @@ function buildPanelRimes(vue, panelRimes){
   // à maintenir) : au clic, il lit l'état actuel de riche/tresriche/
   // leonine et les coche/décoche tous les 3 ensemble. Aucune duplication
   // d'état possible puisqu'il ne fait que lire/écrire les 3 vraies cases.
-  const btnRichePlus = filtresDiv.createEl('button', { cls: 'cp-link-btn', text: 'Riche+ (tout / rien)' });
+  const btnRichePlus = ligneQualite.createEl('button', { cls: 'cp-link-btn', text: 'Riche+ (tout / rien)' });
   btnRichePlus.setAttr('title', 'Coche ou décoche riche + très riche + léonine en une fois.');
   btnRichePlus.addEventListener('click', () => {
     const cible = !(casesQualite.riche.checked && casesQualite.tresriche.checked && casesQualite.leonine.checked);
@@ -39,7 +49,31 @@ function buildPanelRimes(vue, panelRimes){
     chercher();
   });
 
-  const sourcesDiv = panelRimes.createDiv({ cls: 'cp-sources' });
+  filtresBox.createDiv({ cls: 'cp-filtres-separateur' });
+
+  // Filtre grammatical (base 2.29+). Un mot peut porter plusieurs catégories
+  // (ex. « abaissé » verbe et adjectif) : le filtre est un OU logique, comme
+  // pour les cases de qualité. Un mot sans catégorie connue (mot rare de
+  // Méral, résultat en ligne RimesSolides/Wiktionnaire) n'est jamais caché :
+  // le filtre ne porte que sur ce qu'on sait (voir categoriesDuMot).
+  // Style volontairement plus discret que la qualité (contour seul, jamais
+  // de fond plein) : ces catégories ne sont reprises nulle part ailleurs
+  // dans l'affichage, contrairement aux couleurs de qualité.
+  const ligneCgram = filtresBox.createDiv({ cls: 'cp-filtres-ligne' });
+  ligneCgram.createSpan({ cls: 'cp-filtres-ligne-label', text: 'Nature : ' });
+  const cgramDiv = ligneCgram.createDiv({ cls: 'cp-cgram-filtres' });
+  const casesCgram = {};
+  [['NOM','Nom'],['VER','Verbe'],['ADJ','Adjectif'],['ADV','Adverbe'],['AUTRE','Autres']].forEach(([id, label]) => {
+    const lbl = cgramDiv.createEl('label', { cls: 'cp-cgram-pill' });
+    lbl.style.setProperty('--ccolor', COULEURS_CGRAM[id]);
+    const c = lbl.createEl('input', { attr: { type: 'checkbox' } });
+    c.checked = true; // tout coché par défaut : le filtre ne restreint rien tant qu'on ne décoche pas
+    lbl.createSpan({ text: ' ' + label });
+    casesCgram[id] = c;
+  });
+
+  // Bloc sources en ligne, dans sa propre boîte.
+  const sourcesDiv = panelRimes.createDiv({ cls: 'cp-boite cp-sources' });
   sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });
   const caseRimesSolides = sourcesDiv.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const inputRimesSolides = caseRimesSolides.createEl('input', { attr: { type: 'checkbox' } });
@@ -54,6 +88,7 @@ function buildPanelRimes(vue, panelRimes){
   const inputModeAssonance = modeLabel.createEl('input', { attr: { type: 'checkbox' } });
   modeLabel.createSpan({ text: ' Mode assonance (accepte les rimes approchées)' });
   inputModeAssonance.setAttr('title', 'Rime stricte par défaut : les résultats doivent réellement rimer. Coche pour aussi accepter les assonances (même voyelle, terminaison différente — ex. « ombre »/« montre »), affichées à part.');
+
 
   const resultatsDiv = panelRimes.createDiv({ cls: 'cp-resultats' });
 
@@ -78,7 +113,8 @@ function buildPanelRimes(vue, panelRimes){
   const lireFiltres = () => ({
     lettre: lettreInput.value.trim(),
     syllabes: syllabesSelect.value,
-    qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked))
+    qualites: new Set(Object.keys(casesQualite).filter(id => casesQualite[id].checked)),
+    cgram: new Set(Object.keys(casesCgram).filter(id => casesCgram[id].checked))
   });
   const sourcesActives = () => [
     ...(inputRimesSolides.checked ? ['rimessolides'] : []),
@@ -108,6 +144,7 @@ function buildPanelRimes(vue, panelRimes){
   lettreInput.addEventListener('input', chercher);
   syllabesSelect.addEventListener('change', chercher);
   Object.values(casesQualite).forEach(c => c.addEventListener('change', chercher));
+  Object.values(casesCgram).forEach(c => c.addEventListener('change', chercher));
   inputRimesSolides.addEventListener('change', chercher);
   inputWiktionnaire.addEventListener('change', chercher);
   inputRimesSolides.addEventListener('change', sauvePreferenceSources);

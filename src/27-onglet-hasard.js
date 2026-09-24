@@ -1,7 +1,5 @@
 
 function buildPanelHasard(vue, panelHasard){
-  const intro = panelHasard.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Un mot rare, oublié ou savant, tiré au hasard — pour la surprise et l\'inspiration.');
 
   // --- stats de progression (utile pour savoir quand importer un
   // nouveau lot de mots, ex. Méral, sans redemander à voir les mêmes).

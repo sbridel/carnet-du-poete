@@ -1,7 +1,5 @@
 
 function buildPanelInspiration(vue, panelInspi){
-  const intro = panelInspi.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Tape un mot courant, reçois du vocabulaire plus rare, littéraire ou désuet autour du même thème. Clique sur un mot pour le sélectionner, puis ajoute ta sélection à un champ lexical ou comme mots rares.');
 
   const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
   sourcesDiv.createSpan({ cls: 'cp-sources-label', text: 'Compléter en ligne : ' });

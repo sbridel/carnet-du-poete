@@ -1,5 +1,8 @@
 /* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
-   filtres : { lettre, syllabes, qualites: Set } — tous optionnels. */
+   filtres : { lettre, syllabes, qualites: Set, cgram: Set } — tous optionnels.
+   Le filtre grammatical (cgram) ne s'applique qu'au dictionnaire local :
+   les sources en ligne (RimesSolides, Wiktionnaire) l'ignorent, voir
+   appliqueFiltres(liste, avecCgram). */
 function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActives){
   container.empty();
   const saisie = (motSaisi || '').trim();
@@ -8,7 +11,7 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
 
   const resultat = chercheRimes(saisie);
 
-  const appliqueFiltres = (liste) => {
+  const appliqueFiltres = (liste, avecCgram = true) => {
     // Jamais le mot cherché ni ses propres flexions (armée → armées, armé,
     // armer…) : on ne rime pas un mot avec lui-même.
     let l = liste.filter(m => !estFlexionDe(saisie, m));
@@ -30,6 +33,20 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     // "0 coché = pas de filtre".
     if (filtres.qualites) {
       l = l.filter(m => filtres.qualites.has(classeRime(saisie, m)));
+    }
+    // Filtre grammatical (base 2.29+), dictionnaire local uniquement (voir
+    // appel avec avecCgram=false pour RimesSolides/Wiktionnaire ci-dessous :
+    // CGRAM_MOT vient de Lexique/Morphalou, pas des sources en ligne, et un
+    // mot qui s'y trouve par coïncidence ne doit pas être filtré comme si sa
+    // catégorie venait de la source en ligne elle-même). Un mot sans
+    // catégorie connue n'est jamais retiré (voir categoriesDuMot). 5 cases :
+    // si toutes cochées, no-op ; si aucune, seuls les mots sans catégorie
+    // connue restent.
+    if (avecCgram && filtres.cgram) {
+      l = l.filter(m => {
+        const cats = categoriesDuMot(m);
+        return cats.length === 0 || cats.some(c => filtres.cgram.has(c));
+      });
     }
     return l;
   };
@@ -132,12 +149,12 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
   let premiere = true;
   if (actives.includes('rimessolides')) {
     afficheSourceRimesEnLigne(container, saisie, 'RimesSolides', chercheRimesSolides(saisie),
-      `Rien trouvé sur RimesSolides pour « ${saisie} ».`, appliqueFiltres, premiere);
+      `Rien trouvé sur RimesSolides pour « ${saisie} ».`, l => appliqueFiltres(l, false), premiere);
     premiere = false;
   }
   if (actives.includes('wiktionnaire')) {
     afficheSourceRimesEnLigne(container, saisie, 'Wiktionnaire', chercheRimesWiktionnaire(saisie),
-      `Le Wiktionnaire ne classe « ${saisie} » dans aucune catégorie de rime.`, appliqueFiltres, premiere);
+      `Le Wiktionnaire ne classe « ${saisie} » dans aucune catégorie de rime.`, l => appliqueFiltres(l, false), premiere);
   }
 }
 

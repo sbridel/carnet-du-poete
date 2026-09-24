@@ -1,7 +1,5 @@
 
 function buildPanelNotes(vue, panelNotes){
-  const intro = panelNotes.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Mots ajoutés sans définition (import en masse, sélection Inspiration...) — complète-les à la main, enregistré directement dans dictionnaire-perso.json.');
 
   const btnRefresh = panelNotes.createEl('button', { cls: 'cp-link-btn', text: '↻ Rafraîchir la liste' });
 

@@ -39,7 +39,17 @@
 .cp-total-bar{ display:flex; flex-wrap:wrap; justify-content: space-between; gap:8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.82em; color: var(--text-muted); }
 .cp-total-bar strong{ color: var(--text-normal); }
 .cp-rime-form{ display:flex; gap:6px; margin-bottom: 16px; }
-.cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px; font-size:0.82em; color: var(--text-muted); }
+.cp-boite{ border:1px solid var(--background-modifier-border); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
+.cp-filtres-ligne{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:0.95em; }
+.cp-filtres-ligne-label{ font-weight:600; color: var(--text-muted); white-space:nowrap; }
+.cp-filtres-separateur{ border-top:1px solid var(--background-modifier-border); margin:9px 0; }
+/* Le bloc filtres a son propre gabarit de taille, un cran au-dessus des
+   pastilles partagées ailleurs (sources en ligne, Hasard...), qu'on ne
+   touche pas ici pour ne pas les faire grossir aussi. */
+.cp-filtres .cp-hasard-toggle-pool, .cp-filtres .cp-cgram-pill{ font-size:0.92em; padding:5px 13px; }
+.cp-filtres .cp-filtre-syllabes{ font-size:1em; }
+.cp-filtres .cp-link-btn{ font-size:0.88em; }
+.cp-sources{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:0.82em; color: var(--text-muted); }
 .cp-sources-label{ font-weight:600; }
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-hasard-ligne-raccourcis{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px; }
@@ -82,6 +92,13 @@
 .cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
 .cp-qualite-pill{ border-color: var(--qcolor); color: var(--qcolor); }
 .cp-qualite-pill:has(input:checked){ background: var(--qcolor); border-color: var(--qcolor); color:#2a2a2a; }
+/* Nature (filtre grammatical) : contour seul, jamais de fond plein — ces
+   catégories ne sont reprises nulle part ailleurs dans l'affichage,
+   contrairement aux couleurs de qualité, d'où un style plus discret. */
+.cp-cgram-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
+.cp-cgram-pill{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8em; font-weight:500; background:transparent; border:1.5px solid var(--background-modifier-border); border-radius:14px; padding:4px 12px; color: var(--text-faint); }
+.cp-cgram-pill:has(input:checked){ border-color: var(--ccolor); color: var(--ccolor); }
+.cp-cgram-pill input{ position:absolute; opacity:0; width:0; height:0; margin:0; pointer-events:none; }
 .cp-select-wrap{ position:relative; display:inline-flex; align-items:center; }
 .cp-select-wrap select{ padding-right:20px; }
 .cp-select-arrow{ position:absolute; right:8px; font-size:0.7em; color: var(--text-muted); pointer-events:none; }
@@ -302,7 +319,6 @@
 .cp-guide-section summary.cp-guide-titre{ cursor: pointer; margin: 10px 0; list-style: revert; }
 .cp-guide-corps{ padding: 4px 4px 8px 4px; }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
-.cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
 .cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }
 .cp-inspi-mot{ display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; padding:5px 0; border-bottom:1px dashed var(--background-modifier-border); }
 .cp-inspi-mot:last-child{ border-bottom:none; }

@@ -36,6 +36,7 @@ let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
    sur l'heuristique orthographique, dès que le mot y figure. */
 let PHONETIQUE_MOT = null;         // Map: mot (minuscule) -> transcription phonétique complète
 let SYNONYMES_PHONETIQUE = null;   // Map: mot (minuscule) -> { synonymes: [{mot,phonetique}], antonymes: [...] }
+let CGRAM_MOT = null;              // Map: mot (minuscule) -> ['NOM','ADJ',...] (catégories grammaticales connues)
 
 /* =========================================================
    BASE PUBLIÉE + CALQUE PERSONNEL (depuis 2.28)
@@ -51,7 +52,7 @@ let SYNONYMES_PHONETIQUE = null;   // Map: mot (minuscule) -> { synonymes: [{mot
    Un ancien dictionnaire-perso.json « tout-en-un » (2.27 et avant) est
    migré automatiquement, après copie de sauvegarde horodatée.
    ========================================================= */
-const VERSION_BASE = '2.28.0'; // à changer uniquement quand la base change
+const VERSION_BASE = '2.29.0'; // à changer uniquement quand la base change
 const NOM_FICHIER_BASE = 'dictionnaire-base.json.gz';
 const URL_BASE = `https://github.com/sbridel/carnet-du-poete/releases/download/${VERSION_BASE}/${NOM_FICHIER_BASE}`;
 const FORMAT_PERSO = 1;
@@ -148,11 +149,21 @@ function extraitDifferencesPerso(ancien, base){
     }
   });
   if (rares.length > 0) perso.motsRares = rares;
+  // Champs ajoutés à la base après la 2.28 (ex. cgram, 2.29) : un ancien
+  // fichier ne les a jamais eus, donc leur seule présence ne doit pas faire
+  // passer un mot pour "modifié" par l'utilisateur.
+  const CHAMPS_IGNORES_MIGRATION = ['cgram'];
+  const sansChampsIgnores = (e) => {
+    if (CHAMPS_IGNORES_MIGRATION.every(c => !(c in (e || {})))) return e;
+    const c2 = Object.assign({}, e);
+    CHAMPS_IGNORES_MIGRATION.forEach(c => delete c2[c]);
+    return c2;
+  };
   clesGroupesPhonetiques(ancien).forEach(cle => {
     const groupeBase = (base[cle] && typeof base[cle] === 'object' && !Array.isArray(base[cle])) ? base[cle] : {};
     Object.keys(ancien[cle]).forEach(mot => {
       const e = ancien[cle][mot];
-      if (JSON.stringify(groupeBase[mot]) === JSON.stringify(e)) return;
+      if (JSON.stringify(sansChampsIgnores(groupeBase[mot])) === JSON.stringify(sansChampsIgnores(e))) return;
       (perso[cle] = perso[cle] || {})[mot] = e;
     });
   });
@@ -683,6 +694,7 @@ async function chargeDictionnairePerso(plugin, opts){
   MOTS_RARES.push(...MOTS_RARES_BASE);
   reconstruitIndexMotsRares();
   DICO_PHONETIQUE = null;
+  CGRAM_MOT = null;
   DICO_PHONETIQUE_GROUPES = null;
   PHONETIQUE_MOT = null;
   SYNONYMES_PHONETIQUE = null;
@@ -845,6 +857,7 @@ async function chargeDictionnairePerso(plugin, opts){
     // Format C : chaque clé -> { mot -> {phonetique, synonymes, antonymes} }
     const phonMap = new Map();
     const synoMap = new Map();
+    const cgramMap = new Map();
     let totalMotsPhon = 0;
     let totalMotsAvecSynonymes = 0;
 
@@ -879,6 +892,8 @@ async function chargeDictionnairePerso(plugin, opts){
           synoMap.set(motNorm, { synonymes: syn, antonymes: anto });
           totalMotsAvecSynonymes++;
         }
+
+        if (typeof infos.cgram === 'string' && infos.cgram) cgramMap.set(motNorm, infos.cgram.split(','));
       });
     });
 
@@ -886,6 +901,7 @@ async function chargeDictionnairePerso(plugin, opts){
     DICO_PHONETIQUE_GROUPES = groupesPhonetiquesUniquement;
     if (phonMap.size > 0) PHONETIQUE_MOT = phonMap;
     if (synoMap.size > 0) SYNONYMES_PHONETIQUE = synoMap;
+    if (cgramMap.size > 0) CGRAM_MOT = cgramMap;
 
     const nbGroupes = clesFormatB.length + clesFormatC.length;
     let messageCharge = `Carnet du Poète : dictionnaire de rimes complet chargé — ${nbGroupes} groupes phonétiques, ${totalMots} mots`;

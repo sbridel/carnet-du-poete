@@ -2,6 +2,18 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.29.0** — Grammatical filter in the Rhymes tab.
+  - New checkboxes — Nom, Verbe, Adjectif, Adverbe, Autres — narrow rhyme results by
+    grammatical category, on top of the existing letter/syllable/quality filters. A word can
+    match several categories at once (e.g. *abaissé*, verb and adjective) and passes if any
+    checked box fits.
+  - The base dictionary now carries this category for every word, from Lexique383 and, where
+    Lexique has no entry, Morphalou. A local-dictionary word with no known category is never
+    hidden by the filter, and the filter doesn't apply at all to RimesSolides/Wiktionnaire
+    results — unlike the letter/syllable/quality filters, which do.
+  - Old dictionaries migrating straight from 2.27 or earlier are unaffected: the new field is
+    ignored when deciding what counts as a personal change, so it can't inflate your personal
+    file.
 - **2.28.0** — The dictionary is split into a published base and your personal layer.
   - **`dictionnaire-base.json.gz`** (the ~210,000-word dictionary, 1.9 MB compressed instead of
     13 MB) is **downloaded automatically** from the GitHub release on first launch, and again

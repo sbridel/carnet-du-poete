@@ -1,7 +1,5 @@
 
 function buildPanelDefinitions(vue, panelDefs){
-  const intro = panelDefs.createEl('p', { cls: 'cp-inspi-intro' });
-  intro.setText('Vérifie le sens exact et le registre d\'un mot rare avant de l\'utiliser — définitions et étymologie tirées du Trésor de la Langue Française informatisé (CNRTL), à la demande.');
 
   const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
   const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });

@@ -76,5 +76,28 @@ module.exports = function testsDicoBase(m) {
       const tags = f.motsRares.find(e => e.mot === 'abscission').tags.join(',');
       assertEqual(tags, 'méral,like');
     });
+    test('un champ ajouté après coup (cgram) n\'est pas vu comme une modification perso', () => {
+      const b = fabriqueBase(); b.ka.abaca = { phonetique: 'abaka', src: 'LM', cgram: 'NOM' };
+      const a = ancien(); a.ka.abaca = { phonetique: 'abaka', src: 'LM' }; // ancien fichier : jamais eu cgram
+      const p = m.extraitDifferencesPerso(a, b);
+      assertTrue(!('abaca' in (p.ka || {})));
+    });
+  });
+
+  groupe('Dico base + perso — filtre grammatical (categoriesDuMot)', () => {
+    test('renvoie les catégories connues d\'un mot', () => {
+      m._setCgramTest({ chat: ['NOM'], vole: ['VER', 'NOM'] });
+      assertEqual(m.categoriesDuMot('chat').join(','), 'NOM');
+      assertEqual(m.categoriesDuMot('Vole').join(','), 'VER,NOM'); // insensible à la casse
+      m._setCgramTest(null);
+    });
+    test('un mot sans catégorie connue renvoie une liste vide (jamais caché par le filtre)', () => {
+      m._setCgramTest({ chat: ['NOM'] });
+      assertEqual(m.categoriesDuMot('zutalor').length, 0);
+      m._setCgramTest(null);
+    });
+    test('sans CGRAM_MOT du tout (base non chargée), renvoie une liste vide', () => {
+      assertEqual(m.categoriesDuMot('chat').length, 0);
+    });
   });
 };
