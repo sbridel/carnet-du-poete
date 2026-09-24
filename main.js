@@ -2547,6 +2547,7 @@ let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
 let PHONETIQUE_MOT = null;         // Map: mot (minuscule) -> transcription phonétique complète
 let SYNONYMES_PHONETIQUE = null;   // Map: mot (minuscule) -> { synonymes: [{mot,phonetique}], antonymes: [...] }
 let CGRAM_MOT = null;              // Map: mot (minuscule) -> ['NOM','ADJ',...] (catégories grammaticales connues)
+let STATS_DICO = null;             // { base: {version,mots,motsRares}|null, perso: {chemin,octets,motsRares,champsLexicaux,synonymes,motsPhonetiques}|null } — pour l'onglet Réglages
 
 /* =========================================================
    BASE PUBLIÉE + CALQUE PERSONNEL (depuis 2.28)
@@ -2764,7 +2765,7 @@ async function migreAncienDictionnaire(plugin, chemin, raw, ancien, base){
   if (destination !== chemin) await adapter.remove(chemin);
   new Notice(`Carnet du Poète : dictionnaire personnel migré au nouveau format (${destination}). Ancien fichier sauvegardé : ${cheminSauvegarde}.`, 10000);
   console.log('[Carnet du Poète] migration terminée :', destination, '— sauvegarde :', cheminSauvegarde);
-  return perso;
+  return { perso, chemin: destination };
 }
 
 /* Lecture pour écriture : si le fichier existe mais ne se relit pas, on
@@ -3205,6 +3206,7 @@ async function chargeDictionnairePerso(plugin, opts){
   reconstruitIndexMotsRares();
   DICO_PHONETIQUE = null;
   CGRAM_MOT = null;
+  STATS_DICO = null;
   DICO_PHONETIQUE_GROUPES = null;
   PHONETIQUE_MOT = null;
   SYNONYMES_PHONETIQUE = null;
@@ -3216,6 +3218,11 @@ async function chargeDictionnairePerso(plugin, opts){
     if (base && Array.isArray(base.motsRares)) {
       base.motsRares.forEach(e => { if (e && e.mot) NOTES_BASE_PUBLIEE.set(normaliseMot(e.mot), e.note || ''); });
     }
+    // Capturés AVANT toute fusion : fusionneBasePerso mutera `base` en
+    // place (out.motsRares y grossit avec les entrées du perso), donc ces
+    // deux nombres seraient faux s'ils étaient lus plus tard (voir STATS_DICO).
+    const motsBaseAvantFusion = base ? clesGroupesPhonetiques(base).reduce((n, cle) => n + Object.keys(base[cle]).length, 0) : 0;
+    const raresBaseAvantFusion = (base && Array.isArray(base.motsRares)) ? base.motsRares.length : 0;
 
     // Calque perso. S'il est illisible, on continue avec la base seule ;
     // les écritures, elles, refuseront de l'écraser (lisPersoPourEcriture).
@@ -3234,7 +3241,9 @@ async function chargeDictionnairePerso(plugin, opts){
       }
       if (perso && base && estAncienFormatComplet(perso)) {
         try {
-          perso = await migreAncienDictionnaire(plugin, lu.chemin, lu.raw, perso, base);
+          const migre = await migreAncienDictionnaire(plugin, lu.chemin, lu.raw, perso, base);
+          perso = migre.perso;
+          lu.chemin = migre.chemin; // pour STATS_DICO plus bas : refléter le nouvel emplacement, pas l'ancien
         } catch (e) {
           console.error('[Carnet du Poète] migration du dictionnaire personnel impossible', e);
           new Notice('Carnet du Poète : migration du dictionnaire personnel impossible — ancien fichier utilisé tel quel (voir la console).');
@@ -3412,6 +3421,22 @@ async function chargeDictionnairePerso(plugin, opts){
     if (phonMap.size > 0) PHONETIQUE_MOT = phonMap;
     if (synoMap.size > 0) SYNONYMES_PHONETIQUE = synoMap;
     if (cgramMap.size > 0) CGRAM_MOT = cgramMap;
+
+    // Stats pour l'onglet Réglages : rien de nouveau à calculer, seulement
+    // mémoriser ce qui l'est déjà ici (base capturée AVANT fusion, voir
+    // motsBaseAvantFusion/raresBaseAvantFusion plus haut).
+    const pluginData = await plugin.loadData();
+    STATS_DICO = {
+      base: base ? { version: (pluginData && pluginData.versionBase) || VERSION_BASE, mots: motsBaseAvantFusion, motsRares: raresBaseAvantFusion } : null,
+      perso: perso ? {
+        chemin: lu ? lu.chemin : null,
+        octets: new TextEncoder().encode(JSON.stringify(perso)).length,
+        motsRares: Array.isArray(perso.motsRares) ? perso.motsRares.length : 0,
+        champsLexicaux: Array.isArray(perso.champsLexicaux) ? perso.champsLexicaux.length : 0,
+        synonymes: Array.isArray(perso.synonymes) ? perso.synonymes.length : 0,
+        motsPhonetiques: clesGroupesPhonetiques(perso).reduce((n, cle) => n + Object.keys(perso[cle]).length, 0)
+      } : null
+    };
 
     const nbGroupes = clesFormatB.length + clesFormatC.length;
     let messageCharge = `Carnet du Poète : dictionnaire de rimes complet chargé — ${nbGroupes} groupes phonétiques, ${totalMots} mots`;
@@ -7388,6 +7413,24 @@ class CarnetSettingTab extends PluginSettingTab {
           await this.plugin.saveData(data);
         });
       });
+
+    containerEl.createEl('h3', { text: 'Dictionnaire' });
+    if (STATS_DICO && STATS_DICO.base) {
+      const b = STATS_DICO.base;
+      containerEl.createEl('p', { cls: 'setting-item-description',
+        text: `Base : ${b.version} — ${b.mots.toLocaleString('fr-FR')} mots, ${b.motsRares.toLocaleString('fr-FR')} mots rares (Méral).` });
+    } else {
+      containerEl.createEl('p', { cls: 'setting-item-description', text: 'Base : non chargée (voir la console).' });
+    }
+    if (STATS_DICO && STATS_DICO.perso) {
+      const p = STATS_DICO.perso;
+      const ko = Math.round(p.octets / 1024);
+      containerEl.createEl('p', { cls: 'setting-item-description',
+        text: `Personnel : ${p.chemin} (${ko} Ko) — ${p.motsRares} mot(s) rare(s), ${p.champsLexicaux} champ(s) lexical(aux), `
+          + `${p.synonymes} entrée(s) de synonymes, ${p.motsPhonetiques} entrée(s) phonétique(s).` });
+    } else {
+      containerEl.createEl('p', { cls: 'setting-item-description', text: 'Personnel : aucun dictionnaire-perso.json trouvé.' });
+    }
 
     containerEl.createEl('h3', { text: 'Dictionnaire personnel' });
 

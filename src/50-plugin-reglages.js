@@ -137,6 +137,24 @@ class CarnetSettingTab extends PluginSettingTab {
         });
       });
 
+    containerEl.createEl('h3', { text: 'Dictionnaire' });
+    if (STATS_DICO && STATS_DICO.base) {
+      const b = STATS_DICO.base;
+      containerEl.createEl('p', { cls: 'setting-item-description',
+        text: `Base : ${b.version} — ${b.mots.toLocaleString('fr-FR')} mots, ${b.motsRares.toLocaleString('fr-FR')} mots rares (Méral).` });
+    } else {
+      containerEl.createEl('p', { cls: 'setting-item-description', text: 'Base : non chargée (voir la console).' });
+    }
+    if (STATS_DICO && STATS_DICO.perso) {
+      const p = STATS_DICO.perso;
+      const ko = Math.round(p.octets / 1024);
+      containerEl.createEl('p', { cls: 'setting-item-description',
+        text: `Personnel : ${p.chemin} (${ko} Ko) — ${p.motsRares} mot(s) rare(s), ${p.champsLexicaux} champ(s) lexical(aux), `
+          + `${p.synonymes} entrée(s) de synonymes, ${p.motsPhonetiques} entrée(s) phonétique(s).` });
+    } else {
+      containerEl.createEl('p', { cls: 'setting-item-description', text: 'Personnel : aucun dictionnaire-perso.json trouvé.' });
+    }
+
     containerEl.createEl('h3', { text: 'Dictionnaire personnel' });
 
     new Setting(containerEl)

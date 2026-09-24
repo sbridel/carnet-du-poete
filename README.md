@@ -83,17 +83,16 @@ Type a word and get masculine/feminine rhyme suggestions with their syllable cou
   several, e.g. *abaissé* is both verb and adjective). Quality is estimated from the trailing
   sounds shared with your word, with a syllable-aware check (attack + vowel + coda) separating
   riche / très riche / léonine. The grammatical category comes from Lexique383 and, for words
-  Lexique doesn't cover, Morphalou; a local-dictionary word it can't categorize is never hidden
-  by this filter, and it doesn't apply at all to RimesSolides/Wiktionnaire results (see below).
+  Lexique doesn't cover, Morphalou; a word the base dictionary can't categorize (a Méral rare
+  word, or a RimesSolides/Wiktionnaire result absent from the local dictionary) is never hidden
+  by this filter.
 - **Visual read** — each group shows a colour-coded quality summary, and every word chip
   carries a matching coloured border and badge, with a tooltip explaining the criterion.
 - **Online complements** — tick **RimesSolides** ([rimessolides.com](https://www.rimessolides.com))
   and/or **Wiktionnaire** (the words it files under the same rhyme category — partial coverage,
-  handy as a fallback and for rare words). Letter, syllable count and quality filters apply to
-  their results too, so you can narrow a 4,000-word RimesSolides list the way the site itself
-  can't — the grammatical category filter, though, only applies to the local dictionary, since
-  its data comes from Lexique383/Morphalou, not from these online sources. Local and online
-  results appear in separate collapsible blocks.
+  handy as a fallback and for rare words). All filters apply to their results too, including
+  the grammatical category one, so you can narrow a 4,000-word RimesSolides list the way the
+  site itself can't. Local and online results appear in separate collapsible blocks.
 - **No self-rhymes** — the searched word's own inflections (*armée* → *armées*, *armé*,
   *armer*…) are left out, since a word doesn't rhyme with itself.
 - **Mode assonance** (off by default) — also shows words sharing the same vowel but differing
@@ -480,15 +479,22 @@ transcribes as [ɛ].
 
 ## Changelog
 
+- **2.29.1** — Statistiques du dictionnaire dans Réglages.
+  - Nouvelle section « Dictionnaire » : nombre de mots et de mots rares de la base, chemin,
+    poids et compte des ajouts personnels (mots rares, champs lexicaux, synonymes) du fichier
+    dictionnaire-perso.json.
+  - Deux bugs trouvés et corrigés en le construisant, sans effet visible ailleurs : le compte de
+    la base était lu après une fusion qui la modifie en place, et le chemin/poids du perso
+    restaient ceux d'avant une migration tout juste effectuée.
 - **2.29.0** — Grammatical filter in the Rhymes tab.
   - New checkboxes — Nom, Verbe, Adjectif, Adverbe, Autres — narrow rhyme results by
     grammatical category, on top of the existing letter/syllable/quality filters. A word can
     match several categories at once (e.g. *abaissé*, verb and adjective) and passes if any
     checked box fits.
   - The base dictionary now carries this category for every word, from Lexique383 and, where
-    Lexique has no entry, Morphalou. A local-dictionary word with no known category is never
-    hidden by the filter, and the filter doesn't apply at all to RimesSolides/Wiktionnaire
-    results — unlike the letter/syllable/quality filters, which do.
+    Lexique has no entry, Morphalou. A word with no known category (a Méral rare word, or a
+    RimesSolides/Wiktionnaire result absent from the local dictionary) is never hidden by the
+    filter.
   - Old dictionaries migrating straight from 2.27 or earlier are unaffected: the new field is
     ignored when deciding what counts as a personal change, so it can't inflate your personal
     file.
@@ -548,22 +554,5 @@ transcribes as [ɛ].
     block, then one collapsible block per online source (the first open, the others folded). The
     Wiktionnaire block's title shows the rhyme found, e.g. *armée — Wiktionnaire /me/*. The
     "Search rhymes for the selected word" command's pop-up uses the same rendering.
-- **2.25.0** — The Inspiration tab's online part was rebuilt around lexical fields instead of
-  synonyms (already covered by the Synonyms tab). Three opt-in sources, each in its own
-  collapsible block below the local one: **CNRTL** (collocations, word family, sayings with their
-  meaning, plus small "Proxémie ↗" and "Fiche CNRTL ↗" links), **Wiktionnaire** (related
-  vocabulary, derived words, etymological relatives, phrases, sayings) and the new
-  **JeuxDeMots** (associated ideas, characteristics, parts — weighted, sorted by strength,
-  technical/foreign/proper-noun entries filtered out). Sub-sections are coloured by nature
-  (lexical field, word family, expressions, characteristics, parts) whatever the source, with a
-  collapsible colour legend. Sayings show five at a time with a "+N more" button. CNRTL
-  homographs are now handled in the Inspiration, Synonyms and Definitions tabs: a word with
-  several entries gets an "Entrée" pill row (noun by default), whereas the API used to silently
-  return a default entry — *os* came back as the adjective. CNRTL answers are cached per session.
-  Fixes: a common word no longer matches an unrelated built-in theme by substring (*chat* used to
-  bring up the *Château* theme — partial matching now only covers plural/feminine endings);
-  chips no longer show a meaningless rhyme badge when an expression simply ends with the searched
-  word itself (*aller à l'os*); CNRTL no longer lists the searched word among its own
-  collocations.
 
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).
