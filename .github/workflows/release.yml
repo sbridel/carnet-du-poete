@@ -23,6 +23,7 @@ jobs:
           subject-path: |
             main.js
             manifest.json
+            dictionnaire-base.json.gz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -30,5 +31,6 @@ jobs:
           files: |
             main.js
             manifest.json
+            dictionnaire-base.json.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

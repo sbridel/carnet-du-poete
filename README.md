@@ -13,8 +13,8 @@ side panel, no internet connection required for the core features.
    **Settings → Community plugins**.
 2. Click the quill 🪶 icon in the left ribbon to open the notebook.
 3. Type or paste a verse in the **Syllables** tab, or a word in the **Rhymes** tab.
-4. Optional: put the published `dictionnaire-perso.json` in your vault for ~210,000
-   phonetically transcribed words (see [Where the plugin looks for it](#where-the-plugin-looks-for-it)).
+4. On first launch, the plugin downloads its ~210,000-word phonetic dictionary (1.9 MB, once
+   per dictionary version — see [Base dictionary and personal layer](#base-dictionary-and-personal-layer)).
 
 ## Contents
 
@@ -24,7 +24,8 @@ side panel, no internet connection required for the core features.
     [Notes](#notes) · [Guide](#guide) · [Commands](#commands)
 - [Manual installation](#manual-installation)
 - [Extending your dictionaries with `dictionnaire-perso.json`](#extending-your-dictionaries-with-dictionnaire-persojson)
-  - [Where the plugin looks for it](#where-the-plugin-looks-for-it)
+  - [Base dictionary and personal layer](#base-dictionary-and-personal-layer) ·
+    [Where the plugin looks for it](#where-the-plugin-looks-for-it)
   - [Supported formats](#supported-formats): [A](#format-a-custom-rhyme-families) ·
     [B](#format-b-complete-phonetic-rhyme-dictionary) ·
     [C](#format-c-vocabulary-themes-for-the-inspiration-tab) ·
@@ -75,7 +76,7 @@ Type a word and get masculine/feminine rhyme suggestions with their syllable cou
 - **Sources** — roughly sixty built-in sound families, overridden by exact matches from a
   complete phonetic dictionary when you have one (see
   [Extending your dictionaries](#extending-your-dictionaries-with-dictionnaire-persojson)). The
-  ready-made `dictionnaire-perso.json` published here covers ~210,000 words.
+  base dictionary downloaded on first launch covers ~210,000 words.
 - **Filters** — first letter, syllable count and rhyme quality (*pauvre* / *suffisante* /
   *riche+*, with **Très riche** and **Léonine** as sub-filters of *riche+*). Quality is
   estimated from the trailing sounds shared with your word, with a syllable-aware check
@@ -206,14 +207,36 @@ No build step is required: the plugin is plain JavaScript, ready to run.
 
 If you install via [BRAT](https://github.com/TfTHacker/obsidian42-brat), note that BRAT only
 downloads `main.js`, `manifest.json` and `styles.css` from the repository — it never copies a
-custom data file such as `dictionnaire-perso.json`. See the next section for where to put it
-instead.
+custom data file. The base dictionary is downloaded by the plugin itself (see the next
+section), and your personal `dictionnaire-perso.json` lives in your vault.
 
 ## Extending your dictionaries with `dictionnaire-perso.json`
 
 Everything below is optional. Out of the box, the plugin already ships with a curated rhyme
 dictionary, ~30 vocabulary themes, and a small synonym list. `dictionnaire-perso.json` lets you
 add to (or, for rhymes, largely replace) any of these — all from a single file.
+
+### Base dictionary and personal layer
+
+Since 2.28, the dictionary is split in two files:
+
+- **`dictionnaire-base.json.gz`** — the published dictionary (~210,000 words with phonetics,
+  synonyms, Didier Méral's rare words). **The plugin downloads it from this repository's GitHub
+  release** into its own folder, on first launch and again only when a new version of the base
+  is published. **This is the plugin's only automatic network access**; no data about you or your
+  vault is sent. Offline, the plugin keeps the base it already has and retries at the next launch.
+  The plugin never writes to this file, so it can be replaced safely.
+- **`dictionnaire-perso.json`** — your own additions only (synonyms, rare words, tags, notes,
+  vocabulary themes), created in your vault at your first annotation. On loading, it is merged
+  over the base: tags add up, your note is shown above the base note, words you never touched receive
+  the base's corrections. A new base can therefore never erase your work, and uninstalling the
+  plugin doesn't delete it.
+
+**Upgrading from 2.27 or earlier**: an old all-in-one `dictionnaire-perso.json` is converted
+automatically at the first launch of 2.28 — the plugin first saves a timestamped copy
+(`dictionnaire-perso.sauvegarde-YYYYMMDD-HHMM.json`, next to the new file; you can delete it
+once everything looks right), then keeps only what differs from the base. If the old file was in
+the plugin's folder, the new one is written at the root of the vault.
 
 ### Where the plugin looks for it
 
@@ -360,7 +383,9 @@ heuristic — see [Known limitations](#known-limitations).
 
 ## Online sources
 
-Several tabs can query external sites live, directly from your device (through Obsidian's
+Apart from the one-time download of the base dictionary from GitHub (see
+[Base dictionary and personal layer](#base-dictionary-and-personal-layer)), the plugin only goes
+online when you tick a source. Several tabs can query external sites live, directly from your device (through Obsidian's
 `requestUrl` API, which works the same on desktop and mobile, without browser CORS
 restrictions).
 
@@ -393,10 +418,10 @@ contract either.
 ## Data sources & licences
 
 **The plugin's code is licensed under GPL-3.0** (see `LICENSE`). **The published
-`dictionnaire-perso.json` is a separate work**: derived from Lexique383, it is shared under
+dictionary `dictionnaire-base.json.gz` is a separate work**: derived from Lexique383, it is shared under
 **CC BY-SA 4.0**.
 
-The ready-made `dictionnaire-perso.json` published with this repository is built from three
+The base dictionary published with this repository is built from three
 sources. Every word carries a `src` code recording where it comes from (explained in the
 `_legende` field at the top of the file):
 
@@ -449,6 +474,18 @@ transcribes as [ɛ].
 
 ## Changelog
 
+- **2.28.0** — The dictionary is split into a published base and your personal layer.
+  - **`dictionnaire-base.json.gz`** (the ~210,000-word dictionary, 1.9 MB compressed instead of
+    13 MB) is **downloaded automatically** from the GitHub release on first launch, and again
+    only when a new base is published. Offline, the plugin keeps the base it already has.
+  - **`dictionnaire-perso.json` now holds only your own additions** (synonyms, rare words, tags,
+    notes, vocabulary themes) and is merged over the base on loading: a new base can no longer
+    erase your work, and words you never touched receive its corrections. When you annotate a
+    rare word, your note is shown above Didier Méral's (separated by `---`), which stays intact.
+  - **Automatic migration** of an old all-in-one file, after a timestamped backup copy.
+  - **Safer saving**: if `dictionnaire-perso.json` can't be read back (e.g. a broken edit made
+    outside Obsidian), the plugin now refuses to save instead of overwriting it with a nearly
+    empty file. The five saving functions share one read/write path.
 - **2.27.1** — The Rhymes tab now remembers its ticked online sources (RimesSolides,
   Wiktionnaire) between sessions, like the Synonyms and Inspiration tabs already did; they
   start unticked by default. The README was reorganised for easier reading: a quick start, a
@@ -510,22 +547,5 @@ transcribes as [ɛ].
   chips no longer show a meaningless rhyme badge when an expression simply ends with the searched
   word itself (*aller à l'os*); CNRTL no longer lists the searched word among its own
   collocations.
-- **2.24.4** — CNRTL now also powers the Synonyms tab: it appears as a third online source
-  alongside Wiktionnaire and CRISCO, contributing a relevance score (0-100) per synonym/antonym
-  that the other two don't provide. Results are sorted by relevance, with a "Seuil de
-  pertinence" pill row (Tout / 30% / 60% / 85%) to cut off the long low-relevance tail without a
-  new network request per click — everything is refiltered locally from data already fetched.
-  Very relevant matches (≥70) render in bold. The Synonyms tab itself got a broader rework: the
-  local dictionary and each online source now sit in their own collapsible block (local
-  dictionary open by default; when several online sources are active, only the highest-priority
-  one — CNRTL, then CRISCO, then Wiktionnaire — opens automatically, the rest collapsed), long
-  lists cap at 15 entries with a "+N more" reveal button, and synonym/antonym categories are
-  distinguished at the block level (title colour + left border) rather than on every individual
-  chip, which was colliding visually with the existing rhyme-quality colour badge on the same
-  chip. That rhyme-quality signal, when present, now colours a chip's entire border instead of
-  just its left edge, making an actual rhyme match easier to spot at a glance. All toggle pills
-  across the plugin (quality filters, RimesSolides, online sources, this new relevance filter)
-  render as solid-filled pills when active instead of showing a checkbox glyph next to a
-  colour-outlined pill.
 
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).

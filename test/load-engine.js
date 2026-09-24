@@ -30,6 +30,8 @@ const A_EXPORTER = [
   'FAMILLES_CONSONNES_SIMPLE', 'FAMILLES_VOYELLES_SIMPLE',
   'FAMILLES_CONSONNES_ETENDU', 'FAMILLES_VOYELLES_ETENDU',
   'THEME_CONSONNE', 'THEME_VOYELLE',
+  // Dictionnaire base + calque perso (2.28)
+  'fusionneBasePerso', 'extraitDifferencesPerso', 'estAncienFormatComplet', 'clesGroupesPhonetiques',
 ];
 
 function chargeMoteur() {

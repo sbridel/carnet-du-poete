@@ -12,5 +12,6 @@ const moteur = chargeMoteur();
 
 require('./test-rimes')(moteur);
 require('./test-sonorites')(moteur);
+require('./test-dico-base')(moteur);
 
 resume();

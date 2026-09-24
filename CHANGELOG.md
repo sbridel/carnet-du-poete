@@ -2,6 +2,18 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.28.0** — The dictionary is split into a published base and your personal layer.
+  - **`dictionnaire-base.json.gz`** (the ~210,000-word dictionary, 1.9 MB compressed instead of
+    13 MB) is **downloaded automatically** from the GitHub release on first launch, and again
+    only when a new base is published. Offline, the plugin keeps the base it already has.
+  - **`dictionnaire-perso.json` now holds only your own additions** (synonyms, rare words, tags,
+    notes, vocabulary themes) and is merged over the base on loading: a new base can no longer
+    erase your work, and words you never touched receive its corrections. When you annotate a
+    rare word, your note is shown above Didier Méral's (separated by `---`), which stays intact.
+  - **Automatic migration** of an old all-in-one file, after a timestamped backup copy.
+  - **Safer saving**: if `dictionnaire-perso.json` can't be read back (e.g. a broken edit made
+    outside Obsidian), the plugin now refuses to save instead of overwriting it with a nearly
+    empty file. The five saving functions share one read/write path.
 - **2.27.1** — The Rhymes tab now remembers its ticked online sources (RimesSolides,
   Wiktionnaire) between sessions, like the Synonyms and Inspiration tabs already did; they
   start unticked by default. The README was reorganised for easier reading: a quick start, a

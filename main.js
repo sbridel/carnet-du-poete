@@ -2,6 +2,7 @@ const { Plugin, ItemView, Modal, Notice, requestUrl, PluginSettingTab, Setting }
 
 const VIEW_TYPE = 'carnet-du-poete-view';
 
+
 /* =========================================================
    MOTEUR SYLLABIQUE FRANÇAIS
    - règle du e caduc (compté seulement si non final de vers
@@ -827,6 +828,7 @@ const METRES = {
   8:'octosyllabe', 9:'ennéasyllabe', 10:'décasyllabe', 11:'hendécasyllabe', 12:'alexandrin'
 };
 
+
 /* =========================================================
    DICTIONNAIRE DE RIMES — ~60 familles de sons
    ========================================================= */
@@ -978,6 +980,7 @@ function motsClefsDepuisTheme(theme){
     .map(t => t.trim())
     .filter(t => t.length > 1);
 }
+
 
 /* =========================================================
    CHAMPS LEXICAUX — inspiration de vocabulaire
@@ -1339,6 +1342,7 @@ function chercheInspiration(motSaisi){
   return partiels;
 }
 
+
 /* =========================================================
    SYNONYMES & ANTONYMES
    ========================================================= */
@@ -1410,6 +1414,7 @@ const SYNONYMES_BASE = [
   { mot:"oubli", synonymes:["amnésie","effacement"], antonymes:["souvenir","mémoire"] }
 ];
 const SYNONYMES = SYNONYMES_BASE.slice();
+
 
 /* =========================================================
    MOTS RARES & OUBLIÉS — pour l'onglet "Hasard"
@@ -1491,6 +1496,7 @@ const MOTS_RARES_BASE = [
   { mot:"volute", note:"forme enroulée en spirale, comme une fumée qui monte" }
 ];
 const MOTS_RARES = MOTS_RARES_BASE.slice();
+
 
 /* =========================================================
    TAGS DES MOTS RARES — système unifié
@@ -1801,6 +1807,7 @@ function chercheSynonymes(motSaisi){
   }
   return { mot: correspondances[0] ? correspondances[0].mot : motSaisi, synonymes: [...synonymes], antonymes: [...antonymes] };
 }
+
 
 /* =========================================================
    SOURCES EN LIGNE (synonymes/antonymes)
@@ -2253,6 +2260,7 @@ const SOURCES_INSPIRATION = [
   { id: 'jdm', nom: 'JeuxDeMots' }
 ];
 
+
 /* =========================================================
    CNRTL (Trésor de la Langue Française informatisé)
    Définitions riches + étymologie, à la demande uniquement
@@ -2377,6 +2385,7 @@ function decoupeSectionsCnrtl(htmlEntries){
 
 
 
+
 /* =========================================================
    RIMES SOLIDES (source de rimes en ligne complémentaire)
    ========================================================= */
@@ -2498,6 +2507,7 @@ function genreDuVers(details){
   return estFeminine(dernier) ? 'F' : 'M';
 }
 
+
 /* =========================================================
    DICTIONNAIRE PERSONNEL (optionnel) — deux formats acceptés
    Fichier dictionnaire-perso.json dans le dossier du plugin :
@@ -2537,6 +2547,244 @@ let DICO_PHONETIQUE_GROUPES = null; // objet brut: clé de rime -> [mots]
 let PHONETIQUE_MOT = null;         // Map: mot (minuscule) -> transcription phonétique complète
 let SYNONYMES_PHONETIQUE = null;   // Map: mot (minuscule) -> { synonymes: [{mot,phonetique}], antonymes: [...] }
 
+/* =========================================================
+   BASE PUBLIÉE + CALQUE PERSONNEL (depuis 2.28)
+   - dictionnaire-base.json.gz : dictionnaire publié (phonétique, synonymes,
+     mots rares de Méral), téléchargé depuis la release GitHub dans le
+     dossier du plugin. Jamais écrit par le plugin en dehors du
+     téléchargement : il peut être remplacé à chaque nouvelle version.
+   - dictionnaire-perso.json : dans le coffre, ne contient QUE les ajouts et
+     modifications de l'utilisateur (clé = le mot). Fusionné par-dessus la
+     base au chargement : les tags s'additionnent, la note perso s'affiche
+     avant celle de la base (séparées par ---),
+     une entrée phonétique perso remplace celle de la base.
+   Un ancien dictionnaire-perso.json « tout-en-un » (2.27 et avant) est
+   migré automatiquement, après copie de sauvegarde horodatée.
+   ========================================================= */
+const VERSION_BASE = '2.28.0'; // à changer uniquement quand la base change
+const NOM_FICHIER_BASE = 'dictionnaire-base.json.gz';
+const URL_BASE = `https://github.com/sbridel/carnet-du-poete/releases/download/${VERSION_BASE}/${NOM_FICHIER_BASE}`;
+const FORMAT_PERSO = 1;
+const CLES_HORS_GROUPES = ['familles', 'champsLexicaux', 'synonymes', 'motsRares', '_legende', 'formatPerso', 'formatBase', 'versionBase'];
+let ECHEC_TELECHARGEMENT_BASE = false;   // pas de nouvel essai réseau dans la même session
+let NOTES_BASE_PUBLIEE = new Map();      // mot normalisé -> note de la base (évite de la recopier dans le perso)
+
+/* Clés de groupes phonétiques (Format C) d'un objet dictionnaire. */
+function clesGroupesPhonetiques(data){
+  return Object.keys(data || {}).filter(k => !CLES_HORS_GROUPES.includes(k)
+    && data[k] && typeof data[k] === 'object' && !Array.isArray(data[k]));
+}
+
+/* Ancien fichier tout-en-un : contient des groupes phonétiques mais pas de
+   marqueur formatPerso. */
+function estAncienFormatComplet(data){
+  return !!data && typeof data === 'object' && data.formatPerso === undefined
+    && clesGroupesPhonetiques(data).length > 0;
+}
+
+/* Fusionne le calque perso par-dessus la base (fonction pure hors mutation
+   assumée de `base`, relue à chaque chargement). Renvoie un objet au même
+   format qu'un ancien dictionnaire-perso.json complet. */
+function fusionneBasePerso(base, perso){
+  if (!base) return perso || null;
+  if (!perso) return base;
+  const out = base;
+  // Un même mot peut légitimement figurer dans deux groupes (homographes :
+  // « sens », « boxer », « ferment »…) : la fusion se fait groupe par groupe.
+  clesGroupesPhonetiques(perso).forEach(cle => {
+    if (!out[cle] || typeof out[cle] !== 'object' || Array.isArray(out[cle])) out[cle] = {};
+    Object.keys(perso[cle]).forEach(mot => {
+      const ep = perso[cle][mot];
+      if (!ep || typeof ep !== 'object') return;
+      const eb = out[cle][mot];
+      out[cle][mot] = (eb && typeof eb === 'object') ? Object.assign({}, eb, ep) : ep;
+    });
+  });
+  if (Array.isArray(perso.motsRares)) {
+    const rares = Array.isArray(out.motsRares) ? out.motsRares : [];
+    const index = new Map();
+    rares.forEach(e => { if (e && e.mot) index.set(normaliseMot(e.mot), e); });
+    perso.motsRares.forEach(p => {
+      if (!p || !p.mot) return;
+      const w = normaliseMot(p.mot);
+      const tagsPerso = Array.isArray(p.tags) ? p.tags : [];
+      const b = index.get(w);
+      if (b) {
+        // Note perso + note de la base, toutes deux affichées (sans être
+        // stockées ensemble) ; une note perso qui contient déjà celle de la
+        // base (ancienne fusion, ou note réenregistrée telle qu'affichée)
+        // est gardée telle quelle.
+        const noteP = (p.note || '').trim(), noteB = (b.note || '').trim();
+        if (noteP && noteP !== noteB) b.note = (!noteB || noteP.includes(noteB)) ? p.note : `${noteP}\n\n---\n\n${noteB}`;
+        const tags = [...new Set([...(Array.isArray(b.tags) ? b.tags : []), ...tagsPerso])];
+        if (tags.length > 0) b.tags = tags;
+      } else {
+        const e = { mot: p.mot, note: p.note || '' };
+        if (tagsPerso.length > 0) e.tags = [...tagsPerso];
+        rares.push(e);
+        index.set(w, e);
+      }
+    });
+    out.motsRares = rares;
+  }
+  ['champsLexicaux', 'synonymes', 'familles'].forEach(k => {
+    if (Array.isArray(perso[k])) out[k] = [...(Array.isArray(out[k]) ? out[k] : []), ...perso[k]];
+  });
+  return out;
+}
+
+/* Migration : ne garde d'un ancien fichier complet que ce qui diffère de la
+   base (tags en plus, note différente, mots absents, entrées phonétiques
+   modifiées ; champs lexicaux, synonymes et familles gardés tels quels). */
+function extraitDifferencesPerso(ancien, base){
+  const perso = { formatPerso: FORMAT_PERSO };
+  ['champsLexicaux', 'synonymes', 'familles'].forEach(k => {
+    if (Array.isArray(ancien[k]) && ancien[k].length > 0) perso[k] = ancien[k];
+  });
+  const baseRares = new Map();
+  (Array.isArray(base.motsRares) ? base.motsRares : []).forEach(e => { if (e && e.mot) baseRares.set(normaliseMot(e.mot), e); });
+  const rares = [];
+  (Array.isArray(ancien.motsRares) ? ancien.motsRares : []).forEach(e => {
+    if (!e || !e.mot) return;
+    const b = baseRares.get(normaliseMot(e.mot));
+    if (!b) { rares.push(e); return; }
+    const tagsBase = Array.isArray(b.tags) ? b.tags : [];
+    const tagsEnPlus = (Array.isArray(e.tags) ? e.tags : []).filter(t => !tagsBase.includes(t));
+    const note = (e.note || '').trim() !== (b.note || '').trim() ? (e.note || '') : '';
+    if (tagsEnPlus.length > 0 || note) {
+      const d = { mot: e.mot, note };
+      if (tagsEnPlus.length > 0) d.tags = tagsEnPlus;
+      rares.push(d);
+    }
+  });
+  if (rares.length > 0) perso.motsRares = rares;
+  clesGroupesPhonetiques(ancien).forEach(cle => {
+    const groupeBase = (base[cle] && typeof base[cle] === 'object' && !Array.isArray(base[cle])) ? base[cle] : {};
+    Object.keys(ancien[cle]).forEach(mot => {
+      const e = ancien[cle][mot];
+      if (JSON.stringify(groupeBase[mot]) === JSON.stringify(e)) return;
+      (perso[cle] = perso[cle] || {})[mot] = e;
+    });
+  });
+  return perso;
+}
+
+function dossierPlugin(plugin){
+  const configDir = plugin.app.vault.configDir;
+  return plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+}
+
+async function decompresseGzip(octets){
+  if (typeof DecompressionStream === 'function') {
+    const flux = new Blob([octets]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(flux).text();
+  }
+  const zlib = require('zlib'); // repli bureau (Electron) si l'API web manque
+  return zlib.gunzipSync(Buffer.from(octets)).toString('utf-8');
+}
+
+/* Télécharge la base, la valide (décompression + JSON) AVANT de l'écrire :
+   une base existante n'est jamais remplacée par un fichier corrompu. */
+async function telechargeBase(plugin){
+  const rep = await requestUrl({ url: URL_BASE, throw: false });
+  if (!rep || rep.status !== 200 || !rep.arrayBuffer) throw new Error(`réponse HTTP ${rep && rep.status}`);
+  const base = JSON.parse(await decompresseGzip(rep.arrayBuffer));
+  if (!base || typeof base !== 'object' || base.formatBase === undefined) throw new Error('fichier de base inattendu');
+  await plugin.app.vault.adapter.writeBinary(`${dossierPlugin(plugin)}/${NOM_FICHIER_BASE}`, rep.arrayBuffer);
+  const data = (await plugin.loadData()) || {};
+  data.versionBase = VERSION_BASE;
+  await plugin.saveData(data);
+  console.log(`[Carnet du Poète] base ${VERSION_BASE} téléchargée depuis ${URL_BASE}`);
+  return base;
+}
+
+/* Renvoie la base (objet) ou null : téléchargement si absente ou d'une
+   autre version, sinon lecture locale ; hors ligne, garde l'ancienne. */
+async function chargeBase(plugin){
+  const adapter = plugin.app.vault.adapter;
+  const chemin = `${dossierPlugin(plugin)}/${NOM_FICHIER_BASE}`;
+  const data = (await plugin.loadData()) || {};
+  const presente = await adapter.exists(chemin);
+  if ((!presente || data.versionBase !== VERSION_BASE) && !ECHEC_TELECHARGEMENT_BASE) {
+    try {
+      const base = await telechargeBase(plugin);
+      new Notice(`Carnet du Poète : dictionnaire de base ${VERSION_BASE} téléchargé.`);
+      return base;
+    } catch (e) {
+      ECHEC_TELECHARGEMENT_BASE = true;
+      console.warn('[Carnet du Poète] téléchargement de la base impossible', e);
+      new Notice(presente
+        ? 'Carnet du Poète : nouvelle base non téléchargée (hors ligne ?) — l\'ancienne est utilisée, nouvel essai au prochain lancement.'
+        : 'Carnet du Poète : dictionnaire de base non téléchargé (hors ligne ?) — nouvel essai au prochain lancement.');
+    }
+  }
+  if (!presente) return null;
+  try {
+    return JSON.parse(await decompresseGzip(await adapter.readBinary(chemin)));
+  } catch (e) {
+    console.error('[Carnet du Poète] base locale illisible', e);
+  }
+  if (!ECHEC_TELECHARGEMENT_BASE) {
+    try { return await telechargeBase(plugin); }
+    catch (e) { ECHEC_TELECHARGEMENT_BASE = true; console.warn('[Carnet du Poète] nouveau téléchargement impossible', e); }
+  }
+  new Notice('Carnet du Poète : dictionnaire de base illisible — le plugin continue avec le dictionnaire personnel seul.');
+  return null;
+}
+
+/* Sauvegarde l'ancien fichier, écrit le calque perso à sa place (ou à la
+   racine du coffre s'il était dans le dossier du plugin, effacé à la
+   désinstallation) et renvoie le nouveau calque. */
+async function migreAncienDictionnaire(plugin, chemin, raw, ancien, base){
+  const adapter = plugin.app.vault.adapter;
+  const racine = 'dictionnaire-perso.json';
+  let destination = chemin;
+  if (chemin.startsWith(dossierPlugin(plugin) + '/') && !(await adapter.exists(racine))) destination = racine;
+  const dossier = destination.includes('/') ? destination.slice(0, destination.lastIndexOf('/') + 1) : '';
+  const d = new Date();
+  const p2 = n => String(n).padStart(2, '0');
+  const horodatage = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}`;
+  const cheminSauvegarde = `${dossier}dictionnaire-perso.sauvegarde-${horodatage}.json`;
+  await adapter.write(cheminSauvegarde, raw);
+  if (!(await adapter.exists(cheminSauvegarde))) throw new Error('sauvegarde non créée');
+  const perso = extraitDifferencesPerso(ancien, base);
+  if (await adapter.exists(destination)) await adapter.write(destination, JSON.stringify(perso));
+  else await plugin.app.vault.create(destination, JSON.stringify(perso));
+  if (destination !== chemin) await adapter.remove(chemin);
+  new Notice(`Carnet du Poète : dictionnaire personnel migré au nouveau format (${destination}). Ancien fichier sauvegardé : ${cheminSauvegarde}.`, 10000);
+  console.log('[Carnet du Poète] migration terminée :', destination, '— sauvegarde :', cheminSauvegarde);
+  return perso;
+}
+
+/* Lecture pour écriture : si le fichier existe mais ne se relit pas, on
+   lève une erreur plutôt que de l'écraser par un contenu vide. */
+async function lisPersoPourEcriture(plugin){
+  const adapter = plugin.app.vault.adapter;
+  let chemin = await trouveCheminDictionnairePerso(plugin);
+  if (!chemin) {
+    chemin = (await cheminDictionnairePersoConfigure(plugin)) || 'dictionnaire-perso.json';
+    return { chemin, data: { formatPerso: FORMAT_PERSO } };
+  }
+  const data = JSON.parse(await adapter.read(chemin));
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('contenu JSON inattendu');
+  return { chemin, data };
+}
+
+async function ecritPerso(plugin, chemin, data){
+  // un ancien fichier complet pas encore migré (base indisponible) garde
+  // son format, sinon il ne serait plus jamais migré
+  if (!estAncienFormatComplet(data)) data.formatPerso = FORMAT_PERSO;
+  const contenu = JSON.stringify(data);
+  const adapter = plugin.app.vault.adapter;
+  if (await adapter.exists(chemin)) await adapter.write(chemin, contenu);
+  else await plugin.app.vault.create(chemin, contenu);
+}
+
+function signaleLecturePersoImpossible(e){
+  console.error('[Carnet du Poète] dictionnaire-perso.json illisible, écriture annulée', e);
+  new Notice('Carnet du Poète : dictionnaire-perso.json illisible — enregistrement annulé pour ne pas l\'écraser (voir la console).');
+}
+
 /* Cherche dictionnaire-perso.json à deux endroits, dans l'ordre :
    1. Le dossier technique du plugin (.obsidian/plugins/carnet-du-poete/)
       — pratique en installation manuelle sur ordinateur.
@@ -2573,22 +2821,18 @@ async function cheminDictionnairePersoConfigure(plugin){
   return c || null;
 }
 
-async function trouveEtLisDictionnairePerso(plugin){
+async function trouveCheminDictionnairePerso(plugin){
   const adapter = plugin.app.vault.adapter;
   const configDir = plugin.app.vault.configDir; // en général ".obsidian", mais peut être renommé
-  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
+  const pluginDir = dossierPlugin(plugin);
   const nomFichier = 'dictionnaire-perso.json';
 
   // 0) Chemin personnalisé explicitement configuré dans les réglages du
   //    plugin (prioritaire sur tout le reste s'il est renseigné et existe)
   try {
-    const data = await plugin.loadData();
-    const cheminPerso = data && data.cheminDictionnairePerso && data.cheminDictionnairePerso.trim();
+    const cheminPerso = await cheminDictionnairePersoConfigure(plugin);
     if (cheminPerso) {
-      if (await adapter.exists(cheminPerso)) {
-        console.log('[Carnet du Poète] dictionnaire personnel trouvé (chemin personnalisé) :', cheminPerso);
-        return await adapter.read(cheminPerso);
-      }
+      if (await adapter.exists(cheminPerso)) return cheminPerso;
       console.warn('[Carnet du Poète] chemin personnalisé configuré mais introuvable :', cheminPerso, '— repli sur la recherche automatique.');
     }
   } catch (e) {
@@ -2599,15 +2843,12 @@ async function trouveEtLisDictionnairePerso(plugin){
   //    fonctionne même sur Android où l'exploration de fichiers est limitée)
   const candidats = [
     `${pluginDir}/${nomFichier}`,   // dossier du plugin (installation manuelle)
-    `${configDir}/${nomFichier}`,   // racine de .obsidian (dépôt "à la racine du coffre .obsidian")
+    `${configDir}/${nomFichier}`,   // racine de .obsidian
     nomFichier                      // racine du coffre lui-même
   ];
   for (const chemin of candidats) {
     try {
-      if (await adapter.exists(chemin)) {
-        console.log('[Carnet du Poète] dictionnaire personnel trouvé :', chemin);
-        return await adapter.read(chemin);
-      }
+      if (await adapter.exists(chemin)) return chemin;
     } catch (e) {
       console.warn('[Carnet du Poète] erreur en testant', chemin, e);
     }
@@ -2616,30 +2857,31 @@ async function trouveEtLisDictionnairePerso(plugin){
   // 2) N'importe où dans le contenu normal du coffre (notes, sous-dossiers)
   try {
     const fichier = plugin.app.vault.getFiles().find(f => f.name === nomFichier);
-    if (fichier) {
-      console.log('[Carnet du Poète] trouvé dans le coffre :', fichier.path);
-      return await plugin.app.vault.read(fichier);
-    }
+    if (fichier) return fichier.path;
   } catch (e) {
     console.warn('[Carnet du Poète] recherche dans le coffre impossible', e);
   }
 
-  // 3) Recherche récursive dans tout le dossier .obsidian (au cas où le
-  //    fichier a été déposé dans un sous-dossier inattendu — dossier
-  //    "plugins/" directement, autre plugin, etc.), profondeur limitée
-  //    pour rester rapide y compris sur mobile.
+  // 3) Recherche récursive dans tout le dossier .obsidian, profondeur
+  //    limitée pour rester rapide y compris sur mobile.
   try {
     const trouve = await chercheRecursivementDansDossier(adapter, configDir, nomFichier, 5);
-    if (trouve) {
-      console.log('[Carnet du Poète] trouvé par recherche récursive dans .obsidian :', trouve);
-      return await adapter.read(trouve);
-    }
+    if (trouve) return trouve;
   } catch (e) {
     console.warn('[Carnet du Poète] recherche récursive impossible', e);
   }
-
-  console.log('[Carnet du Poète] dictionnaire personnel introuvable. Emplacements testés :', candidats.join(' | '), '+ tout le coffre + recherche récursive dans', configDir);
   return null;
+}
+
+/* Renvoie { chemin, raw } ou null si aucun dictionnaire-perso.json. */
+async function trouveEtLisDictionnairePerso(plugin){
+  const chemin = await trouveCheminDictionnairePerso(plugin);
+  if (!chemin) {
+    console.log('[Carnet du Poète] dictionnaire personnel introuvable (réglage, dossier du plugin, .obsidian, coffre, recherche récursive).');
+    return null;
+  }
+  console.log('[Carnet du Poète] dictionnaire personnel trouvé :', chemin);
+  return { chemin, raw: await plugin.app.vault.adapter.read(chemin) };
 }
 
 /* Enregistre (ou met à jour) une entrée de synonymes/antonymes dans
@@ -2647,43 +2889,9 @@ async function trouveEtLisDictionnairePerso(plugin){
    un (peu importe où il a été trouvé), sinon en crée un nouveau à la
    racine du coffre. Recharge ensuite le dictionnaire en mémoire. */
 async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
-  const adapter = plugin.app.vault.adapter;
-  let chemin = null;
-  let data = {};
-
-  // on retente les mêmes emplacements que trouveEtLisDictionnairePerso,
-  // en gardant le chemin cette fois (pas seulement le contenu)
-  const configDir = plugin.app.vault.configDir;
-  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
-  chemin = await cheminDictionnairePersoConfigure(plugin);
-  if (!chemin) {
-    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
-    for (const c of candidats) {
-      if (await adapter.exists(c)) { chemin = c; break; }
-    }
-  }
-  if (!chemin) {
-    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
-    if (fichierVault) chemin = fichierVault.path;
-  }
-  if (!chemin) {
-    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
-  }
-
-  if (chemin) {
-    try {
-      const raw = await adapter.read(chemin);
-      data = JSON.parse(raw);
-      if (!data || typeof data !== 'object') data = {};
-    } catch (e) {
-      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant, un nouveau contenu sera écrit avec prudence', e);
-      data = {};
-    }
-  } else {
-    // aucun fichier existant : on en crée un nouveau à la racine du coffre
-    chemin = 'dictionnaire-perso.json';
-    data = {};
-  }
+  let chemin, data;
+  try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
+  catch (e) { signaleLecturePersoImpossible(e); return; }
 
   if (!Array.isArray(data.synonymes)) data.synonymes = [];
   const motNorm = normaliseMot(mot);
@@ -2698,13 +2906,8 @@ async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
   // Écriture compacte (sans indentation) : le dictionnaire complet pèse
   // ~13 Mo compact contre ~20 Mo indenté ; même contenu, seul l'affichage
   // brut du fichier change (un éditeur peut le remettre en forme).
-  const contenu = JSON.stringify(data);
   try {
-    if (await adapter.exists(chemin)) {
-      await adapter.write(chemin, contenu);
-    } else {
-      await plugin.app.vault.create(chemin, contenu);
-    }
+    await ecritPerso(plugin, chemin, data);
     new Notice(`Carnet du Poète : « ${mot} » enregistré dans ${chemin}.`);
     await chargeDictionnairePerso(plugin);
   } catch (e) {
@@ -2716,60 +2919,29 @@ async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
 /* Ajoute un mot rare saisi manuellement au dictionnaire personnel (même
    mécanique de recherche/écriture de fichier que enregistreSynonymePerso). */
 async function ajouteMotRarePerso(plugin, mot, note, tags){
-  const adapter = plugin.app.vault.adapter;
-  let chemin = null;
-  let data = {};
-
-  const configDir = plugin.app.vault.configDir;
-  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
-  chemin = await cheminDictionnairePersoConfigure(plugin);
-  if (!chemin) {
-    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
-    for (const c of candidats) {
-      if (await adapter.exists(c)) { chemin = c; break; }
-    }
-  }
-  if (!chemin) {
-    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
-    if (fichierVault) chemin = fichierVault.path;
-  }
-  if (!chemin) {
-    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
-  }
-
-  if (chemin) {
-    try {
-      const raw = await adapter.read(chemin);
-      data = JSON.parse(raw);
-      if (!data || typeof data !== 'object') data = {};
-    } catch (e) {
-      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant, un nouveau contenu sera écrit avec prudence', e);
-      data = {};
-    }
-  } else {
-    chemin = 'dictionnaire-perso.json';
-    data = {};
-  }
+  let chemin, data;
+  try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
+  catch (e) { signaleLecturePersoImpossible(e); return; }
 
   if (!Array.isArray(data.motsRares)) data.motsRares = [];
   const motNorm = normaliseMot(mot);
   const existante = data.motsRares.find(e => e && normaliseMot(e.mot) === motNorm);
+  // une note identique à celle de la base n'est pas recopiée dans le perso
+  // (le mot recevra ainsi les corrections futures de la base)
+  const noteBase = NOTES_BASE_PUBLIEE.get(motNorm);
+  const egaleBase = noteBase !== undefined && (note || '').trim() === noteBase.trim();
   if (existante) {
-    if (note) existante.note = note;
+    if (egaleBase) existante.note = '';
+    else if (note) existante.note = note;
     existante.tags = [...new Set([...(existante.tags || []), ...(tags || [])])];
   } else {
-    const entree = { mot, note: note || '' };
+    const entree = { mot, note: egaleBase ? '' : (note || '') };
     if (tags && tags.length > 0) entree.tags = tags;
     data.motsRares.push(entree);
   }
 
-  const contenu = JSON.stringify(data);
   try {
-    if (await adapter.exists(chemin)) {
-      await adapter.write(chemin, contenu);
-    } else {
-      await plugin.app.vault.create(chemin, contenu);
-    }
+    await ecritPerso(plugin, chemin, data);
     await chargeDictionnairePerso(plugin);
   } catch (e) {
     console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
@@ -2793,45 +2965,17 @@ async function graverTousLesMotsRaresEnMasse(plugin){
     return 0;
   }
 
-  const adapter = plugin.app.vault.adapter;
-  const configDir = plugin.app.vault.configDir;
-  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
-  let chemin = await cheminDictionnairePersoConfigure(plugin);
-  if (!chemin) {
-    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
-    for (const c of candidats) {
-      if (await adapter.exists(c)) { chemin = c; break; }
-    }
-  }
-  if (!chemin) {
-    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
-    if (fichierVault) chemin = fichierVault.path;
-  }
-  if (!chemin) {
-    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
-  }
-
-  let data = {};
-  if (chemin) {
-    try {
-      const raw = await adapter.read(chemin);
-      data = JSON.parse(raw);
-      if (!data || typeof data !== 'object') data = {};
-    } catch (e) {
-      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant pour la gravure en masse', e);
-      data = {};
-    }
-  } else {
-    chemin = 'dictionnaire-perso.json';
-    data = {};
-  }
+  let chemin, data;
+  try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
+  catch (e) { signaleLecturePersoImpossible(e); return 0; }
   if (!Array.isArray(data.motsRares)) data.motsRares = [];
 
   let compte = 0;
   motsAvecMeta.forEach(w => {
     const entreeSource = MOTS_RARES_INDEX.get(w);
     const mot = entreeSource ? entreeSource.mot : w;
-    const note = entreeSource ? (entreeSource.note || '') : '';
+    // mot de la base : sa note y est déjà, seuls les tags vont dans le perso
+    const note = (entreeSource && !NOTES_BASE_PUBLIEE.has(w)) ? (entreeSource.note || '') : '';
     const tags = tagsDuMot(mot);
     const existante = data.motsRares.find(e => e && normaliseMot(e.mot) === w);
     if (existante) {
@@ -2845,13 +2989,8 @@ async function graverTousLesMotsRaresEnMasse(plugin){
     compte++;
   });
 
-  const contenu = JSON.stringify(data);
   try {
-    if (await adapter.exists(chemin)) {
-      await adapter.write(chemin, contenu);
-    } else {
-      await plugin.app.vault.create(chemin, contenu);
-    }
+    await ecritPerso(plugin, chemin, data);
   } catch (e) {
     console.error('[Carnet du Poète] échec de l\'écriture en masse de dictionnaire-perso.json', e);
     new Notice('Carnet du Poète : échec de la gravure en masse (voir la console).');
@@ -2874,40 +3013,9 @@ async function graverTousLesMotsRaresEnMasse(plugin){
    champ : on n'élargit jamais silencieusement la portée de recherche
    d'un champ existant juste parce qu'on lui ajoute un mot. */
 async function ajouteMotChampLexicalPerso(plugin, theme, motsClefs, mot, note, opts){
-  const adapter = plugin.app.vault.adapter;
-  let chemin = null;
-  let data = {};
-
-  const configDir = plugin.app.vault.configDir;
-  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
-  chemin = await cheminDictionnairePersoConfigure(plugin);
-  if (!chemin) {
-    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
-    for (const c of candidats) {
-      if (await adapter.exists(c)) { chemin = c; break; }
-    }
-  }
-  if (!chemin) {
-    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
-    if (fichierVault) chemin = fichierVault.path;
-  }
-  if (!chemin) {
-    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
-  }
-
-  if (chemin) {
-    try {
-      const raw = await adapter.read(chemin);
-      data = JSON.parse(raw);
-      if (!data || typeof data !== 'object') data = {};
-    } catch (e) {
-      console.warn('[Carnet du Poète] impossible de relire dictionnaire-perso.json existant, un nouveau contenu sera écrit avec prudence', e);
-      data = {};
-    }
-  } else {
-    chemin = 'dictionnaire-perso.json';
-    data = {};
-  }
+  let chemin, data;
+  try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
+  catch (e) { signaleLecturePersoImpossible(e); return; }
 
   if (!Array.isArray(data.champsLexicaux)) data.champsLexicaux = [];
   const themeNorm = normaliseMot(theme);
@@ -2926,13 +3034,8 @@ async function ajouteMotChampLexicalPerso(plugin, theme, motsClefs, mot, note, o
     champ.mots.push({ mot, note: note || '' });
   }
 
-  const contenu = JSON.stringify(data);
   try {
-    if (await adapter.exists(chemin)) {
-      await adapter.write(chemin, contenu);
-    } else {
-      await plugin.app.vault.create(chemin, contenu);
-    }
+    await ecritPerso(plugin, chemin, data);
     if (!(opts && opts.silencieux)) new Notice(`Carnet du Poète : « ${mot} » ajouté au champ lexical « ${champ.theme} ».`);
     await chargeDictionnairePerso(plugin);
   } catch (e) {
@@ -2956,39 +3059,13 @@ function tousLesThemesLexicaux(){
    (ex. "nuitobscurité") en mots-clés séparés et recherchables. Déclenché
    depuis les réglages, avec confirmation en deux temps côté UI. */
 async function nettoieEtFusionneDictionnairePerso(plugin){
-  const adapter = plugin.app.vault.adapter;
-  const configDir = plugin.app.vault.configDir;
-  const pluginDir = plugin.manifest.dir || `${configDir}/plugins/${plugin.manifest.id}`;
-  let chemin = await cheminDictionnairePersoConfigure(plugin);
-  if (!chemin) {
-    const candidats = [`${pluginDir}/dictionnaire-perso.json`, `${configDir}/dictionnaire-perso.json`, 'dictionnaire-perso.json'];
-    for (const c of candidats) {
-      if (await adapter.exists(c)) { chemin = c; break; }
-    }
-  }
-  if (!chemin) {
-    const fichierVault = plugin.app.vault.getFiles().find(f => f.name === 'dictionnaire-perso.json');
-    if (fichierVault) chemin = fichierVault.path;
-  }
-  if (!chemin) {
-    chemin = await chercheRecursivementDansDossier(adapter, configDir, 'dictionnaire-perso.json', 5);
-  }
-  if (!chemin) {
+  if (!(await trouveCheminDictionnairePerso(plugin))) {
     new Notice('Carnet du Poète : aucun dictionnaire-perso.json trouvé, rien à nettoyer.');
     return;
   }
-
-  let data;
-  try {
-    const raw = await adapter.read(chemin);
-    data = JSON.parse(raw);
-    if (!data || typeof data !== 'object') { new Notice('Carnet du Poète : dictionnaire-perso.json invalide, nettoyage annulé.'); return; }
-  } catch (e) {
-    console.error('[Carnet du Poète] impossible de lire dictionnaire-perso.json pour le nettoyage', e);
-    new Notice('Carnet du Poète : impossible de lire le fichier (voir la console).');
-    return;
-  }
-
+  let chemin, data;
+  try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
+  catch (e) { signaleLecturePersoImpossible(e); return; }
   let champsAvant = 0, champsApres = 0, raresAvant = 0, raresApres = 0, synoAvant = 0, synoApres = 0;
 
   // --- champs lexicaux : fusion par thème normalisé ---
@@ -3079,9 +3156,8 @@ async function nettoieEtFusionneDictionnairePerso(plugin){
     synoApres = fusion.length;
   }
 
-  const contenu = JSON.stringify(data);
   try {
-    await adapter.write(chemin, contenu);
+    await ecritPerso(plugin, chemin, data);
   } catch (e) {
     console.error('[Carnet du Poète] échec de l\'écriture après nettoyage', e);
     new Notice('Carnet du Poète : échec de l\'écriture du fichier nettoyé (voir la console).');
@@ -3121,29 +3197,48 @@ async function chargeDictionnairePerso(plugin, opts){
   PHONETIQUE_MOT = null;
   SYNONYMES_PHONETIQUE = null;
 
+  NOTES_BASE_PUBLIEE = new Map();
+
   try {
-    const raw = await trouveEtLisDictionnairePerso(plugin);
-    if (raw === null) {
-      console.log('[Carnet du Poète] aucun dictionnaire-perso.json trouvé (ni dans le dossier du plugin, ni dans le coffre).');
+    const base = await chargeBase(plugin);
+    if (base && Array.isArray(base.motsRares)) {
+      base.motsRares.forEach(e => { if (e && e.mot) NOTES_BASE_PUBLIEE.set(normaliseMot(e.mot), e.note || ''); });
+    }
+
+    // Calque perso. S'il est illisible, on continue avec la base seule ;
+    // les écritures, elles, refuseront de l'écraser (lisPersoPourEcriture).
+    let perso = null;
+    const lu = await trouveEtLisDictionnairePerso(plugin);
+    if (lu) {
+      try {
+        perso = JSON.parse(lu.raw);
+        if (!perso || typeof perso !== 'object' || Array.isArray(perso)) {
+          new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son contenu n\'est pas un objet JSON valide.');
+          perso = null;
+        }
+      } catch (parseErr) {
+        console.error('[Carnet du Poète] dictionnaire-perso.json : JSON invalide', parseErr);
+        new Notice('Carnet du Poète : dictionnaire-perso.json trouvé mais le JSON est invalide (voir la console pour le détail).');
+      }
+      if (perso && base && estAncienFormatComplet(perso)) {
+        try {
+          perso = await migreAncienDictionnaire(plugin, lu.chemin, lu.raw, perso, base);
+        } catch (e) {
+          console.error('[Carnet du Poète] migration du dictionnaire personnel impossible', e);
+          new Notice('Carnet du Poète : migration du dictionnaire personnel impossible — ancien fichier utilisé tel quel (voir la console).');
+        }
+      }
+    }
+
+    if (!base && !perso) {
+      console.log('[Carnet du Poète] ni base ni dictionnaire-perso.json disponibles.');
       if (notifierAbsence) {
-        new Notice('Carnet du Poète : aucun dictionnaire-perso.json trouvé — ni dans le dossier du plugin, ni à la racine de .obsidian, ni dans le coffre, ni dans les sous-dossiers de .obsidian. Vérifie le nom exact du fichier (voir la console pour le détail).', 8000);
+        new Notice('Carnet du Poète : aucun dictionnaire disponible — base non téléchargée et aucun dictionnaire-perso.json trouvé (voir la console pour le détail).', 8000);
       }
       return;
     }
 
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch (parseErr) {
-      console.error('[Carnet du Poète] dictionnaire-perso.json : JSON invalide', parseErr);
-      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé mais le JSON est invalide (voir la console pour le détail).');
-      return;
-    }
-
-    if (!data || typeof data !== 'object') {
-      new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais son contenu n\'est pas un objet JSON valide.');
-      return;
-    }
+    const data = fusionneBasePerso(base, perso);
 
     // Champs lexicaux personnalisés (indépendant du format familles/phonétique
     // ci-dessous : peut cohabiter avec l'un ou l'autre dans le même fichier).
@@ -3204,7 +3299,7 @@ async function chargeDictionnairePerso(plugin, opts){
         }
       });
       if (raresCount > 0) {
-        new Notice(`Carnet du Poète : ${raresCount} mot(s) rare(s) personnalisé(s) chargé(s).`);
+        new Notice(`Carnet du Poète : ${raresCount} mot(s) rare(s) chargé(s) (base + personnels).`);
       }
       reconstruitIndexMotsRares();
     }
@@ -3223,7 +3318,7 @@ async function chargeDictionnairePerso(plugin, opts){
       } else if (champsCount === 0 && synoCount === 0 && raresCount === 0) {
         new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
       }
-      return;
+      if (clesGroupesPhonetiques(data).length === 0) return;
     }
 
     // Format B : dictionnaire phonétique complet (objet plat clé -> mots[])
@@ -3232,7 +3327,7 @@ async function chargeDictionnairePerso(plugin, opts){
     // complète de chaque mot et ses synonymes/antonymes déjà résolus.
     // (on exclut les clés déjà traitées ci-dessus pour ne pas les confondre
     // avec des groupes de rimes)
-    const cles = Object.keys(data).filter(k => k !== 'familles' && k !== 'champsLexicaux' && k !== 'synonymes' && k !== 'motsRares');
+    const cles = Object.keys(data).filter(k => !CLES_HORS_GROUPES.includes(k));
     const clesFormatB = cles.filter(k => Array.isArray(data[k]));
     const clesFormatC = cles.filter(k => !Array.isArray(data[k]) && data[k] && typeof data[k] === 'object');
     if (clesFormatB.length === 0 && clesFormatC.length === 0) {
@@ -3506,6 +3601,7 @@ function decoupeSyllabesRime(mot){
   return syllabes;
 }
 
+
 /* ===== Moteur de rime phonétique (Format C) =====
    Même principe que le moteur orthographique ci-dessus, mais sur les vrais
    phonèmes SAMPA-like du dictionnaire complet : plus aucune heuristique à
@@ -3712,6 +3808,7 @@ function badgeQualite(badgeMot, mot, saisie){
   b.setAttr('title', `Rime ${q} (approximatif, orthographique)`);
   return q;
 }
+
 
 /* =========================================================
    MOTEUR D'ANALYSE SONORE (allitérations / assonances internes)
@@ -4293,6 +4390,7 @@ function analyseHomeoteleutes(texteComplet, exclureMotsOutils){
     .sort((a, b) => b.count - a.count);
 }
 
+
 /* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
    filtres : { lettre, syllabes, qualites: Set } — tous optionnels. */
 function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActives){
@@ -4517,6 +4615,7 @@ function estFlexionDe(motCherche, candidat){
   if (!radical) return false;
   return b.startsWith(radical) && TERMINAISONS_FLEXION.includes(b.slice(radical.length));
 }
+
 /* Rendu partagé des résultats d'inspiration (panneau + fenêtre modale). */
 /* Bouton "+" à côté d'un mot d'inspiration, ouvrant un petit formulaire
    inline pour l'ajouter à un champ lexical personnel (existant ou
@@ -4689,6 +4788,7 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives,
     else remplir(corps.createDiv(), null);
   });
 }
+
 
 /* Rendu partagé des résultats de synonymes/antonymes. motRimeRef (optionnel)
    : mot par rapport auquel afficher un badge de qualité de rime sur chaque
@@ -4949,6 +5049,7 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
   });
 }
 
+
 /* =========================================================
    VUE PRINCIPALE
    ========================================================= */
@@ -5033,6 +5134,7 @@ class CarnetView extends ItemView {
 
   async onClose(){}
 }
+
 
 
 function buildPanelSyllabes(vue, panelSyl){
@@ -5533,6 +5635,7 @@ function buildPanelSyllabes(vue, panelSyl){
 }
 
 
+
 function buildPanelRimes(vue, panelRimes){
   const rimeForm = panelRimes.createDiv({ cls: 'cp-rime-form' });
   const motInput = rimeForm.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. lumière, chapeau, courage)' } });
@@ -5652,6 +5755,7 @@ function buildPanelRimes(vue, panelRimes){
     chercher();
   };
 }
+
 
 
 function buildPanelInspiration(vue, panelInspi){
@@ -5798,6 +5902,7 @@ function buildPanelInspiration(vue, panelInspi){
 }
 
 
+
 function buildPanelSynonymes(vue, panelSyno){
   const intro = panelSyno.createEl('p', { cls: 'cp-inspi-intro' });
   intro.setText('Tape un mot courant pour voir ses synonymes et ses antonymes — utile pour varier une rime ou un rythme sans changer le sens.');
@@ -5859,6 +5964,7 @@ function buildPanelSynonymes(vue, panelSyno){
     chercher();
   };
 }
+
 
 
 function buildPanelGuide(vue, panelGuide){
@@ -6020,6 +6126,7 @@ function buildPanelGuide(vue, panelGuide){
 }
 
 
+
 function buildPanelDefinitions(vue, panelDefs){
   const intro = panelDefs.createEl('p', { cls: 'cp-inspi-intro' });
   intro.setText('Vérifie le sens exact et le registre d\'un mot rare avant de l\'utiliser — définitions et étymologie tirées du Trésor de la Langue Française informatisé (CNRTL), à la demande.');
@@ -6117,6 +6224,7 @@ function buildPanelDefinitions(vue, panelDefs){
     chercher();
   };
 }
+
 
 
 function buildPanelHasard(vue, panelHasard){
@@ -6604,6 +6712,7 @@ function buildPanelHasard(vue, panelHasard){
 }
 
 
+
 function buildPanelNotes(vue, panelNotes){
   const intro = panelNotes.createEl('p', { cls: 'cp-inspi-intro' });
   intro.setText('Mots ajoutés sans définition (import en masse, sélection Inspiration...) — complète-les à la main, enregistré directement dans dictionnaire-perso.json.');
@@ -6671,6 +6780,7 @@ function buildPanelNotes(vue, panelNotes){
   vue._rafraichitPanelNotes = rerender;
 }
 
+
 /* =========================================================
    MODALE DE RECHERCHE DE RIMES (depuis une sélection)
    ========================================================= */
@@ -6708,6 +6818,7 @@ class InspirationModal extends Modal {
   }
   onClose(){ this.contentEl.empty(); }
 }
+
 
 /* =========================================================
    STYLE INJECTÉ EN JS
@@ -7043,6 +7154,7 @@ const CARNET_CSS = `
 .cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
 .cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }
 `;
+
 
 /* =========================================================
    PLUGIN
