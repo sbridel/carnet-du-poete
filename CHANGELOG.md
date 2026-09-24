@@ -2,13 +2,13 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
-- **2.29.1** — Statistiques du dictionnaire dans Réglages.
-  - Nouvelle section « Dictionnaire » : nombre de mots et de mots rares de la base, chemin,
-    poids et compte des ajouts personnels (mots rares, champs lexicaux, synonymes) du fichier
+- **2.29.1** — Dictionary statistics in Settings.
+  - New "Dictionary" section: word and rare-word counts for the base, and the path, size and
+    count of personal additions (rare words, lexical fields, synonyms) in your
     dictionnaire-perso.json.
-  - Deux bugs trouvés et corrigés en le construisant, sans effet visible ailleurs : le compte de
-    la base était lu après une fusion qui la modifie en place, et le chemin/poids du perso
-    restaient ceux d'avant une migration tout juste effectuée.
+  - Two bugs found and fixed while building it, with no effect elsewhere: the base's count was
+    read after a merge that mutates it in place, and the perso's path/size still reflected the
+    state from before a migration that had just run.
 - **2.29.0** — Grammatical filter in the Rhymes tab.
   - New checkboxes — Nom, Verbe, Adjectif, Adverbe, Autres — narrow rhyme results by
     grammatical category, on top of the existing letter/syllable/quality filters. A word can
