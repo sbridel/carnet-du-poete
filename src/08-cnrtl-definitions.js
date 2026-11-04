@@ -64,11 +64,30 @@ async function chercheCnrtl(mot, pos){
    (regroupé en un dernier bloc "Complément" pour ne rien perdre). Repose
    sur le DOM du navigateur (disponible dans Obsidian) plutôt que sur des
    regex, plus robuste face à un balisage varié selon la source. */
+/* Nettoie un fragment HTML venu du CNRTL avant de l'insérer dans la page :
+   analysé dans un document inerte (DOMParser n'exécute rien), on retire
+   les balises actives et les attributs d'événement (onerror, onclick…) ou
+   les liens javascript:. L'affichage (mise en forme du dictionnaire) est
+   inchangé ; c'est une simple défense si la réponse était un jour altérée. */
+function nettoieHtmlExterne(html){
+  const doc = new DOMParser().parseFromString(`<body>${html || ''}</body>`, 'text/html');
+  doc.body.querySelectorAll('script, style, iframe, object, embed, link, meta, base, form').forEach(el => el.remove());
+  doc.body.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(a => {
+      const nom = a.name.toLowerCase();
+      if (nom.startsWith('on') || ((nom === 'href' || nom === 'src' || nom === 'xlink:href') && /^\s*javascript:/i.test(a.value))) {
+        el.removeAttribute(a.name);
+      }
+    });
+  });
+  return doc.body.innerHTML;
+}
+
 function decoupeSectionsCnrtl(htmlEntries){
   const blocs = [];
   (htmlEntries || []).forEach((html, index) => {
     const conteneur = document.createElement('div');
-    conteneur.innerHTML = html;
+    conteneur.innerHTML = nettoieHtmlExterne(html);
     const racine = conteneur.firstElementChild;
     if (!racine) return;
     const prefixe = htmlEntries.length > 1 ? `Entrée ${index + 1} — ` : '';

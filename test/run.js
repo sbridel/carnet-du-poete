@@ -16,5 +16,6 @@ require('./test-dico-base')(moteur);
 require('./test-dico-stats')(moteur);
 require('./test-alternance')(moteur);
 require('./test-prosodie')(moteur);
+require('./test-en-ligne')(moteur);
 
 resume();

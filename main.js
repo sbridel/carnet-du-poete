@@ -1843,6 +1843,24 @@ function chercheSynonymes(motSaisi){
    ordinateur comme sur mobile.
    ========================================================= */
 
+/* Cache des réponses en ligne (par source et par mot, pour la session) :
+   relancer une recherche — un filtre coché, une lettre tapée dans « Rime
+   avec… » — refiltre localement au lieu de réinterroger le site à chaque
+   fois, ce qui évite de se faire refuser pour excès de requêtes (HTTP 429).
+   Une requête en cours est partagée ; un échec n'est pas gardé (nouvel
+   essai possible). Petit plafond, comme CACHE_CNRTL. */
+const CACHE_EN_LIGNE = new Map();
+const CACHE_EN_LIGNE_MAX = 80;
+function avecCacheEnLigne(source, mot, requete){
+  const cle = source + '|' + (mot || '').trim().toLowerCase();
+  if (CACHE_EN_LIGNE.has(cle)) return CACHE_EN_LIGNE.get(cle);
+  const promesse = Promise.resolve().then(requete);
+  promesse.catch(() => { if (CACHE_EN_LIGNE.get(cle) === promesse) CACHE_EN_LIGNE.delete(cle); });
+  if (CACHE_EN_LIGNE.size >= CACHE_EN_LIGNE_MAX) CACHE_EN_LIGNE.delete(CACHE_EN_LIGNE.keys().next().value);
+  CACHE_EN_LIGNE.set(cle, promesse);
+  return promesse;
+}
+
 function extraitLiensDepuisSegment(html, motExclu){
   const mots = [];
   const regex = /<a\b[^>]*>([^<]+)<\/a>/gi;
@@ -1865,6 +1883,9 @@ const ENTETES_NAVIGATEUR = {
 };
 
 async function chercheSynonymesWiktionnaire(mot){
+  return avecCacheEnLigne('chercheSynonymesWiktionnaire', mot, () => chercheSynonymesWiktionnaireBrut(mot));
+}
+async function chercheSynonymesWiktionnaireBrut(mot){
   const url = `https://fr.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(mot)}&format=json&prop=wikitext&origin=*`;
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
@@ -1917,6 +1938,9 @@ async function chercheSynonymesWiktionnaire(mot){
 }
 
 async function chercheSynonymesCrisco(mot){
+  return avecCacheEnLigne('chercheSynonymesCrisco', mot, () => chercheSynonymesCriscoBrut(mot));
+}
+async function chercheSynonymesCriscoBrut(mot){
   const url = `https://crisco4.unicaen.fr/des/synonymes/${encodeURIComponent(mot)}`;
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
@@ -2145,6 +2169,9 @@ const SECTIONS_WIKT_INSPIRATION = {
 };
 
 async function chercheInspirationWiktionnaire(mot){
+  return avecCacheEnLigne('chercheInspirationWiktionnaire', mot, () => chercheInspirationWiktionnaireBrut(mot));
+}
+async function chercheInspirationWiktionnaireBrut(mot){
   const url = `https://fr.wiktionary.org/w/api.php?action=parse&page=${encodeURIComponent(mot)}&format=json&prop=wikitext&origin=*`;
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
@@ -2226,6 +2253,9 @@ async function appelJdm(mot, types, seuil){
 }
 
 async function chercheInspirationJdm(mot){
+  return avecCacheEnLigne('chercheInspirationJdm', mot, () => chercheInspirationJdmBrut(mot));
+}
+async function chercheInspirationJdmBrut(mot){
   const [a, b] = await Promise.all([
     appelJdm(mot, [0], JDM_SEUIL_ASSOCIEES),
     appelJdm(mot, [17, 9], JDM_SEUIL_PRECIS)
@@ -2351,11 +2381,30 @@ async function chercheCnrtl(mot, pos){
    (regroupé en un dernier bloc "Complément" pour ne rien perdre). Repose
    sur le DOM du navigateur (disponible dans Obsidian) plutôt que sur des
    regex, plus robuste face à un balisage varié selon la source. */
+/* Nettoie un fragment HTML venu du CNRTL avant de l'insérer dans la page :
+   analysé dans un document inerte (DOMParser n'exécute rien), on retire
+   les balises actives et les attributs d'événement (onerror, onclick…) ou
+   les liens javascript:. L'affichage (mise en forme du dictionnaire) est
+   inchangé ; c'est une simple défense si la réponse était un jour altérée. */
+function nettoieHtmlExterne(html){
+  const doc = new DOMParser().parseFromString(`<body>${html || ''}</body>`, 'text/html');
+  doc.body.querySelectorAll('script, style, iframe, object, embed, link, meta, base, form').forEach(el => el.remove());
+  doc.body.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(a => {
+      const nom = a.name.toLowerCase();
+      if (nom.startsWith('on') || ((nom === 'href' || nom === 'src' || nom === 'xlink:href') && /^\s*javascript:/i.test(a.value))) {
+        el.removeAttribute(a.name);
+      }
+    });
+  });
+  return doc.body.innerHTML;
+}
+
 function decoupeSectionsCnrtl(htmlEntries){
   const blocs = [];
   (htmlEntries || []).forEach((html, index) => {
     const conteneur = document.createElement('div');
-    conteneur.innerHTML = html;
+    conteneur.innerHTML = nettoieHtmlExterne(html);
     const racine = conteneur.firstElementChild;
     if (!racine) return;
     const prefixe = htmlEntries.length > 1 ? `Entrée ${index + 1} — ` : '';
@@ -2431,6 +2480,9 @@ function messageErreurSource(err, nomSource){
 }
 
 async function chercheRimesSolides(mot){
+  return avecCacheEnLigne('chercheRimesSolides', mot, () => chercheRimesSolidesBrut(mot));
+}
+async function chercheRimesSolidesBrut(mot){
   const url = `https://www.rimessolides.com/rime.aspx?m=${encodeURIComponent(mot)}`;
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
@@ -2481,6 +2533,9 @@ function extraitCategorieRime(titres){
 }
 
 async function chercheRimesWiktionnaire(mot){
+  return avecCacheEnLigne('chercheRimesWiktionnaire', mot, () => chercheRimesWiktionnaireBrut(mot));
+}
+async function chercheRimesWiktionnaireBrut(mot){
   const base = 'https://fr.wiktionary.org/w/api.php?format=json&formatversion=2&origin=*';
   const titre = mot.trim();
   const url = `https://fr.wiktionary.org/wiki/${encodeURIComponent(titre)}`;

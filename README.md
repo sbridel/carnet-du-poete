@@ -491,9 +491,25 @@ transcribes as [ɛ].
     the classical tradition. It used to be masculine in every case.
   - Definitions tab: the search field gets its own line, with *Chercher* and *Ouvrir sur CNRTL ↗*
     below it. On a phone, the three side by side squeezed the field to a few pixels.
-  - Tests: the dictionary statistics shown in Settings are now covered, including a full load
-    with migration (the two 2.29.1 bugs would now be caught). The test harness supports
-    asynchronous tests. 117 tests.
+  - Syllable count fixes: final *-es*/*-ent* no longer elide before a vowel inside a line
+    (*vastes oiseaux*, *gouffres amers* — Baudelaire's *L'Albatros* now scans 12); the tréma always
+    splits (*na-ïf*, *No-ël*, *a-ïeux*); circumflex vowel pairs (*plaît*, *goût*, *maître*) are no
+    longer offered a false diaeresis.
+  - Elided words rhyme and get their gender like the bare word: *m'attends* / *longtemps*,
+    *t'aime* / *même*, *s'aiment* feminine.
+  - Data safety: if `dictionnaire-perso.json` can't be written, Hasard no longer empties the word's
+    pending tags, and Notes, Inspiration and Synonymes no longer report a false success. Two
+    overlapping dictionary loads no longer duplicate entries; 20 rare words present both in the
+    built-in list and in the base are no longer drawn twice as often; Settings no longer says
+    there is no personal dictionary when the base is missing (offline).
+  - Inspiration: adding several words reloads the dictionary once instead of once per word, and
+    deselecting clears the highlight on the result chips.
+  - Online sources: results are cached per word for the session, so ticking a filter or typing in
+    *Rime avec…* no longer re-queries RimesSolides, Wiktionnaire, CRISCO or JeuxDeMots. CNRTL
+    definitions are sanitized before display (scripts and event attributes removed).
+  - Tests: dictionary statistics, data-safety cases, prosody cases and the online cache are now
+    covered, including a full dictionary load with migration. The test harness supports
+    asynchronous tests. 127 tests.
 - **2.29.1** — Dictionary statistics in Settings.
   - New "Dictionary" section: word and rare-word counts for the base, and the path, size and
     count of personal additions (rare words, lexical fields, synonyms) in your

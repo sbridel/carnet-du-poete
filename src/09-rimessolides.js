@@ -20,6 +20,9 @@ function messageErreurSource(err, nomSource){
 }
 
 async function chercheRimesSolides(mot){
+  return avecCacheEnLigne('chercheRimesSolides', mot, () => chercheRimesSolidesBrut(mot));
+}
+async function chercheRimesSolidesBrut(mot){
   const url = `https://www.rimessolides.com/rime.aspx?m=${encodeURIComponent(mot)}`;
   const reponse = await requestUrl({ url, headers: ENTETES_NAVIGATEUR, throw: false });
   if (reponse.status !== 200) throw new Error(`HTTP ${reponse.status}`);
@@ -70,6 +73,9 @@ function extraitCategorieRime(titres){
 }
 
 async function chercheRimesWiktionnaire(mot){
+  return avecCacheEnLigne('chercheRimesWiktionnaire', mot, () => chercheRimesWiktionnaireBrut(mot));
+}
+async function chercheRimesWiktionnaireBrut(mot){
   const base = 'https://fr.wiktionary.org/w/api.php?format=json&formatversion=2&origin=*';
   const titre = mot.trim();
   const url = `https://fr.wiktionary.org/wiki/${encodeURIComponent(titre)}`;
