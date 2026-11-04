@@ -34,6 +34,8 @@ const A_EXPORTER = [
   'fusionneBasePerso', 'extraitDifferencesPerso', 'estAncienFormatComplet', 'clesGroupesPhonetiques',
   // Filtre grammatical (2.29)
   'categoriesDuMot',
+  // Stats Réglages + alternance (2.29.2)
+  'statsBaseDico', 'statsPersoDico', 'chargeDictionnairePerso', 'VERSION_BASE', 'verifieAlternance',
 ];
 
 function chargeMoteur() {
@@ -51,7 +53,8 @@ function chargeMoteur() {
     + ` PHONETIQUE_MOT = new Map(Object.entries(phons)); }\n`
     // _setCgramTest : installe un mini CGRAM_MOT (mot -> ['NOM',...]) ; null pour le retirer.
     + `function _setCgramTest(cg){ CGRAM_MOT = cg ? new Map(Object.entries(cg)) : null; }\n`
-    + `module.exports = { ${A_EXPORTER.join(', ')}, _setRimesContinues, _setDicoTest, _setCgramTest };\n`;
+    + `function _getStatsDico(){ return STATS_DICO; }\n`
+    + `module.exports = { ${A_EXPORTER.join(', ')}, _setRimesContinues, _setDicoTest, _setCgramTest, _getStatsDico };\n`;
 
   // Dossier temporaire avec sa propre arborescence node_modules/obsidian,
   // pour que le require('obsidian') tout en haut de main.js résolve vers

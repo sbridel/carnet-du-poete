@@ -815,7 +815,26 @@ function analysePoeme(texteComplet){
     return { indices, lettres, nom: nomSchema(lettres) };
   });
 
+  verifieAlternance(lignes);
   return { lignes, strophes: schemaStrophes };
+}
+
+/* Règle classique de l'alternance : deux vers consécutifs qui ne riment
+   pas ensemble ne doivent pas être du même genre (masculine/féminine).
+   Comparaison directe des derniers mots (memeRime), et non des lettres de
+   schéma, qui repartent de A à chaque strophe hors mode continu. Les
+   lignes vides sont sautées : la règle vaut aussi d'une strophe à l'autre.
+   Marque le second vers fautif : ligne.alternanceRompue = 'M' ou 'F'. */
+function verifieAlternance(lignes){
+  let prec = null;
+  lignes.forEach(l => {
+    l.alternanceRompue = null;
+    if (l.vide || !l.r || !l.r.details.length) return;
+    const mot = l.r.details[l.r.details.length - 1].mot;
+    const genre = genreDuVers(l.r.details);
+    if (prec && genre && genre === prec.genre && !memeRime(prec.mot, mot)) l.alternanceRompue = genre;
+    prec = { mot, genre };
+  });
 }
 
 const METRES = {

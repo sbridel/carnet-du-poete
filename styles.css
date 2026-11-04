@@ -340,5 +340,6 @@
 .cp-inspi-suggestion{ width:100%; font-size:0.8em; color: var(--text-muted); }
 .cp-inspi-suggestion .cp-link-btn{ font-weight:600; }
 .cp-footer{ margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--background-modifier-border); font-size: 0.72em; color: var(--text-faint); line-height: 1.6; }
+.cp-hiatus-badge.cp-alternance-badge{ color: var(--text-error); border-color: var(--text-error); }
 .cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
 .cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }

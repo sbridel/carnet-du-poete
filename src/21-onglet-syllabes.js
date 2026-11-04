@@ -42,6 +42,10 @@ function buildPanelSyllabes(vue, panelSyl){
   const toggleContinuLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const toggleContinu = toggleContinuLabel.createEl('input', { attr: { type: 'checkbox' } });
   toggleContinuLabel.createSpan({ text: ' Rimes continues entre strophes' });
+  const toggleAlternanceLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleAlternance = toggleAlternanceLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleAlternanceLabel.createSpan({ text: ' Alternance M/F' });
+  toggleAlternanceLabel.setAttr('title', 'Signale deux vers consécutifs qui ne riment pas ensemble mais sont du même genre (deux masculines ou deux féminines), contraire à la règle classique de l\'alternance.');
   toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
   const analyseDiv = flipFront.createDiv({ cls: 'cp-analyse' });
   const schemaDiv = flipFront.createDiv({ cls: 'cp-schema-rimes' });
@@ -323,6 +327,7 @@ function buildPanelSyllabes(vue, panelSyl){
     toggleDierese.checked = !data || data.afficheDierese !== false; // activé par défaut
     toggleRimes.checked = !data || data.afficheCouleursRimes !== false; // activé par défaut
     toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
+    toggleAlternance.checked = !data || data.verifieAlternance !== false; // activé par défaut
     RIMES_CONTINUES = toggleContinu.checked;
     renderAnalyse();
   })();
@@ -335,6 +340,12 @@ function buildPanelSyllabes(vue, panelSyl){
   toggleRimes.addEventListener('change', async () => {
     const data = (await vue.plugin.loadData()) || {};
     data.afficheCouleursRimes = toggleRimes.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+  toggleAlternance.addEventListener('change', async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.verifieAlternance = toggleAlternance.checked;
     await vue.plugin.saveData(data);
     renderAnalyse();
   });
@@ -389,6 +400,11 @@ function buildPanelSyllabes(vue, panelSyl){
         badgeGenre.setAttr('title', genre === 'F'
           ? 'Rime féminine : le vers se termine par un e muet'
           : 'Rime masculine : le vers ne se termine pas par un e muet');
+      }
+      if (toggleAlternance.checked && ligneInfo.alternanceRompue) {
+        const g = ligneInfo.alternanceRompue === 'F' ? 'féminines' : 'masculines';
+        const badgeAlt = badges.createSpan({ cls: 'cp-hiatus-badge cp-alternance-badge', text: 'alternance' });
+        badgeAlt.setAttr('title', `Ce vers et le précédent ne riment pas ensemble mais sont tous deux des rimes ${g} : la règle classique demande d'alterner.`);
       }
       if (METRES[r.total]) {
         badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });

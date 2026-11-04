@@ -61,6 +61,26 @@ const CLES_HORS_GROUPES = ['familles', 'champsLexicaux', 'synonymes', 'motsRares
 let ECHEC_TELECHARGEMENT_BASE = false;   // pas de nouvel essai réseau dans la même session
 let NOTES_BASE_PUBLIEE = new Map();      // mot normalisé -> note de la base (évite de la recopier dans le perso)
 
+/* Statistiques pour l'onglet Réglages (fonctions pures, testées dans
+   test/test-dico-stats.js). statsBaseDico doit être appelée AVANT
+   fusionneBasePerso, qui modifie la base en place. */
+function statsBaseDico(base){
+  return {
+    mots: clesGroupesPhonetiques(base).reduce((n, cle) => n + Object.keys(base[cle]).length, 0),
+    motsRares: Array.isArray(base.motsRares) ? base.motsRares.length : 0
+  };
+}
+function statsPersoDico(perso, chemin){
+  return {
+    chemin: chemin || null,
+    octets: new TextEncoder().encode(JSON.stringify(perso)).length,
+    motsRares: Array.isArray(perso.motsRares) ? perso.motsRares.length : 0,
+    champsLexicaux: Array.isArray(perso.champsLexicaux) ? perso.champsLexicaux.length : 0,
+    synonymes: Array.isArray(perso.synonymes) ? perso.synonymes.length : 0,
+    motsPhonetiques: clesGroupesPhonetiques(perso).reduce((n, cle) => n + Object.keys(perso[cle]).length, 0)
+  };
+}
+
 /* Clés de groupes phonétiques (Format C) d'un objet dictionnaire. */
 function clesGroupesPhonetiques(data){
   return Object.keys(data || {}).filter(k => !CLES_HORS_GROUPES.includes(k)
@@ -711,8 +731,7 @@ async function chargeDictionnairePerso(plugin, opts){
     // Capturés AVANT toute fusion : fusionneBasePerso mutera `base` en
     // place (out.motsRares y grossit avec les entrées du perso), donc ces
     // deux nombres seraient faux s'ils étaient lus plus tard (voir STATS_DICO).
-    const motsBaseAvantFusion = base ? clesGroupesPhonetiques(base).reduce((n, cle) => n + Object.keys(base[cle]).length, 0) : 0;
-    const raresBaseAvantFusion = (base && Array.isArray(base.motsRares)) ? base.motsRares.length : 0;
+    const statsBase = base ? statsBaseDico(base) : null;
 
     // Calque perso. S'il est illisible, on continue avec la base seule ;
     // les écritures, elles, refuseront de l'écraser (lisPersoPourEcriture).
@@ -914,18 +933,11 @@ async function chargeDictionnairePerso(plugin, opts){
 
     // Stats pour l'onglet Réglages : rien de nouveau à calculer, seulement
     // mémoriser ce qui l'est déjà ici (base capturée AVANT fusion, voir
-    // motsBaseAvantFusion/raresBaseAvantFusion plus haut).
+    // statsBase plus haut).
     const pluginData = await plugin.loadData();
     STATS_DICO = {
-      base: base ? { version: (pluginData && pluginData.versionBase) || VERSION_BASE, mots: motsBaseAvantFusion, motsRares: raresBaseAvantFusion } : null,
-      perso: perso ? {
-        chemin: lu ? lu.chemin : null,
-        octets: new TextEncoder().encode(JSON.stringify(perso)).length,
-        motsRares: Array.isArray(perso.motsRares) ? perso.motsRares.length : 0,
-        champsLexicaux: Array.isArray(perso.champsLexicaux) ? perso.champsLexicaux.length : 0,
-        synonymes: Array.isArray(perso.synonymes) ? perso.synonymes.length : 0,
-        motsPhonetiques: clesGroupesPhonetiques(perso).reduce((n, cle) => n + Object.keys(perso[cle]).length, 0)
-      } : null
+      base: statsBase ? Object.assign({ version: (pluginData && pluginData.versionBase) || VERSION_BASE }, statsBase) : null,
+      perso: perso ? statsPersoDico(perso, lu ? lu.chemin : null) : null
     };
 
     const nbGroupes = clesFormatB.length + clesFormatC.length;

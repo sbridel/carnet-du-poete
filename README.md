@@ -50,7 +50,9 @@ Paste or type your verses: each line is broken down into syllables in real time
   line nor followed by a word starting with a vowel.
 - **Metre and rhyme gender** — the metre (octosyllable, alexandrine…) is detected
   automatically, and a small **F/M badge** gives the rhyme's gender (feminine if the line ends
-  on a silent *e*, masculine otherwise).
+  on a silent *e*, masculine otherwise). With **Alternance M/F** ticked (default), a red
+  *alternance* badge flags a line that doesn't rhyme with the previous one yet shares its gender,
+  against the classical alternation rule — across stanza breaks too.
 - **Synérèse / diérèse** — when a word contains an ambiguous hiatus (*nation*, *poésie*,
   *paupière*), the main line shows the **synérèse** reading (hiatus as one syllable) and a
   second line underneath shows the **diérèse** (hiatus split in two). You choose the reading
@@ -479,8 +481,15 @@ transcribes as [ɛ].
 
 ## Changelog
 
-- **2.29.2** — Definitions tab: the search field gets its own line, with *Chercher* and *Ouvrir sur
-  CNRTL ↗* below it. On a phone, the three side by side squeezed the field to a few pixels.
+- **2.29.2** — Masculine/feminine alternation check, and fixes.
+  - Syllables tab: new **Alternance M/F** toggle (on by default). A red *alternance* badge marks a
+    line that doesn't rhyme with the previous one but has the same gender (two masculine or two
+    feminine rhymes in a row), across stanza breaks too.
+  - Definitions tab: the search field gets its own line, with *Chercher* and *Ouvrir sur CNRTL ↗*
+    below it. On a phone, the three side by side squeezed the field to a few pixels.
+  - Tests: the dictionary statistics shown in Settings are now covered, including a full load
+    with migration (the two 2.29.1 bugs would now be caught). The test harness supports
+    asynchronous tests. 116 tests.
 - **2.29.1** — Dictionary statistics in Settings.
   - New "Dictionary" section: word and rare-word counts for the base, and the path, size and
     count of personal additions (rare words, lexical fields, synonyms) in your

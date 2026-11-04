@@ -5,6 +5,7 @@
 
 let groupeActuel = null;
 const resultats = [];
+const enAttente = []; // tests asynchrones (fn renvoie une promesse), attendus par resume()
 
 function groupe(nom, fn) {
   groupeActuel = nom;
@@ -15,7 +16,13 @@ function groupe(nom, fn) {
 function test(description, fn) {
   const nomComplet = groupeActuel ? `${groupeActuel} — ${description}` : description;
   try {
-    fn();
+    const r = fn();
+    if (r && typeof r.then === 'function') {
+      enAttente.push(r.then(
+        () => resultats.push({ nom: nomComplet, ok: true }),
+        e => resultats.push({ nom: nomComplet, ok: false, erreur: e.message })));
+      return;
+    }
     resultats.push({ nom: nomComplet, ok: true });
   } catch (e) {
     resultats.push({ nom: nomComplet, ok: false, erreur: e.message });
@@ -36,7 +43,8 @@ function assertFalse(valeur, contexte) {
   if (valeur) throw new Error(`${contexte ? contexte + ' — ' : ''}attendu une valeur fausse, obtenu ${JSON.stringify(valeur)}`);
 }
 
-function resume() {
+async function resume() {
+  await Promise.all(enAttente);
   const echecs = resultats.filter(r => !r.ok);
   const reussites = resultats.filter(r => r.ok);
 

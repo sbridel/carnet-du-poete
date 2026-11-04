@@ -819,7 +819,26 @@ function analysePoeme(texteComplet){
     return { indices, lettres, nom: nomSchema(lettres) };
   });
 
+  verifieAlternance(lignes);
   return { lignes, strophes: schemaStrophes };
+}
+
+/* Règle classique de l'alternance : deux vers consécutifs qui ne riment
+   pas ensemble ne doivent pas être du même genre (masculine/féminine).
+   Comparaison directe des derniers mots (memeRime), et non des lettres de
+   schéma, qui repartent de A à chaque strophe hors mode continu. Les
+   lignes vides sont sautées : la règle vaut aussi d'une strophe à l'autre.
+   Marque le second vers fautif : ligne.alternanceRompue = 'M' ou 'F'. */
+function verifieAlternance(lignes){
+  let prec = null;
+  lignes.forEach(l => {
+    l.alternanceRompue = null;
+    if (l.vide || !l.r || !l.r.details.length) return;
+    const mot = l.r.details[l.r.details.length - 1].mot;
+    const genre = genreDuVers(l.r.details);
+    if (prec && genre && genre === prec.genre && !memeRime(prec.mot, mot)) l.alternanceRompue = genre;
+    prec = { mot, genre };
+  });
 }
 
 const METRES = {
@@ -2561,6 +2580,26 @@ const CLES_HORS_GROUPES = ['familles', 'champsLexicaux', 'synonymes', 'motsRares
 let ECHEC_TELECHARGEMENT_BASE = false;   // pas de nouvel essai réseau dans la même session
 let NOTES_BASE_PUBLIEE = new Map();      // mot normalisé -> note de la base (évite de la recopier dans le perso)
 
+/* Statistiques pour l'onglet Réglages (fonctions pures, testées dans
+   test/test-dico-stats.js). statsBaseDico doit être appelée AVANT
+   fusionneBasePerso, qui modifie la base en place. */
+function statsBaseDico(base){
+  return {
+    mots: clesGroupesPhonetiques(base).reduce((n, cle) => n + Object.keys(base[cle]).length, 0),
+    motsRares: Array.isArray(base.motsRares) ? base.motsRares.length : 0
+  };
+}
+function statsPersoDico(perso, chemin){
+  return {
+    chemin: chemin || null,
+    octets: new TextEncoder().encode(JSON.stringify(perso)).length,
+    motsRares: Array.isArray(perso.motsRares) ? perso.motsRares.length : 0,
+    champsLexicaux: Array.isArray(perso.champsLexicaux) ? perso.champsLexicaux.length : 0,
+    synonymes: Array.isArray(perso.synonymes) ? perso.synonymes.length : 0,
+    motsPhonetiques: clesGroupesPhonetiques(perso).reduce((n, cle) => n + Object.keys(perso[cle]).length, 0)
+  };
+}
+
 /* Clés de groupes phonétiques (Format C) d'un objet dictionnaire. */
 function clesGroupesPhonetiques(data){
   return Object.keys(data || {}).filter(k => !CLES_HORS_GROUPES.includes(k)
@@ -3211,8 +3250,7 @@ async function chargeDictionnairePerso(plugin, opts){
     // Capturés AVANT toute fusion : fusionneBasePerso mutera `base` en
     // place (out.motsRares y grossit avec les entrées du perso), donc ces
     // deux nombres seraient faux s'ils étaient lus plus tard (voir STATS_DICO).
-    const motsBaseAvantFusion = base ? clesGroupesPhonetiques(base).reduce((n, cle) => n + Object.keys(base[cle]).length, 0) : 0;
-    const raresBaseAvantFusion = (base && Array.isArray(base.motsRares)) ? base.motsRares.length : 0;
+    const statsBase = base ? statsBaseDico(base) : null;
 
     // Calque perso. S'il est illisible, on continue avec la base seule ;
     // les écritures, elles, refuseront de l'écraser (lisPersoPourEcriture).
@@ -3414,18 +3452,11 @@ async function chargeDictionnairePerso(plugin, opts){
 
     // Stats pour l'onglet Réglages : rien de nouveau à calculer, seulement
     // mémoriser ce qui l'est déjà ici (base capturée AVANT fusion, voir
-    // motsBaseAvantFusion/raresBaseAvantFusion plus haut).
+    // statsBase plus haut).
     const pluginData = await plugin.loadData();
     STATS_DICO = {
-      base: base ? { version: (pluginData && pluginData.versionBase) || VERSION_BASE, mots: motsBaseAvantFusion, motsRares: raresBaseAvantFusion } : null,
-      perso: perso ? {
-        chemin: lu ? lu.chemin : null,
-        octets: new TextEncoder().encode(JSON.stringify(perso)).length,
-        motsRares: Array.isArray(perso.motsRares) ? perso.motsRares.length : 0,
-        champsLexicaux: Array.isArray(perso.champsLexicaux) ? perso.champsLexicaux.length : 0,
-        synonymes: Array.isArray(perso.synonymes) ? perso.synonymes.length : 0,
-        motsPhonetiques: clesGroupesPhonetiques(perso).reduce((n, cle) => n + Object.keys(perso[cle]).length, 0)
-      } : null
+      base: statsBase ? Object.assign({ version: (pluginData && pluginData.versionBase) || VERSION_BASE }, statsBase) : null,
+      perso: perso ? statsPersoDico(perso, lu ? lu.chemin : null) : null
     };
 
     const nbGroupes = clesFormatB.length + clesFormatC.length;
@@ -5240,6 +5271,10 @@ function buildPanelSyllabes(vue, panelSyl){
   const toggleContinuLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const toggleContinu = toggleContinuLabel.createEl('input', { attr: { type: 'checkbox' } });
   toggleContinuLabel.createSpan({ text: ' Rimes continues entre strophes' });
+  const toggleAlternanceLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleAlternance = toggleAlternanceLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleAlternanceLabel.createSpan({ text: ' Alternance M/F' });
+  toggleAlternanceLabel.setAttr('title', 'Signale deux vers consécutifs qui ne riment pas ensemble mais sont du même genre (deux masculines ou deux féminines), contraire à la règle classique de l\'alternance.');
   toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
   const analyseDiv = flipFront.createDiv({ cls: 'cp-analyse' });
   const schemaDiv = flipFront.createDiv({ cls: 'cp-schema-rimes' });
@@ -5521,6 +5556,7 @@ function buildPanelSyllabes(vue, panelSyl){
     toggleDierese.checked = !data || data.afficheDierese !== false; // activé par défaut
     toggleRimes.checked = !data || data.afficheCouleursRimes !== false; // activé par défaut
     toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
+    toggleAlternance.checked = !data || data.verifieAlternance !== false; // activé par défaut
     RIMES_CONTINUES = toggleContinu.checked;
     renderAnalyse();
   })();
@@ -5533,6 +5569,12 @@ function buildPanelSyllabes(vue, panelSyl){
   toggleRimes.addEventListener('change', async () => {
     const data = (await vue.plugin.loadData()) || {};
     data.afficheCouleursRimes = toggleRimes.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+  toggleAlternance.addEventListener('change', async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.verifieAlternance = toggleAlternance.checked;
     await vue.plugin.saveData(data);
     renderAnalyse();
   });
@@ -5587,6 +5629,11 @@ function buildPanelSyllabes(vue, panelSyl){
         badgeGenre.setAttr('title', genre === 'F'
           ? 'Rime féminine : le vers se termine par un e muet'
           : 'Rime masculine : le vers ne se termine pas par un e muet');
+      }
+      if (toggleAlternance.checked && ligneInfo.alternanceRompue) {
+        const g = ligneInfo.alternanceRompue === 'F' ? 'féminines' : 'masculines';
+        const badgeAlt = badges.createSpan({ cls: 'cp-hiatus-badge cp-alternance-badge', text: 'alternance' });
+        badgeAlt.setAttr('title', `Ce vers et le précédent ne riment pas ensemble mais sont tous deux des rimes ${g} : la règle classique demande d'alterner.`);
       }
       if (METRES[r.total]) {
         badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
@@ -7248,6 +7295,7 @@ const CARNET_CSS = `
 .cp-inspi-suggestion{ width:100%; font-size:0.8em; color: var(--text-muted); }
 .cp-inspi-suggestion .cp-link-btn{ font-weight:600; }
 .cp-footer{ margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--background-modifier-border); font-size: 0.72em; color: var(--text-faint); line-height: 1.6; }
+.cp-hiatus-badge.cp-alternance-badge{ color: var(--text-error); border-color: var(--text-error); }
 .cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
 .cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }
 `;
