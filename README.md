@@ -65,8 +65,9 @@ Paste or type your verses: each line is broken down into syllables in real time
   end-words, caesura (a form can impose its own, e.g. 5 // 5). Two rhyme hints apply to every
   form: a word rhyming with itself or its derivative, and the classical written-consonant rule
   (*-s*/*-x*/*-z* only rhyme together). Faulty line numbers link to the Rhymes tab. The **Note
-  active** button loads the open note into the draft; a `forme:` frontmatter property picks the
-  form.
+  active** button loads the open note into the draft: the selection if any, else the first
+  ` ```poeme ` block, else the whole note (Markdown syntax stripped); a `forme:` frontmatter
+  property picks the form.
 - **Synérèse / diérèse** — when a word contains an ambiguous hiatus (*nation*, *poésie*,
   *paupière*), the main line shows the **synérèse** reading (hiatus as one syllable) and a
   second line underneath shows the **diérèse** (hiatus split in two). You choose the reading
@@ -501,15 +502,17 @@ transcribes as [ɛ].
     *ballade*), chained forms (*pantoum*, *terza rima*, *sextine*), and *Fahsee*. Each checks
     its stanza structure, metre, rhyme scheme and, where relevant, refrains, chained lines or
     rotating end-words.
-  - **Note active** button in the Syllables tab: loads the open note into the draft (frontmatter
-    stripped); a `forme:` property in the frontmatter selects the form automatically.
+  - **Note active** button in the Syllables tab: loads into the draft the text selected in the
+    open note, otherwise its first ` ```poeme ` code block, otherwise the whole note — with the
+    frontmatter and Markdown syntax (headings, quotes, bullets, emphasis, links) stripped. A
+    `forme:` property in the frontmatter selects the form automatically.
   - Two rhyme hints (⚠, never errors) for every form: *rime du même au même* (a word rhyming
     with itself or its own derivative: *tient* / *retient*) and the classical written-consonant
     rule (*-s*/*-x*/*-z* only rhyme together: *amour* / *jours*, *sang* / *absent*). Refrains and
     repeated lines are exempt.
   - In the compliance summary, each faulty line number is a link: click it to open the Rhymes
     tab on that line's last word.
-  - 161 tests.
+  - 165 tests.
 - **2.30.0** — Fixed forms, hemistich and masculine/feminine alternation checks, and fixes.
   - Syllables tab: new **Forme** menu (*libre*, *Sonnet*, *Fahsee*). Picking a form shows a
     compliance summary above the analysis, one ✓/✗ line per rule with the faulty line numbers.

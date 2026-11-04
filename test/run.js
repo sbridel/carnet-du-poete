@@ -20,5 +20,6 @@ require('./test-en-ligne')(moteur);
 require('./test-hemistiche')(moteur);
 require('./test-formes')(moteur);
 require('./test-formes-2')(moteur);
+require('./test-note')(moteur);
 
 resume();

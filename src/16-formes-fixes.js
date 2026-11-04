@@ -349,6 +349,34 @@ function coupesDeForme(idForme){
   return (f && f.coupes) || COUPES_PAR_DEFAUT;
 }
 
+/* Extrait le poème d'une note Obsidian (bouton « Note active ») :
+   priorité à la sélection de l'éditeur, puis au premier bloc ```poeme,
+   puis à toute la note. Le frontmatter est retiré, et chaque ligne est
+   débarrassée de la syntaxe Markdown qui fausserait le compte (#, >,
+   puces, **, *, _, liens [[…]]). Renvoie { texte, source }. */
+function extraitPoemeDeNote(contenu, selection){
+  let texte, source;
+  if (selection && selection.trim()) { texte = selection; source = 'sélection'; }
+  else {
+    const corps = (contenu || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+    const bloc = corps.match(/^(`{3,}|~{3,})\s*po[eè]me\b[^\n]*\n([\s\S]*?)^\1\s*$/mi);
+    if (bloc) { texte = bloc[2]; source = 'bloc poeme'; }
+    else { texte = corps; source = 'note entière'; }
+  }
+  const lignes = texte.replace(/\r\n?/g, '\n').split('\n').map(l => l
+    .replace(/^\s*#{1,6}\s+/, '')            // titres
+    .replace(/^\s*(>\s*)+(\[![^\]]*\]\S*\s*)?/, '') // citations et callouts
+    .replace(/^\s*([-*+]|\d+[.)])\s+/, '')     // puces et listes numérotées
+    .replace(/!?\[\[([^\]|]*\|)?([^\]]*)\]\]/g, '$2') // liens internes [[cible|texte]]
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')   // liens Markdown [texte](url)
+    .replace(/(\*\*|__|\*|_|~~|==)/g, '')         // emphase, barré, surlignage
+    .replace(/<[^>]+>/g, '')                     // HTML en ligne
+    .replace(/\s+$/, ''));
+  // lignes purement techniques (séparateurs ---, ```, tags seuls) : vidées
+  const propres = lignes.map(l => /^(-{3,}|\*{3,}|`{3,}.*|~{3,}.*|(#[\w/-]+\s*)+)$/.test(l.trim()) ? '' : l);
+  return { texte: propres.join('\n').replace(/\n{3,}/g, '\n\n').trim(), source };
+}
+
 /* Conseils de rime valables pour toute forme (⚠, jamais bloquants) :
    - rime du même au même : un mot qui rime avec lui-même, ou avec un
      composé/dérivé de lui-même (faire / défaire, jour / toujours) ;
