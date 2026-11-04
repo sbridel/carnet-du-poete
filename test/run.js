@@ -18,5 +18,6 @@ require('./test-alternance')(moteur);
 require('./test-prosodie')(moteur);
 require('./test-en-ligne')(moteur);
 require('./test-hemistiche')(moteur);
+require('./test-formes')(moteur);
 
 resume();

@@ -33,6 +33,13 @@ function buildPanelSyllabes(vue, panelSyl){
   const flipBack = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-back' });
 
   const toolbar = flipFront.createDiv({ cls: 'cp-toolbar' });
+  // Forme fixe visée : « Libre » = comportement habituel ; sinon un bilan
+  // de conformité s'affiche au-dessus de l'analyse (voir 16-formes-fixes.js).
+  const formeWrap = toolbar.createDiv({ cls: 'cp-select-wrap' });
+  const formeSelect = formeWrap.createEl('select', { cls: 'cp-forme-select' });
+  formeWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
+  FORMES_FIXES_ORDRE.forEach(id => formeSelect.createEl('option', { attr: { value: id }, text: id === 'libre' ? 'Forme : libre' : `Forme : ${FORMES_FIXES[id].nom}` }));
+  formeSelect.setAttr('title', 'Choisis une forme fixe pour vérifier que le poème en suit les règles (strophes, mètre, rimes, coupe…).');
   const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
   toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
@@ -51,6 +58,7 @@ function buildPanelSyllabes(vue, panelSyl){
   toggleAlternanceLabel.createSpan({ text: ' Alternance M/F' });
   toggleAlternanceLabel.setAttr('title', 'Signale deux vers consécutifs qui ne riment pas ensemble mais sont du même genre (deux masculines ou deux féminines), contraire à la règle classique de l\'alternance.');
   toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
+  const bilanDiv = flipFront.createDiv({ cls: 'cp-bilan-forme' });
   const analyseDiv = flipFront.createDiv({ cls: 'cp-analyse' });
   const schemaDiv = flipFront.createDiv({ cls: 'cp-schema-rimes' });
   const totalBar = flipFront.createDiv({ cls: 'cp-total-bar' });
@@ -333,6 +341,7 @@ function buildPanelSyllabes(vue, panelSyl){
     toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
     toggleAlternance.checked = !data || data.verifieAlternance !== false; // activé par défaut
     toggleHemistiche.checked = !data || data.afficheHemistiche !== false; // activé par défaut
+    formeSelect.value = (data && FORMES_FIXES[data.formePoeme]) ? data.formePoeme : 'libre';
     RIMES_CONTINUES = toggleContinu.checked;
     renderAnalyse();
   })();
@@ -345,6 +354,12 @@ function buildPanelSyllabes(vue, panelSyl){
   toggleRimes.addEventListener('change', async () => {
     const data = (await vue.plugin.loadData()) || {};
     data.afficheCouleursRimes = toggleRimes.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+  formeSelect.addEventListener('change', async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.formePoeme = formeSelect.value;
     await vue.plugin.saveData(data);
     renderAnalyse();
   });
@@ -379,7 +394,23 @@ function buildPanelSyllabes(vue, panelSyl){
     return parts.slice(0, h.apresSyllabe).join('‧') + ' // ' + parts.slice(h.apresSyllabe).join('‧');
   }).join(' ');
 
+  const renderBilan = (texte) => {
+    bilanDiv.empty();
+    const bilan = verifieForme(texte, formeSelect.value);
+    if (!bilan) return;
+    bilanDiv.createDiv({ cls: 'cp-bilan-titre', text: `${bilan.nom} : ${bilan.regles.filter(r => r.ok).length}/${bilan.regles.length} règles respectées` });
+    bilan.regles.forEach(r => {
+      const ligne = bilanDiv.createDiv({ cls: 'cp-bilan-regle ' + (r.ok ? 'cp-bilan-ok' : 'cp-bilan-ko') });
+      ligne.createSpan({ cls: 'cp-bilan-icone', text: r.ok ? '✓' : '✗' });
+      let texteRegle = r.libelle;
+      if (!r.ok && r.vers.length) texteRegle += ` — vers ${r.vers.join(', ')}`;
+      if (!r.ok && r.detail) texteRegle += ` (${r.detail})`;
+      ligne.createSpan({ text: texteRegle });
+    });
+  };
+
   const renderAnalyse = () => {
+    bilanDiv.empty();
     analyseDiv.empty();
     schemaDiv.empty();
     const texteComplet = textarea.value;
@@ -390,6 +421,8 @@ function buildPanelSyllabes(vue, panelSyl){
     }
 
     const poeme = analysePoeme(texteComplet);
+    renderBilan(texteComplet);
+    const coupes = coupesDeForme(formeSelect.value);
     let total = 0, nb = 0;
 
     poeme.lignes.forEach(ligneInfo => {
@@ -399,7 +432,7 @@ function buildPanelSyllabes(vue, panelSyl){
       total += r.total;
       const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
       const ligneTop = ligneEl.createDiv({ cls: 'cp-ligne-top' });
-      const h = toggleHemistiche.checked ? ligneInfo.hemistiche : null;
+      const h = toggleHemistiche.checked ? calculeHemistiche(r, coupes) : null;
       const texteStandard = texteSegmente(r.details, false, h && h.lecture === 'defaut' ? h : null);
       const texteSpan = ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
       if (toggleRimes.checked && ligneInfo.coulIdx !== null) {

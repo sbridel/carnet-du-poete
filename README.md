@@ -55,6 +55,10 @@ Paste or type your verses: each line is broken down into syllables in real time
   against the classical alternation rule — across stanza breaks too. With **Hémistiche** ticked
   (default), alexandrines (6//6) and decasyllables (4//6) show their caesura as `//`, and a red
   *césure* badge flags a caesura inside a word or on a pronounced mute *e*.
+- **Fixed forms** — the **Forme** menu checks the poem against a sonnet or a Rehevkor (five
+  5-line stanzas of 5 // 5 decasyllables rhyming ABABA, with linking and return words) and lists
+  each rule as ✓ or ✗ with the faulty lines. A form can impose its own caesura (5 // 5 for the
+  Rehevkor's decasyllables instead of the usual 4 // 6).
 - **Synérèse / diérèse** — when a word contains an ambiguous hiatus (*nation*, *poésie*,
   *paupière*), the main line shows the **synérèse** reading (hiatus as one syllable) and a
   second line underneath shows the **diérèse** (hiatus split in two). You choose the reading
@@ -483,7 +487,19 @@ transcribes as [ɛ].
 
 ## Changelog
 
-- **2.30.0** — Hemistich and masculine/feminine alternation checks, and fixes.
+- **2.30.0** — Fixed forms, hemistich and masculine/feminine alternation checks, and fixes.
+  - Syllables tab: new **Forme** menu (*libre*, *Sonnet*, *Rehevkor*). Picking a form shows a
+    compliance summary above the analysis, one ✓/✗ line per rule with the faulty line numbers.
+    *Sonnet*: 4+4+3+3, isometric alexandrines or decasyllables, regular hemistich, quatrains ABBA
+    ABBA on the same two rhymes, tercets CCD EED or CCD EDE, masculine/feminine alternation.
+    *Rehevkor*: 25 lines in five 5-line stanzas, decasyllables cut 5 // 5, ABABA in each stanza
+    with rhymes of its own (the last stanza's A returns to the first's), every line ending on a
+    pause, a linking word (the last word of a stanza opens the next, possibly in another form:
+    *relit* → *Relis*) and a return word (the poem ends on its first word).
+  - Syllable count: words with an aspirated *h* (*haut*, *haine*, *héros*, *hibou*, *hors*…) no
+    longer cause elision (*le haut* is 2 syllables, not 1).
+  - Rhymes: a final *h* after a vowel is silent (*Shorah* / *déplaça*), and *à*/*ù* rhyme like
+    *a*/*u* (*là* / *Shorah*).
   - Syllables tab: new **Hémistiche** toggle (on by default). A `//` marks the caesura after the
     6th syllable of an alexandrine and the 4th of a decasyllable; a red *césure* badge flags one
     that cuts a word or falls on a pronounced mute *e*. When only the diaeresis reading makes 12
@@ -515,7 +531,7 @@ transcribes as [ɛ].
     definitions are sanitized before display (scripts and event attributes removed).
   - Tests: dictionary statistics, data-safety cases, prosody cases and the online cache are now
     covered, including a full dictionary load with migration. The test harness supports
-    asynchronous tests. 133 tests.
+    asynchronous tests. 141 tests.
 - **2.29.1** — Dictionary statistics in Settings.
   - New "Dictionary" section: word and rare-word counts for the base, and the path, size and
     count of personal additions (rare words, lexical fields, synonyms) in your

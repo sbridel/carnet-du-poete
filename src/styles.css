@@ -113,6 +113,13 @@
 .cp-synthese-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; }
 .cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-schema-rimes{ margin-top:8px; }
+.cp-bilan-forme:not(:empty){ border:1px solid var(--background-modifier-border); border-radius:8px; padding:8px 12px; margin:8px 0 12px; font-size:0.88em; }
+.cp-bilan-titre{ font-weight:600; margin-bottom:4px; }
+.cp-bilan-regle{ display:flex; gap:8px; align-items:baseline; line-height:1.5; }
+.cp-bilan-icone{ font-weight:700; width:1em; flex-shrink:0; }
+.cp-bilan-ok{ color: var(--text-muted); }
+.cp-bilan-ok .cp-bilan-icone{ color: var(--color-green, var(--text-success)); }
+.cp-bilan-ko .cp-bilan-icone{ color: var(--text-error); }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
 .cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-bottom:20px; }
 .cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.1em; font-weight:600; background: var(--background-primary) !important; color: var(--text-muted) !important; border:1.5px solid var(--text-faint) !important; border-radius:24px; cursor:pointer; transition: background 0.15s, border-color 0.15s, transform 0.1s; }

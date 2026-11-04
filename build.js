@@ -42,6 +42,7 @@ const FICHIERS = [
   '13-rendu-rimes.js',          // rendu partagé des résultats de rimes
   '14-rendu-inspiration.js',    // rendu partagé des résultats d'inspiration
   '15-rendu-synonymes.js',      // rendu partagé des résultats de synonymes
+  '16-formes-fixes.js',         // vérification des formes fixes (sonnet, Rehevkor)
   '20-vue-debut.js',            // classe CarnetView (constructeur, onOpen, onClose)
   '21-onglet-syllabes.js',      // buildPanelSyllabes(vue, panel)
   '22-onglet-rimes.js',         // buildPanelRimes(vue, panel)

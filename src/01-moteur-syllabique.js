@@ -314,6 +314,30 @@ function segmenteMotPourAffichage(motBrut, syllabes){
   return copie.join('‧');
 }
 
+/* h aspiré : le mot se comporte comme s'il commençait par une consonne
+   (pas d'élision ni de liaison : « le haut », « la haine », « une ‧ hau‧te »).
+   Le dictionnaire ne porte pas cette information : liste des mots et
+   familles courants, par préfixe quand toute la famille est aspirée,
+   sinon par début de mot assez long pour exclure les h muets voisins
+   (héros mais pas héroïne, hors mais pas horizon, huit mais pas huile). */
+const PREFIXES_H_ASPIRE = [
+  'hach', 'haie', 'hai', 'haï', 'haillon', 'hall', 'halle', 'halo', 'halte', 'hamac', 'hameau', 'hamster',
+  'hanche', 'handicap', 'hangar', 'hanneton', 'hant', 'happ', 'harangu', 'haras', 'harass', 'harcel',
+  'hard', 'hareng', 'harg', 'haricot', 'harnach', 'harnais', 'harp', 'hasard', 'hât', 'hauss', 'haut',
+  'havre', 'hâve', 'hâl', 'halet', 'hennir', 'hennis', 'hérisson', 'hernie', 'héron', 'héros', 'herse',
+  'hêtre', 'heurt', 'hibou', 'hideu', 'hiérarch', 'hiss', 'hocher', 'hochet', 'hockey', 'hollandais',
+  'homard', 'hongr', 'honn' /* honnir */, 'hont', 'hoquet', 'horde', 'hors', 'hotte', 'hou', 'hublot',
+  'huch', 'hue', 'huée', 'huer', 'huguenot', 'huit', 'hulul', 'humer', 'hupp', 'hurl', 'hussard', 'hutte'
+];
+// exceptions muettes qui commencent comme un préfixe ci-dessus
+const H_MUET_EXCEPTIONS = ['honnête', 'honneur', 'honnêt', 'honor', 'huître', 'houri'];
+function commenceParHAspire(mot){
+  const w = retireContraction(normaliseMot(mot));
+  if (!w.startsWith('h')) return false;
+  if (H_MUET_EXCEPTIONS.some(p => w.startsWith(p))) return false;
+  return PREFIXES_H_ASPIRE.some(p => w.startsWith(p));
+}
+
 function analyseLigne(ligne){
   // le trait d'union sépare deux mots phonétiques distincts (ex. "vois-tu", "dit-il")
   // on écarte aussi les tokens de pure ponctuation isolés par une espace
@@ -325,7 +349,7 @@ function analyseLigne(ligne){
   mots.forEach((motBrut, i) => {
     const estDernier = i === mots.length - 1;
     const motSuivant = !estDernier ? nettoieMot(mots[i + 1]) : null;
-    const suivantVoyelleOuH = motSuivant ? /^[aeiouyàâäéèêëîïôöùûüÿœh]/.test(motSuivant) : false;
+    const suivantVoyelleOuH = motSuivant ? (/^[aeiouyàâäéèêëîïôöùûüÿœh]/.test(motSuivant) && !commenceParHAspire(motSuivant)) : false;
     // Le e muet final ne s'élide devant voyelle que dans la terminaison -e
     // seule : dans -es et -ent (« vastes oiseaux », « suivent, indolents »,
     // « gouffres amers »), il compte toujours à l'intérieur du vers.
@@ -412,6 +436,10 @@ function preparerMotRime(mot){
   let w = retireContraction(normaliseMot(mot));
   if (!w) return '';
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
+  // accent grave sur a/u : purement graphique (là, où), même son que a/u
+  w = w.replace(/à/g, 'a').replace(/ù/g, 'u');
+  // h final muet après voyelle (Shorah, Allah, ah, oh) : rime sur la voyelle
+  if (w.length > 2 && w.endsWith('h') && estVoyelle(w[w.length - 2])) w = w.slice(0, -1);
   if (w.endsWith('ent') && w.length > 3 && finMuetteEnEnt(w)) {
     // "-ent" verbal muet, 3e personne du pluriel (ils dorment, elles
     // s'enivrent...) : réutilise finMuetteEnEnt, déjà écrite et déjà
@@ -842,16 +870,20 @@ function analysePoeme(texteComplet){
    rompue = 'mot' si elle tombe au milieu d'un mot, 'muet' si la syllabe
    qui précède la coupe est un e muet compté (fin de mot en -e/-es/-ent
    prononcé), null si la césure est régulière. */
-function calculeHemistiche(r){
+/* coupes : { mètre: position } ; par défaut 6//6 et 4//6, une forme fixe
+   peut en imposer d'autres (ex. décasyllabe 5//5). */
+const COUPES_PAR_DEFAUT = { 12: 6, 10: 4 };
+function calculeHemistiche(r, coupes){
+  coupes = coupes || COUPES_PAR_DEFAUT;
   if (!r || !r.details || r.details.length === 0) return null;
   let lecture = null, total = null;
-  if (r.total === 12 || r.total === 10) { lecture = 'defaut'; total = r.total; }
-  else if (r.hasHiatus && (r.totalMax === 12 || r.totalMax === 10)) { lecture = 'dierese'; total = r.totalMax; }
+  if (coupes[r.total]) { lecture = 'defaut'; total = r.total; }
+  else if (r.hasHiatus && coupes[r.totalMax]) { lecture = 'dierese'; total = r.totalMax; }
   if (!lecture) return null;
   const syllabesDe = d => (lecture === 'dierese' && d.syllabesDierese) ? d.syllabesDierese : d.syllabes;
   // la découpe affichée doit correspondre au compte, sinon on ne place rien
   if (r.details.reduce((n, d) => n + syllabesDe(d).length, 0) !== total) return null;
-  const position = total === 12 ? 6 : 4;
+  const position = coupes[total];
   let cumul = 0;
   for (let i = 0; i < r.details.length; i++) {
     const d = r.details[i];

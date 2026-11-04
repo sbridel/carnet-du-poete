@@ -318,6 +318,30 @@ function segmenteMotPourAffichage(motBrut, syllabes){
   return copie.join('‧');
 }
 
+/* h aspiré : le mot se comporte comme s'il commençait par une consonne
+   (pas d'élision ni de liaison : « le haut », « la haine », « une ‧ hau‧te »).
+   Le dictionnaire ne porte pas cette information : liste des mots et
+   familles courants, par préfixe quand toute la famille est aspirée,
+   sinon par début de mot assez long pour exclure les h muets voisins
+   (héros mais pas héroïne, hors mais pas horizon, huit mais pas huile). */
+const PREFIXES_H_ASPIRE = [
+  'hach', 'haie', 'hai', 'haï', 'haillon', 'hall', 'halle', 'halo', 'halte', 'hamac', 'hameau', 'hamster',
+  'hanche', 'handicap', 'hangar', 'hanneton', 'hant', 'happ', 'harangu', 'haras', 'harass', 'harcel',
+  'hard', 'hareng', 'harg', 'haricot', 'harnach', 'harnais', 'harp', 'hasard', 'hât', 'hauss', 'haut',
+  'havre', 'hâve', 'hâl', 'halet', 'hennir', 'hennis', 'hérisson', 'hernie', 'héron', 'héros', 'herse',
+  'hêtre', 'heurt', 'hibou', 'hideu', 'hiérarch', 'hiss', 'hocher', 'hochet', 'hockey', 'hollandais',
+  'homard', 'hongr', 'honn' /* honnir */, 'hont', 'hoquet', 'horde', 'hors', 'hotte', 'hou', 'hublot',
+  'huch', 'hue', 'huée', 'huer', 'huguenot', 'huit', 'hulul', 'humer', 'hupp', 'hurl', 'hussard', 'hutte'
+];
+// exceptions muettes qui commencent comme un préfixe ci-dessus
+const H_MUET_EXCEPTIONS = ['honnête', 'honneur', 'honnêt', 'honor', 'huître', 'houri'];
+function commenceParHAspire(mot){
+  const w = retireContraction(normaliseMot(mot));
+  if (!w.startsWith('h')) return false;
+  if (H_MUET_EXCEPTIONS.some(p => w.startsWith(p))) return false;
+  return PREFIXES_H_ASPIRE.some(p => w.startsWith(p));
+}
+
 function analyseLigne(ligne){
   // le trait d'union sépare deux mots phonétiques distincts (ex. "vois-tu", "dit-il")
   // on écarte aussi les tokens de pure ponctuation isolés par une espace
@@ -329,7 +353,7 @@ function analyseLigne(ligne){
   mots.forEach((motBrut, i) => {
     const estDernier = i === mots.length - 1;
     const motSuivant = !estDernier ? nettoieMot(mots[i + 1]) : null;
-    const suivantVoyelleOuH = motSuivant ? /^[aeiouyàâäéèêëîïôöùûüÿœh]/.test(motSuivant) : false;
+    const suivantVoyelleOuH = motSuivant ? (/^[aeiouyàâäéèêëîïôöùûüÿœh]/.test(motSuivant) && !commenceParHAspire(motSuivant)) : false;
     // Le e muet final ne s'élide devant voyelle que dans la terminaison -e
     // seule : dans -es et -ent (« vastes oiseaux », « suivent, indolents »,
     // « gouffres amers »), il compte toujours à l'intérieur du vers.
@@ -416,6 +440,10 @@ function preparerMotRime(mot){
   let w = retireContraction(normaliseMot(mot));
   if (!w) return '';
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) w = w.slice(0, -1);
+  // accent grave sur a/u : purement graphique (là, où), même son que a/u
+  w = w.replace(/à/g, 'a').replace(/ù/g, 'u');
+  // h final muet après voyelle (Shorah, Allah, ah, oh) : rime sur la voyelle
+  if (w.length > 2 && w.endsWith('h') && estVoyelle(w[w.length - 2])) w = w.slice(0, -1);
   if (w.endsWith('ent') && w.length > 3 && finMuetteEnEnt(w)) {
     // "-ent" verbal muet, 3e personne du pluriel (ils dorment, elles
     // s'enivrent...) : réutilise finMuetteEnEnt, déjà écrite et déjà
@@ -846,16 +874,20 @@ function analysePoeme(texteComplet){
    rompue = 'mot' si elle tombe au milieu d'un mot, 'muet' si la syllabe
    qui précède la coupe est un e muet compté (fin de mot en -e/-es/-ent
    prononcé), null si la césure est régulière. */
-function calculeHemistiche(r){
+/* coupes : { mètre: position } ; par défaut 6//6 et 4//6, une forme fixe
+   peut en imposer d'autres (ex. décasyllabe 5//5). */
+const COUPES_PAR_DEFAUT = { 12: 6, 10: 4 };
+function calculeHemistiche(r, coupes){
+  coupes = coupes || COUPES_PAR_DEFAUT;
   if (!r || !r.details || r.details.length === 0) return null;
   let lecture = null, total = null;
-  if (r.total === 12 || r.total === 10) { lecture = 'defaut'; total = r.total; }
-  else if (r.hasHiatus && (r.totalMax === 12 || r.totalMax === 10)) { lecture = 'dierese'; total = r.totalMax; }
+  if (coupes[r.total]) { lecture = 'defaut'; total = r.total; }
+  else if (r.hasHiatus && coupes[r.totalMax]) { lecture = 'dierese'; total = r.totalMax; }
   if (!lecture) return null;
   const syllabesDe = d => (lecture === 'dierese' && d.syllabesDierese) ? d.syllabesDierese : d.syllabes;
   // la découpe affichée doit correspondre au compte, sinon on ne place rien
   if (r.details.reduce((n, d) => n + syllabesDe(d).length, 0) !== total) return null;
-  const position = total === 12 ? 6 : 4;
+  const position = coupes[total];
   let cumul = 0;
   for (let i = 0; i < r.details.length; i++) {
     const d = r.details[i];
@@ -5296,6 +5328,147 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
   });
 }
 
+
+/* =========================================================
+   FORMES FIXES — vérification d'un poème contre une forme (sonnet…)
+   verifieForme(texte, idForme) -> { nom, regles: [{ libelle, ok, vers, detail }] }
+   « vers » = numéros (à partir de 1) des vers en défaut, pour le bilan.
+   Pour ajouter une forme : une entrée dans FORMES_FIXES avec ses coupes
+   (hémistiche) et une fonction regles(p) qui renvoie la liste ci-dessus.
+   ========================================================= */
+
+// Fin de vers sur une vraie pause : ponctuation finale (guillemets ou
+// parenthèses fermants tolérés après).
+function finitSurPause(texte){
+  return /[.,;:!?…—–-]["»”’)\]\s]*$/.test((texte || '').trim());
+}
+
+// Même mot, éventuellement sous une autre forme (relit → Relis, leste →
+// Lesté, novice → Novice) : égalité, flexion connue, ou racine commune.
+function memeMotOuForme(a, b){
+  const x = retireContraction(normaliseMot(a)), y = retireContraction(normaliseMot(b));
+  if (!x || !y) return false;
+  if (x === y || estFlexionDe(x, y) || estFlexionDe(y, x)) return true;
+  const sansAccent = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const u = sansAccent(x), v = sansAccent(y);
+  let k = 0;
+  while (k < u.length && k < v.length && u[k] === v[k]) k++;
+  return k >= 3 && k >= Math.min(u.length, v.length) - 2;
+}
+
+const premierMot = r => r.details.length ? r.details[0].mot : '';
+const dernierMot = r => r.details.length ? r.details[r.details.length - 1].mot : '';
+
+// Le mètre visé est atteint par la lecture par défaut ou par la diérèse.
+const atteintMetre = (r, metre) => r.total === metre || (r.hasHiatus && r.total <= metre && r.totalMax >= metre);
+
+// Contexte commun : vers non vides numérotés, strophes, lettres de rime
+// continues sur tout le poème (indépendantes du réglage d'affichage).
+function contexteForme(texte, coupes){
+  const poeme = analysePoeme(texte);
+  const vers = [];
+  poeme.lignes.forEach(l => { if (!l.vide) vers.push(l); });
+  const numero = new Map();
+  let n = 0;
+  poeme.lignes.forEach((l, i) => { if (!l.vide) numero.set(i, ++n); });
+  const strophes = poeme.strophes.map(s => s.indices.map(i => poeme.lignes[i]));
+  const lettres = calculeSchemaStrophe(vers.map(l => dernierMot(l.r)), { representants: [], prochaine: 0 });
+  vers.forEach((l, i) => { l.lettreGlobale = lettres[i]; l.numero = i + 1; l.hemistiche = calculeHemistiche(l.r, coupes); });
+  return { vers, strophes, numero };
+}
+
+const regle = (libelle, fautifs, detail) => ({ libelle, ok: fautifs.length === 0, vers: fautifs, detail: detail || '' });
+
+function reglesStructure(c, tailles){
+  const vues = c.strophes.map(s => s.length);
+  const ok = vues.length === tailles.length && vues.every((t, i) => t === tailles[i]);
+  return { libelle: `${tailles.length} strophes (${tailles.join(' + ')} vers)`, ok, vers: [], detail: ok ? '' : `trouvé : ${vues.join(' + ') || 'aucune'}` };
+}
+
+const FORMES_FIXES = {
+  libre: { nom: 'Libre' },
+
+  sonnet: {
+    nom: 'Sonnet',
+    coupes: { 12: 6, 10: 4 },
+    regles(c){
+      const r = [reglesStructure(c, [4, 4, 3, 3])];
+      const metre = c.vers.length && atteintMetre(c.vers[0].r, 12) ? 12 : 10;
+      r.push(regle(`Isométrie : ${metre === 12 ? 'alexandrins' : 'décasyllabes'}`, c.vers.filter(l => !atteintMetre(l.r, metre)).map(l => l.numero)));
+      r.push(regle('Hémistiche régulier', c.vers.filter(l => l.hemistiche && l.hemistiche.rompue).map(l => l.numero)));
+      if (c.vers.length === 14) {
+        const L = c.vers.map(l => l.lettreGlobale);
+        const A = L[0], B = L[1];
+        const quatrainsOk = A !== B && [0, 3, 4, 7].every(i => L[i] === A) && [1, 2, 5, 6].every(i => L[i] === B);
+        r.push({ libelle: 'Quatrains ABBA ABBA (mêmes rimes)', ok: quatrainsOk, vers: [], detail: quatrainsOk ? '' : `trouvé : ${L.slice(0, 8).join('')}` });
+        const t = L.slice(8);
+        const neuves = t.every(x => x !== A && x !== B);
+        const eed = t[0] === t[1] && t[2] === t[5] && t[3] === t[4] && t[0] !== t[2] && t[2] !== t[3] && t[0] !== t[3];
+        const ede = t[0] === t[1] && t[2] === t[4] && t[3] === t[5] && t[0] !== t[2] && t[2] !== t[3] && t[0] !== t[3];
+        r.push({ libelle: 'Tercets CCD EED ou CCD EDE', ok: neuves && (eed || ede), vers: [], detail: neuves && (eed || ede) ? '' : `trouvé : ${t.join('')}` });
+      }
+      r.push(regle('Alternance masculine/féminine', c.vers.filter(l => l.alternanceRompue).map(l => l.numero)));
+      return r;
+    }
+  },
+
+  rehevkor: {
+    nom: 'Rehevkor',
+    coupes: { 10: 5 },
+    regles(c){
+      const r = [reglesStructure(c, [5, 5, 5, 5, 5])];
+      r.push(regle('Décasyllabes', c.vers.filter(l => !atteintMetre(l.r, 10)).map(l => l.numero)));
+      r.push(regle('Coupe au milieu (5 // 5)', c.vers.filter(l => !l.hemistiche || l.hemistiche.rompue).map(l => l.numero)));
+      // Rimes ABABA dans chaque strophe, deux rimes propres à chaque strophe,
+      // sauf la 5e dont le A reprend le A de la 1re (son B est libre).
+      const fautesSchema = [], rimes = [];
+      c.strophes.forEach(s => {
+        if (s.length !== 5) { rimes.push(null); return; }
+        const L = s.map(l => l.lettreGlobale);
+        const ok = L[0] && L[1] && L[0] !== L[1] && L[2] === L[0] && L[4] === L[0] && L[3] === L[1];
+        if (!ok) s.forEach(l => fautesSchema.push(l.numero));
+        rimes.push(ok ? { A: L[0], B: L[1] } : null);
+      });
+      r.push(regle('Rimes ABABA dans chaque strophe', fautesSchema));
+      const fautesNeuves = [];
+      // Strophes 1 à 4 : leurs rimes n'apparaissent dans aucune autre des
+      // strophes 1 à 4, ni dans le A de la 5e (sauf le A de la 1re, que la
+      // 5e doit justement reprendre). Le B de la 5e est libre.
+      rimes.slice(0, 4).forEach((x, i) => {
+        if (!x) return;
+        const autres = [];
+        rimes.slice(0, 4).forEach((y, j) => { if (y && j !== i) autres.push(y.A, y.B); });
+        if (rimes[4] && i !== 0) autres.push(rimes[4].A);
+        if (autres.includes(x.A) || autres.includes(x.B) || (i === 0 && rimes[4] && rimes[4].A === x.B)) fautesNeuves.push(c.strophes[i][0].numero);
+      });
+      if (rimes[0] && rimes[4] && rimes[4].A !== rimes[0].A) fautesNeuves.push(c.strophes[4][0].numero);
+      r.push(regle('Rimes propres à chaque strophe, la 5e reprenant le A de la 1re', [...new Set(fautesNeuves)]));
+      r.push(regle('Chaque vers finit sur une pause (pas de rejet)', c.vers.filter(l => !finitSurPause(l.texte)).map(l => l.numero)));
+      const fautesLien = [];
+      for (let i = 0; i + 1 < c.strophes.length; i++) {
+        const fin = c.strophes[i][c.strophes[i].length - 1], debut = c.strophes[i + 1][0];
+        if (!memeMotOuForme(dernierMot(fin.r), premierMot(debut.r))) fautesLien.push(debut.numero);
+      }
+      r.push(regle('Mot de lien entre les strophes', fautesLien));
+      const premier = c.vers[0], dernier = c.vers[c.vers.length - 1];
+      const retourOk = premier && dernier && memeMotOuForme(premierMot(premier.r), dernierMot(dernier.r));
+      r.push(regle('Mot de retour (le dernier mot est le premier)', retourOk ? [] : (dernier ? [dernier.numero] : [])));
+      return r;
+    }
+  }
+};
+const FORMES_FIXES_ORDRE = ['libre', 'sonnet', 'rehevkor'];
+
+function coupesDeForme(idForme){
+  const f = FORMES_FIXES[idForme];
+  return (f && f.coupes) || COUPES_PAR_DEFAUT;
+}
+
+function verifieForme(texte, idForme){
+  const f = FORMES_FIXES[idForme];
+  if (!f || !f.regles) return null;
+  return { nom: f.nom, regles: f.regles(contexteForme(texte, f.coupes)) };
+}
 /* =========================================================
    VUE PRINCIPALE
    ========================================================= */
@@ -5424,6 +5597,13 @@ function buildPanelSyllabes(vue, panelSyl){
   const flipBack = flipCard.createDiv({ cls: 'cp-flip-face cp-flip-back' });
 
   const toolbar = flipFront.createDiv({ cls: 'cp-toolbar' });
+  // Forme fixe visée : « Libre » = comportement habituel ; sinon un bilan
+  // de conformité s'affiche au-dessus de l'analyse (voir 16-formes-fixes.js).
+  const formeWrap = toolbar.createDiv({ cls: 'cp-select-wrap' });
+  const formeSelect = formeWrap.createEl('select', { cls: 'cp-forme-select' });
+  formeWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
+  FORMES_FIXES_ORDRE.forEach(id => formeSelect.createEl('option', { attr: { value: id }, text: id === 'libre' ? 'Forme : libre' : `Forme : ${FORMES_FIXES[id].nom}` }));
+  formeSelect.setAttr('title', 'Choisis une forme fixe pour vérifier que le poème en suit les règles (strophes, mètre, rimes, coupe…).');
   const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });
   toggleDiereseLabel.createSpan({ text: ' Variante diérèse' });
@@ -5442,6 +5622,7 @@ function buildPanelSyllabes(vue, panelSyl){
   toggleAlternanceLabel.createSpan({ text: ' Alternance M/F' });
   toggleAlternanceLabel.setAttr('title', 'Signale deux vers consécutifs qui ne riment pas ensemble mais sont du même genre (deux masculines ou deux féminines), contraire à la règle classique de l\'alternance.');
   toggleContinu.setAttr('title', 'Par défaut, chaque strophe repart de la lettre A. Coche pour poursuivre la nomenclature d\'une strophe à l\'autre (utile pour les sonnets : ABBA ABBA puis CCD EED plutôt que AAB AAB).');
+  const bilanDiv = flipFront.createDiv({ cls: 'cp-bilan-forme' });
   const analyseDiv = flipFront.createDiv({ cls: 'cp-analyse' });
   const schemaDiv = flipFront.createDiv({ cls: 'cp-schema-rimes' });
   const totalBar = flipFront.createDiv({ cls: 'cp-total-bar' });
@@ -5724,6 +5905,7 @@ function buildPanelSyllabes(vue, panelSyl){
     toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
     toggleAlternance.checked = !data || data.verifieAlternance !== false; // activé par défaut
     toggleHemistiche.checked = !data || data.afficheHemistiche !== false; // activé par défaut
+    formeSelect.value = (data && FORMES_FIXES[data.formePoeme]) ? data.formePoeme : 'libre';
     RIMES_CONTINUES = toggleContinu.checked;
     renderAnalyse();
   })();
@@ -5736,6 +5918,12 @@ function buildPanelSyllabes(vue, panelSyl){
   toggleRimes.addEventListener('change', async () => {
     const data = (await vue.plugin.loadData()) || {};
     data.afficheCouleursRimes = toggleRimes.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+  formeSelect.addEventListener('change', async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.formePoeme = formeSelect.value;
     await vue.plugin.saveData(data);
     renderAnalyse();
   });
@@ -5770,7 +5958,23 @@ function buildPanelSyllabes(vue, panelSyl){
     return parts.slice(0, h.apresSyllabe).join('‧') + ' // ' + parts.slice(h.apresSyllabe).join('‧');
   }).join(' ');
 
+  const renderBilan = (texte) => {
+    bilanDiv.empty();
+    const bilan = verifieForme(texte, formeSelect.value);
+    if (!bilan) return;
+    bilanDiv.createDiv({ cls: 'cp-bilan-titre', text: `${bilan.nom} : ${bilan.regles.filter(r => r.ok).length}/${bilan.regles.length} règles respectées` });
+    bilan.regles.forEach(r => {
+      const ligne = bilanDiv.createDiv({ cls: 'cp-bilan-regle ' + (r.ok ? 'cp-bilan-ok' : 'cp-bilan-ko') });
+      ligne.createSpan({ cls: 'cp-bilan-icone', text: r.ok ? '✓' : '✗' });
+      let texteRegle = r.libelle;
+      if (!r.ok && r.vers.length) texteRegle += ` — vers ${r.vers.join(', ')}`;
+      if (!r.ok && r.detail) texteRegle += ` (${r.detail})`;
+      ligne.createSpan({ text: texteRegle });
+    });
+  };
+
   const renderAnalyse = () => {
+    bilanDiv.empty();
     analyseDiv.empty();
     schemaDiv.empty();
     const texteComplet = textarea.value;
@@ -5781,6 +5985,8 @@ function buildPanelSyllabes(vue, panelSyl){
     }
 
     const poeme = analysePoeme(texteComplet);
+    renderBilan(texteComplet);
+    const coupes = coupesDeForme(formeSelect.value);
     let total = 0, nb = 0;
 
     poeme.lignes.forEach(ligneInfo => {
@@ -5790,7 +5996,7 @@ function buildPanelSyllabes(vue, panelSyl){
       total += r.total;
       const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
       const ligneTop = ligneEl.createDiv({ cls: 'cp-ligne-top' });
-      const h = toggleHemistiche.checked ? ligneInfo.hemistiche : null;
+      const h = toggleHemistiche.checked ? calculeHemistiche(r, coupes) : null;
       const texteStandard = texteSegmente(r.details, false, h && h.lecture === 'defaut' ? h : null);
       const texteSpan = ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
       if (toggleRimes.checked && ligneInfo.coulIdx !== null) {
@@ -7274,6 +7480,13 @@ const CARNET_CSS = `
 .cp-synthese-pastille{ display:inline-block; width:9px; height:9px; border-radius:50%; }
 .cp-rime-lettre{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; border:1.5px solid; font-size:0.62em; font-weight:700; cursor:help; flex-shrink:0; }
 .cp-schema-rimes{ margin-top:8px; }
+.cp-bilan-forme:not(:empty){ border:1px solid var(--background-modifier-border); border-radius:8px; padding:8px 12px; margin:8px 0 12px; font-size:0.88em; }
+.cp-bilan-titre{ font-weight:600; margin-bottom:4px; }
+.cp-bilan-regle{ display:flex; gap:8px; align-items:baseline; line-height:1.5; }
+.cp-bilan-icone{ font-weight:700; width:1em; flex-shrink:0; }
+.cp-bilan-ok{ color: var(--text-muted); }
+.cp-bilan-ok .cp-bilan-icone{ color: var(--color-green, var(--text-success)); }
+.cp-bilan-ko .cp-bilan-icone{ color: var(--text-error); }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
 .cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-bottom:20px; }
 .cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.1em; font-weight:600; background: var(--background-primary) !important; color: var(--text-muted) !important; border:1.5px solid var(--text-faint) !important; border-radius:24px; cursor:pointer; transition: background 0.15s, border-color 0.15s, transform 0.1s; }
