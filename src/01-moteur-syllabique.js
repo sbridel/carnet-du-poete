@@ -829,7 +829,46 @@ function analysePoeme(texteComplet){
   });
 
   verifieAlternance(lignes);
+  lignes.forEach(l => { l.hemistiche = (l.vide || !l.r) ? null : calculeHemistiche(l.r); });
   return { lignes, strophes: schemaStrophes };
+}
+
+/* Hémistiche : coupe après la 6e syllabe de l'alexandrin (6//6) ou la 4e
+   du décasyllabe (4//6). Lecture par défaut si elle donne 12 ou 10 ; sinon
+   la variante diérèse si c'est elle qui y arrive (« audaci-eux »).
+   Renvoie null pour un autre mètre, ou :
+   { lecture: 'defaut'|'dierese', motIndex, apresSyllabe, rompue }
+   — la coupe tombe après la syllabe n° apresSyllabe du mot motIndex ;
+   rompue = 'mot' si elle tombe au milieu d'un mot, 'muet' si la syllabe
+   qui précède la coupe est un e muet compté (fin de mot en -e/-es/-ent
+   prononcé), null si la césure est régulière. */
+function calculeHemistiche(r){
+  if (!r || !r.details || r.details.length === 0) return null;
+  let lecture = null, total = null;
+  if (r.total === 12 || r.total === 10) { lecture = 'defaut'; total = r.total; }
+  else if (r.hasHiatus && (r.totalMax === 12 || r.totalMax === 10)) { lecture = 'dierese'; total = r.totalMax; }
+  if (!lecture) return null;
+  const syllabesDe = d => (lecture === 'dierese' && d.syllabesDierese) ? d.syllabesDierese : d.syllabes;
+  // la découpe affichée doit correspondre au compte, sinon on ne place rien
+  if (r.details.reduce((n, d) => n + syllabesDe(d).length, 0) !== total) return null;
+  const position = total === 12 ? 6 : 4;
+  let cumul = 0;
+  for (let i = 0; i < r.details.length; i++) {
+    const d = r.details[i];
+    const n = syllabesDe(d).length;
+    if (cumul + n >= position) {
+      const apresSyllabe = position - cumul;
+      let rompue = null;
+      if (apresSyllabe < n) rompue = 'mot';
+      else {
+        const avecE = compteSyllabesMot(d.mot, true).min, sansE = compteSyllabesMot(d.mot, false).min;
+        if (avecE > sansE && d.min === avecE) rompue = 'muet';
+      }
+      return { lecture, motIndex: i, apresSyllabe, rompue };
+    }
+    cumul += n;
+  }
+  return null;
 }
 
 /* Règle classique de l'alternance : deux vers consécutifs qui ne riment

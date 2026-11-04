@@ -2,7 +2,11 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
-- **2.30.0** — Masculine/feminine alternation check, and fixes.
+- **2.30.0** — Hemistich and masculine/feminine alternation checks, and fixes.
+  - Syllables tab: new **Hémistiche** toggle (on by default). A `//` marks the caesura after the
+    6th syllable of an alexandrine and the 4th of a decasyllable; a red *césure* badge flags one
+    that cuts a word or falls on a pronounced mute *e*. When only the diaeresis reading makes 12
+    (or 10), the mark goes on that reading.
   - Syllables tab: new **Alternance M/F** toggle (on by default). A red *alternance* badge marks a
     line that doesn't rhyme with the previous one but has the same gender (two masculine or two
     feminine rhymes in a row), across stanza breaks too.
@@ -30,7 +34,7 @@ Full version history, most recent first. The README only lists the 5 latest vers
     definitions are sanitized before display (scripts and event attributes removed).
   - Tests: dictionary statistics, data-safety cases, prosody cases and the online cache are now
     covered, including a full dictionary load with migration. The test harness supports
-    asynchronous tests. 127 tests.
+    asynchronous tests. 133 tests.
 - **2.29.1** — Dictionary statistics in Settings.
   - New "Dictionary" section: word and rare-word counts for the base, and the path, size and
     count of personal additions (rare words, lexical fields, synonyms) in your

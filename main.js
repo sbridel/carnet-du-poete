@@ -833,7 +833,46 @@ function analysePoeme(texteComplet){
   });
 
   verifieAlternance(lignes);
+  lignes.forEach(l => { l.hemistiche = (l.vide || !l.r) ? null : calculeHemistiche(l.r); });
   return { lignes, strophes: schemaStrophes };
+}
+
+/* Hémistiche : coupe après la 6e syllabe de l'alexandrin (6//6) ou la 4e
+   du décasyllabe (4//6). Lecture par défaut si elle donne 12 ou 10 ; sinon
+   la variante diérèse si c'est elle qui y arrive (« audaci-eux »).
+   Renvoie null pour un autre mètre, ou :
+   { lecture: 'defaut'|'dierese', motIndex, apresSyllabe, rompue }
+   — la coupe tombe après la syllabe n° apresSyllabe du mot motIndex ;
+   rompue = 'mot' si elle tombe au milieu d'un mot, 'muet' si la syllabe
+   qui précède la coupe est un e muet compté (fin de mot en -e/-es/-ent
+   prononcé), null si la césure est régulière. */
+function calculeHemistiche(r){
+  if (!r || !r.details || r.details.length === 0) return null;
+  let lecture = null, total = null;
+  if (r.total === 12 || r.total === 10) { lecture = 'defaut'; total = r.total; }
+  else if (r.hasHiatus && (r.totalMax === 12 || r.totalMax === 10)) { lecture = 'dierese'; total = r.totalMax; }
+  if (!lecture) return null;
+  const syllabesDe = d => (lecture === 'dierese' && d.syllabesDierese) ? d.syllabesDierese : d.syllabes;
+  // la découpe affichée doit correspondre au compte, sinon on ne place rien
+  if (r.details.reduce((n, d) => n + syllabesDe(d).length, 0) !== total) return null;
+  const position = total === 12 ? 6 : 4;
+  let cumul = 0;
+  for (let i = 0; i < r.details.length; i++) {
+    const d = r.details[i];
+    const n = syllabesDe(d).length;
+    if (cumul + n >= position) {
+      const apresSyllabe = position - cumul;
+      let rompue = null;
+      if (apresSyllabe < n) rompue = 'mot';
+      else {
+        const avecE = compteSyllabesMot(d.mot, true).min, sansE = compteSyllabesMot(d.mot, false).min;
+        if (avecE > sansE && d.min === avecE) rompue = 'muet';
+      }
+      return { lecture, motIndex: i, apresSyllabe, rompue };
+    }
+    cumul += n;
+  }
+  return null;
 }
 
 /* Règle classique de l'alternance : deux vers consécutifs qui ne riment
@@ -5394,6 +5433,10 @@ function buildPanelSyllabes(vue, panelSyl){
   const toggleContinuLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const toggleContinu = toggleContinuLabel.createEl('input', { attr: { type: 'checkbox' } });
   toggleContinuLabel.createSpan({ text: ' Rimes continues entre strophes' });
+  const toggleHemisticheLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
+  const toggleHemistiche = toggleHemisticheLabel.createEl('input', { attr: { type: 'checkbox' } });
+  toggleHemisticheLabel.createSpan({ text: ' Hémistiche' });
+  toggleHemisticheLabel.setAttr('title', 'Marque la césure (//) après la 6e syllabe de l\'alexandrin et la 4e du décasyllabe, et signale une césure qui coupe un mot ou tombe sur un e muet.');
   const toggleAlternanceLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const toggleAlternance = toggleAlternanceLabel.createEl('input', { attr: { type: 'checkbox' } });
   toggleAlternanceLabel.createSpan({ text: ' Alternance M/F' });
@@ -5680,6 +5723,7 @@ function buildPanelSyllabes(vue, panelSyl){
     toggleRimes.checked = !data || data.afficheCouleursRimes !== false; // activé par défaut
     toggleContinu.checked = !data || data.rimesContinues !== false; // activé par défaut
     toggleAlternance.checked = !data || data.verifieAlternance !== false; // activé par défaut
+    toggleHemistiche.checked = !data || data.afficheHemistiche !== false; // activé par défaut
     RIMES_CONTINUES = toggleContinu.checked;
     renderAnalyse();
   })();
@@ -5692,6 +5736,12 @@ function buildPanelSyllabes(vue, panelSyl){
   toggleRimes.addEventListener('change', async () => {
     const data = (await vue.plugin.loadData()) || {};
     data.afficheCouleursRimes = toggleRimes.checked;
+    await vue.plugin.saveData(data);
+    renderAnalyse();
+  });
+  toggleHemistiche.addEventListener('change', async () => {
+    const data = (await vue.plugin.loadData()) || {};
+    data.afficheHemistiche = toggleHemistiche.checked;
     await vue.plugin.saveData(data);
     renderAnalyse();
   });
@@ -5708,6 +5758,17 @@ function buildPanelSyllabes(vue, panelSyl){
     await vue.plugin.saveData(data);
     renderAnalyse();
   });
+
+  // Texte segmenté d'un vers (syllabes séparées par ‧), avec « // » inséré
+  // à l'hémistiche h si fourni (entre deux mots, ou au milieu d'un mot).
+  const texteSegmente = (details, dierese, h) => details.map((d, i) => {
+    const syl = (dierese && d.syllabesDierese) ? d.syllabesDierese : d.syllabes;
+    const seg = segmenteMotPourAffichage(d.mot, syl);
+    if (!h || i !== h.motIndex) return seg;
+    const parts = seg.split('‧');
+    if (h.apresSyllabe >= parts.length) return seg + ' //';
+    return parts.slice(0, h.apresSyllabe).join('‧') + ' // ' + parts.slice(h.apresSyllabe).join('‧');
+  }).join(' ');
 
   const renderAnalyse = () => {
     analyseDiv.empty();
@@ -5729,7 +5790,8 @@ function buildPanelSyllabes(vue, panelSyl){
       total += r.total;
       const ligneEl = analyseDiv.createDiv({ cls: 'cp-ligne' });
       const ligneTop = ligneEl.createDiv({ cls: 'cp-ligne-top' });
-      const texteStandard = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabes)).join(' ');
+      const h = toggleHemistiche.checked ? ligneInfo.hemistiche : null;
+      const texteStandard = texteSegmente(r.details, false, h && h.lecture === 'defaut' ? h : null);
       const texteSpan = ligneTop.createSpan({ cls: 'cp-texte', text: texteStandard });
       if (toggleRimes.checked && ligneInfo.coulIdx !== null) {
         texteSpan.style.borderLeft = `3px solid ${PALETTE_RIMES[ligneInfo.coulIdx]}`;
@@ -5758,6 +5820,13 @@ function buildPanelSyllabes(vue, panelSyl){
         const badgeAlt = badges.createSpan({ cls: 'cp-hiatus-badge cp-alternance-badge', text: 'alternance' });
         badgeAlt.setAttr('title', `Ce vers et le précédent ne riment pas ensemble mais sont tous deux des rimes ${g} : la règle classique demande d'alterner.`);
       }
+      if (h && h.rompue) {
+        const badgeCesure = badges.createSpan({ cls: 'cp-hiatus-badge cp-alternance-badge', text: 'césure' });
+        const ou = h.lecture === 'dierese' ? ' (lecture avec diérèse)' : '';
+        badgeCesure.setAttr('title', h.rompue === 'mot'
+          ? `L'hémistiche${ou} tombe au milieu d'un mot : la césure classique doit suivre une fin de mot.`
+          : `L'hémistiche${ou} tombe sur un e muet prononcé : césure proscrite en versification classique.`);
+      }
       if (METRES[r.total]) {
         badges.createSpan({ cls: 'cp-metre', text: METRES[r.total] });
       }
@@ -5769,7 +5838,7 @@ function buildPanelSyllabes(vue, panelSyl){
 
       if (toggleDierese.checked && r.hasHiatus && r.totalMax !== r.total) {
         const ligneAlt = ligneEl.createDiv({ cls: 'cp-ligne-alt' });
-        const texteAlt = r.details.map(d => segmenteMotPourAffichage(d.mot, d.syllabesDierese || d.syllabes)).join(' ');
+        const texteAlt = texteSegmente(r.details, true, h && h.lecture === 'dierese' ? h : null);
         ligneAlt.createSpan({ cls: 'cp-texte-alt', text: texteAlt });
         const badgesAlt = ligneAlt.createDiv({ cls: 'cp-badges' });
         const badgeDierese = badgesAlt.createSpan({ cls: 'cp-hiatus-badge', text: 'diérèse' });

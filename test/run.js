@@ -17,5 +17,6 @@ require('./test-dico-stats')(moteur);
 require('./test-alternance')(moteur);
 require('./test-prosodie')(moteur);
 require('./test-en-ligne')(moteur);
+require('./test-hemistiche')(moteur);
 
 resume();
