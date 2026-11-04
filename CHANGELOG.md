@@ -3,14 +3,14 @@
 Full version history, most recent first. The README only lists the 5 latest versions.
 
 - **2.30.0** — Fixed forms, hemistich and masculine/feminine alternation checks, and fixes.
-  - Syllables tab: new **Forme** menu (*libre*, *Sonnet*, *Rehevkor*). Picking a form shows a
+  - Syllables tab: new **Forme** menu (*libre*, *Sonnet*, *Fahsee*). Picking a form shows a
     compliance summary above the analysis, one ✓/✗ line per rule with the faulty line numbers.
     *Sonnet*: 4+4+3+3, isometric alexandrines or decasyllables, regular hemistich, quatrains ABBA
     ABBA on the same two rhymes, tercets CCD EED or CCD EDE, masculine/feminine alternation.
-    *Rehevkor*: 25 lines in five 5-line stanzas, decasyllables cut 5 // 5, ABABA in each stanza
-    with rhymes of its own (the last stanza's A returns to the first's), every line ending on a
-    pause, a linking word (the last word of a stanza opens the next, possibly in another form:
-    *relit* → *Relis*) and a return word (the poem ends on its first word).
+    *Fahsee*: 25 lines in five 5-line stanzas, decasyllables cut 5 // 5, ABABA in each stanza
+    with rhymes of its own (the last stanza's A returns to the first's), a linking word (the last word of a stanza opens the next, possibly in another form:
+    *relit* → *Relis*) and a return word (the poem ends on its first word). Lines without final punctuation are
+    flagged ⚠ *to check* rather than as errors, since a real pause doesn't always need one.
   - Syllable count: words with an aspirated *h* (*haut*, *haine*, *héros*, *hibou*, *hors*…) no
     longer cause elision (*le haut* is 2 syllables, not 1).
   - Rhymes: a final *h* after a vowel is silent (*Shorah* / *déplaça*), and *à*/*ù* rhyme like

@@ -1,6 +1,6 @@
 const { groupe, test, assertEqual, assertTrue, assertFalse } = require('./framework');
 
-// Formes fixes (2.30.0) : sonnet et Rehevkor. Les exemples sont fabriqués
+// Formes fixes (2.30.0) : sonnet et Fahsee. Les exemples sont fabriqués
 // pour le test ; aucun poème d'auteur n'est embarqué dans le plugin.
 module.exports = function testsFormes(m) {
   const echecs = (texte, forme) => m.verifieForme(texte, forme).regles.filter(r => !r.ok).map(r => r.libelle);
@@ -24,7 +24,7 @@ module.exports = function testsFormes(m) {
     });
   });
 
-  groupe('Formes fixes — Rehevkor', () => {
+  groupe('Formes fixes — Fahsee', () => {
     // Exemple fabriqué : rimes A/B propres à chaque strophe, A de la 5e = A de la 1re.
     const S = [
       ['Lumière, je regarde au loin la clairière,', 'le vent passe encore et le ciel se lève ;', 'la ville s\'éveille et dit sa prière ;', 'un oiseau répond, la nuit se fait brève ;', 'un pas sur le seuil fait trembler la pierre.'],
@@ -34,17 +34,17 @@ module.exports = function testsFormes(m) {
       ['Descends au jardin, retrouve la terre ;', 'le jour a passé, voici le repos ;', 'il reste un parfum, un peu de mystère ;', 'la lune se lève au-dessus des flots ;', 'garde en toi le soir, garde la lumière.']
     ].map(s => s.join('\n')).join('\n\n');
     test('structure, lien et retour reconnus sur un exemple fabriqué', () => {
-      const e = echecs(S, 'rehevkor');
+      const e = echecs(S, 'fahsee');
       ['Mot de lien entre les strophes', 'Mot de retour (le dernier mot est le premier)', '5 strophes (5 + 5 + 5 + 5 + 5 vers)', 'Chaque vers finit sur une pause (pas de rejet)']
         .forEach(l => assertFalse(e.includes(l), l));
     });
     test('mot de lien manquant : signalé', () => {
       const casse = S.replace('Pierre, ton chemin', 'Caillou, ton chemin');
-      assertTrue(echecs(casse, 'rehevkor').includes('Mot de lien entre les strophes'));
+      assertTrue(echecs(casse, 'fahsee').includes('Mot de lien entre les strophes'));
     });
     test('vers sans pause finale : signalé', () => {
       const casse = S.replace('la ville s\'éveille et dit sa prière ;', 'la ville s\'éveille et dit sa prière');
-      assertTrue(echecs(casse, 'rehevkor').includes('Chaque vers finit sur une pause (pas de rejet)'));
+      assertTrue(echecs(casse, 'fahsee').includes('Chaque vers finit sur une pause (pas de rejet)'));
     });
   });
 

@@ -120,6 +120,7 @@
 .cp-bilan-ok{ color: var(--text-muted); }
 .cp-bilan-ok .cp-bilan-icone{ color: var(--color-green, var(--text-success)); }
 .cp-bilan-ko .cp-bilan-icone{ color: var(--text-error); }
+.cp-bilan-conseil .cp-bilan-icone{ color: var(--text-warning, var(--color-orange)); }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
 .cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-bottom:20px; }
 .cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.1em; font-weight:600; background: var(--background-primary) !important; color: var(--text-muted) !important; border:1.5px solid var(--text-faint) !important; border-radius:24px; cursor:pointer; transition: background 0.15s, border-color 0.15s, transform 0.1s; }

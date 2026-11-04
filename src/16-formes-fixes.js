@@ -48,6 +48,9 @@ function contexteForme(texte, coupes){
 }
 
 const regle = (libelle, fautifs, detail) => ({ libelle, ok: fautifs.length === 0, vers: fautifs, detail: detail || '' });
+// Règle indicative : signalée « à vérifier » (⚠), sans compter comme une faute,
+// quand l'outil ne peut pas trancher seul (ex. une pause sans ponctuation).
+const conseil = (libelle, fautifs, detail) => Object.assign(regle(libelle, fautifs, detail), { conseil: true });
 
 function reglesStructure(c, tailles){
   const vues = c.strophes.map(s => s.length);
@@ -82,8 +85,8 @@ const FORMES_FIXES = {
     }
   },
 
-  rehevkor: {
-    nom: 'Rehevkor',
+  fahsee: {
+    nom: 'Fahsee',
     coupes: { 10: 5 },
     regles(c){
       const r = [reglesStructure(c, [5, 5, 5, 5, 5])];
@@ -113,7 +116,9 @@ const FORMES_FIXES = {
       });
       if (rimes[0] && rimes[4] && rimes[4].A !== rimes[0].A) fautesNeuves.push(c.strophes[4][0].numero);
       r.push(regle('Rimes propres à chaque strophe, la 5e reprenant le A de la 1re', [...new Set(fautesNeuves)]));
-      r.push(regle('Chaque vers finit sur une pause (pas de rejet)', c.vers.filter(l => !finitSurPause(l.texte)).map(l => l.numero)));
+      // Une vraie pause n'a pas toujours besoin d'une ponctuation : simple
+      // signalement des vers qui n'en ont pas, à relire par le poète.
+      r.push(conseil('Chaque vers finit sur une pause (pas de rejet)', c.vers.filter(l => !finitSurPause(l.texte)).map(l => l.numero), 'pas de ponctuation finale'));
       const fautesLien = [];
       for (let i = 0; i + 1 < c.strophes.length; i++) {
         const fin = c.strophes[i][c.strophes[i].length - 1], debut = c.strophes[i + 1][0];
@@ -127,7 +132,7 @@ const FORMES_FIXES = {
     }
   }
 };
-const FORMES_FIXES_ORDRE = ['libre', 'sonnet', 'rehevkor'];
+const FORMES_FIXES_ORDRE = ['libre', 'sonnet', 'fahsee'];
 
 function coupesDeForme(idForme){
   const f = FORMES_FIXES[idForme];

@@ -398,10 +398,14 @@ function buildPanelSyllabes(vue, panelSyl){
     bilanDiv.empty();
     const bilan = verifieForme(texte, formeSelect.value);
     if (!bilan) return;
-    bilanDiv.createDiv({ cls: 'cp-bilan-titre', text: `${bilan.nom} : ${bilan.regles.filter(r => r.ok).length}/${bilan.regles.length} règles respectées` });
+    const strictes = bilan.regles.filter(r => !r.conseil);
+    const aVerifier = bilan.regles.filter(r => r.conseil && !r.ok).length;
+    bilanDiv.createDiv({ cls: 'cp-bilan-titre', text: `${bilan.nom} : ${strictes.filter(r => r.ok).length}/${strictes.length} règles respectées`
+      + (aVerifier ? `, ${aVerifier} point(s) à vérifier` : '') });
     bilan.regles.forEach(r => {
-      const ligne = bilanDiv.createDiv({ cls: 'cp-bilan-regle ' + (r.ok ? 'cp-bilan-ok' : 'cp-bilan-ko') });
-      ligne.createSpan({ cls: 'cp-bilan-icone', text: r.ok ? '✓' : '✗' });
+      const etat = r.ok ? 'ok' : (r.conseil ? 'conseil' : 'ko');
+      const ligne = bilanDiv.createDiv({ cls: 'cp-bilan-regle cp-bilan-' + etat });
+      ligne.createSpan({ cls: 'cp-bilan-icone', text: { ok: '✓', conseil: '⚠', ko: '✗' }[etat] });
       let texteRegle = r.libelle;
       if (!r.ok && r.vers.length) texteRegle += ` — vers ${r.vers.join(', ')}`;
       if (!r.ok && r.detail) texteRegle += ` (${r.detail})`;
