@@ -35,7 +35,7 @@ const A_EXPORTER = [
   // Filtre grammatical (2.29)
   'categoriesDuMot',
   // Stats Réglages + alternance (2.29.2)
-  'statsBaseDico', 'statsPersoDico', 'chargeDictionnairePerso', 'VERSION_BASE', 'verifieAlternance',
+  'statsBaseDico', 'statsPersoDico', 'chargeDictionnairePerso', 'VERSION_BASE', 'verifieAlternance', 'estFeminine',
 ];
 
 function chargeMoteur() {

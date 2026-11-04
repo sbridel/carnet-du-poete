@@ -18,6 +18,13 @@ module.exports = function testsAlternance(m) {
     test('la règle vaut aussi d\'une strophe à l\'autre (ligne vide sautée)', () => {
       assertEqual(fautes('Le chat dort près du bois\n\nLe soleil se couche sur la mer'), '2:M');
     });
+    test('-ent : féminin seulement pour un verbe connu comme tel', () => {
+      m._setCgramTest({ aiment: ['VER'], vent: ['NOM'], souvent: ['ADV'], couvent: ['NOM', 'VER'], chantaient: ['VER'] });
+      const g = w => m.estFeminine(w) ? 'F' : 'M';
+      assertEqual(['aiment', 'vent', 'souvent', 'couvent', 'chantaient', 'soient'].map(g).join(''), 'FMMMMM');
+      m._setCgramTest(null);
+      assertEqual(g('aiment'), 'M', 'sans dictionnaire : masculin par prudence');
+    });
     test('un seul vers : pas de faute', () => {
       assertEqual(fautes('La nuit vient sur la colline'), '');
     });

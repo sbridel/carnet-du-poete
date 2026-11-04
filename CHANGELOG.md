@@ -2,15 +2,19 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
-- **2.29.2** — Masculine/feminine alternation check, and fixes.
+- **2.30.0** — Masculine/feminine alternation check, and fixes.
   - Syllables tab: new **Alternance M/F** toggle (on by default). A red *alternance* badge marks a
     line that doesn't rhyme with the previous one but has the same gender (two masculine or two
     feminine rhymes in a row), across stanza breaks too.
+  - Rhyme gender fix: a word in *-ent* now counts as feminine when the dictionary knows it only as
+    a verb (*ils aiment*), and stays masculine as a noun, adjective or adverb (*vent*, *souvent*)
+    or when ambiguous (*couvent*). Imperfect/subjunctive *-aient*/*-oient* stay masculine, as in
+    the classical tradition. It used to be masculine in every case.
   - Definitions tab: the search field gets its own line, with *Chercher* and *Ouvrir sur CNRTL ↗*
     below it. On a phone, the three side by side squeezed the field to a few pixels.
   - Tests: the dictionary statistics shown in Settings are now covered, including a full load
     with migration (the two 2.29.1 bugs would now be caught). The test harness supports
-    asynchronous tests. 116 tests.
+    asynchronous tests. 117 tests.
 - **2.29.1** — Dictionary statistics in Settings.
   - New "Dictionary" section: word and rare-word counts for the base, and the path, size and
     count of personal additions (rare words, lexical fields, synonyms) in your

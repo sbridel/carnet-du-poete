@@ -2504,7 +2504,18 @@ function estFeminine(mot){
   // écartée, rose...), quelle que soit la lettre qui le précède —
   // contrairement à une précédente version, un e précédé d'une voyelle
   // (comme dans "vie" ou "écartée") compte aussi comme féminin.
-  return w.endsWith('e');
+  if (w.endsWith('e')) return true;
+  // -ent : féminin seulement pour un verbe (« ils aiment », e muet), pas
+  // pour un nom, adjectif ou adverbe (« vent », « souvent », « moment »).
+  // Il faut donc que le mot ne soit connu QUE comme verbe ; un homographe
+  // nom/verbe (« couvent », « président ») reste masculin. Les imparfaits
+  // et subjonctifs en -aient/-oient (« chantaient », « soient ») sont
+  // masculins selon la tradition. Sans dictionnaire chargé : masculin.
+  if (w.endsWith('ent') && !w.endsWith('aient') && !w.endsWith('oient')) {
+    const cats = categoriesDuMot(w);
+    return cats.length > 0 && cats.every(c => c === 'VER');
+  }
+  return false;
 }
 
 /* Genre de la rime d'un vers : féminine si le dernier mot se termine par
