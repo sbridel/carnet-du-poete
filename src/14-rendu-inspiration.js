@@ -13,6 +13,7 @@
 function rendMotSelectionnable(el, mot, themeSuggere, note, selectionApi){
   if (!selectionApi) return;
   const w = normaliseMot(mot);
+  el.dataset.cpMot = w; // pour rafraîchir le surlignage depuis le panneau (désélection globale)
   const maj = () => el.toggleClass('cp-selectionne', selectionApi.estSelectionne(w));
   maj();
   el.addClass('cp-inspi-cliquable');

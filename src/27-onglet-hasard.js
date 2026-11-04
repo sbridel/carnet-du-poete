@@ -435,7 +435,8 @@ function buildPanelHasard(vue, panelHasard){
     if (!motCourant) return;
     const mot = motCourant;
     const tags = tagsDuMot(mot);
-    await ajouteMotRarePerso(vue.plugin, mot, noteCourante, tags);
+    // la zone tampon n'est vidée que si l'écriture a réussi (sinon les tags seraient perdus)
+    if (!(await ajouteMotRarePerso(vue.plugin, mot, noteCourante, tags))) return;
     await purgeMetaMot(vue.plugin, mot);
     new Notice(`« ${mot} » gravé dans dictionnaire-perso.json (zone tampon vidée).`);
     renderFiltresTags();
@@ -467,7 +468,7 @@ function buildPanelHasard(vue, panelHasard){
     const mot = inputMot.value.trim();
     if (!mot) { new Notice('Le mot est requis.'); return; }
     const tags = inputTags.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-    await ajouteMotRarePerso(vue.plugin, mot, inputNote.value.trim(), tags);
+    if (!(await ajouteMotRarePerso(vue.plugin, mot, inputNote.value.trim(), tags))) return;
     new Notice(`« ${mot} » ajouté à ton dictionnaire personnel.`);
     inputMot.value = ''; inputNote.value = ''; inputTags.value = '';
     renderFiltresTags();

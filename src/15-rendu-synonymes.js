@@ -240,8 +240,9 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
             btnSauver.setText('Enregistrement…');
             const synARetenir = synEnLigne.map(texteDe).filter(m => !exclusSyn.has(m));
             const antoARetenir = antoEnLigne.map(texteDe).filter(m => !exclusAnto.has(m));
-            await enregistreSynonymePerso(plugin, saisie, synARetenir, antoARetenir);
-            btnSauver.setText('Enregistré ✓');
+            const ok = await enregistreSynonymePerso(plugin, saisie, synARetenir, antoARetenir);
+            btnSauver.setText(ok ? 'Enregistré ✓' : '💾 Réessayer l\'enregistrement');
+            if (!ok) btnSauver.disabled = false;
           });
         }
       };

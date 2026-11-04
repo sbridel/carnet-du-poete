@@ -2940,10 +2940,21 @@ async function trouveEtLisDictionnairePerso(plugin){
    dictionnaire-perso.json : réutilise le fichier existant s'il y en a
    un (peu importe où il a été trouvé), sinon en crée un nouveau à la
    racine du coffre. Recharge ensuite le dictionnaire en mémoire. */
+/* Les fonctions d'écriture ci-dessous renvoient true si le fichier a bien
+   été écrit, false sinon : l'appelant ne doit afficher un succès ou vider
+   une zone tampon (tags en attente) qu'après un true. opts.sansRecharge :
+   pour enchaîner plusieurs écritures (ajout de plusieurs mots), l'appelant
+   recharge une seule fois à la fin au lieu d'un rechargement complet par mot. */
+async function rechargeApresEcriture(plugin, opts){
+  if (opts && opts.sansRecharge) return;
+  try { await chargeDictionnairePerso(plugin); }
+  catch (e) { console.error('[Carnet du Poète] rechargement après écriture impossible', e); }
+}
+
 async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
   let chemin, data;
   try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
-  catch (e) { signaleLecturePersoImpossible(e); return; }
+  catch (e) { signaleLecturePersoImpossible(e); return false; }
 
   if (!Array.isArray(data.synonymes)) data.synonymes = [];
   const motNorm = normaliseMot(mot);
@@ -2960,20 +2971,22 @@ async function enregistreSynonymePerso(plugin, mot, synonymes, antonymes){
   // brut du fichier change (un éditeur peut le remettre en forme).
   try {
     await ecritPerso(plugin, chemin, data);
-    new Notice(`Carnet du Poète : « ${mot} » enregistré dans ${chemin}.`);
-    await chargeDictionnairePerso(plugin);
   } catch (e) {
     console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
     new Notice('Carnet du Poète : échec de l\'enregistrement (voir la console).');
+    return false;
   }
+  new Notice(`Carnet du Poète : « ${mot} » enregistré dans ${chemin}.`);
+  await rechargeApresEcriture(plugin);
+  return true;
 }
 
 /* Ajoute un mot rare saisi manuellement au dictionnaire personnel (même
    mécanique de recherche/écriture de fichier que enregistreSynonymePerso). */
-async function ajouteMotRarePerso(plugin, mot, note, tags){
+async function ajouteMotRarePerso(plugin, mot, note, tags, opts){
   let chemin, data;
   try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
-  catch (e) { signaleLecturePersoImpossible(e); return; }
+  catch (e) { signaleLecturePersoImpossible(e); return false; }
 
   if (!Array.isArray(data.motsRares)) data.motsRares = [];
   const motNorm = normaliseMot(mot);
@@ -2994,11 +3007,13 @@ async function ajouteMotRarePerso(plugin, mot, note, tags){
 
   try {
     await ecritPerso(plugin, chemin, data);
-    await chargeDictionnairePerso(plugin);
   } catch (e) {
     console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
     new Notice('Carnet du Poète : échec de l\'enregistrement (voir la console).');
+    return false;
   }
+  await rechargeApresEcriture(plugin, opts);
+  return true;
 }
 
 /* Gravure en masse : transfère en une seule lecture/écriture TOUS les mots
@@ -3067,7 +3082,7 @@ async function graverTousLesMotsRaresEnMasse(plugin){
 async function ajouteMotChampLexicalPerso(plugin, theme, motsClefs, mot, note, opts){
   let chemin, data;
   try { ({ chemin, data } = await lisPersoPourEcriture(plugin)); }
-  catch (e) { signaleLecturePersoImpossible(e); return; }
+  catch (e) { signaleLecturePersoImpossible(e); return false; }
 
   if (!Array.isArray(data.champsLexicaux)) data.champsLexicaux = [];
   const themeNorm = normaliseMot(theme);
@@ -3088,12 +3103,14 @@ async function ajouteMotChampLexicalPerso(plugin, theme, motsClefs, mot, note, o
 
   try {
     await ecritPerso(plugin, chemin, data);
-    if (!(opts && opts.silencieux)) new Notice(`Carnet du Poète : « ${mot} » ajouté au champ lexical « ${champ.theme} ».`);
-    await chargeDictionnairePerso(plugin);
   } catch (e) {
     console.error('[Carnet du Poète] échec de l\'écriture de dictionnaire-perso.json', e);
     new Notice('Carnet du Poète : échec de l\'enregistrement (voir la console).');
+    return false;
   }
+  if (!(opts && opts.silencieux)) new Notice(`Carnet du Poète : « ${mot} » ajouté au champ lexical « ${champ.theme} ».`);
+  await rechargeApresEcriture(plugin, opts);
+  return true;
 }
 
 /* Liste des thèmes actuellement connus (intégrés + personnels), pour
@@ -3227,7 +3244,17 @@ async function nettoieEtFusionneDictionnairePerso(plugin){
     : 'Carnet du Poète : nettoyage terminé, aucun doublon trouvé.');
 }
 
-async function chargeDictionnairePerso(plugin, opts){
+/* Les chargements sont mis en file : deux appels qui se chevauchent (le
+   chargement au démarrage et un enregistrement rapide, par exemple)
+   rempliraient sinon les mêmes listes globales en même temps et
+   dupliqueraient des entrées. */
+let FILE_CHARGEMENT_DICO = Promise.resolve();
+function chargeDictionnairePerso(plugin, opts){
+  FILE_CHARGEMENT_DICO = FILE_CHARGEMENT_DICO.catch(() => {}).then(() => chargeDictionnairePersoInterne(plugin, opts));
+  return FILE_CHARGEMENT_DICO;
+}
+
+async function chargeDictionnairePersoInterne(plugin, opts){
   const notifierAbsence = !!(opts && opts.notifierAbsence);
   // on repart toujours de la base pour ne jamais accumuler de doublons
   // si cette fonction est appelée plusieurs fois (rechargement manuel)
@@ -3298,6 +3325,16 @@ async function chargeDictionnairePerso(plugin, opts){
       return;
     }
 
+    // Stats pour l'onglet Réglages, calculées avant toute sortie anticipée
+    // plus bas (perso sans groupes phonétiques, base absente…), sinon
+    // Réglages afficherait à tort « aucun dictionnaire ». La base a été
+    // comptée AVANT la fusion (statsBase), qui la modifie en place.
+    const pluginData = await plugin.loadData();
+    STATS_DICO = {
+      base: statsBase ? Object.assign({ version: (pluginData && pluginData.versionBase) || VERSION_BASE }, statsBase) : null,
+      perso: perso ? statsPersoDico(perso, lu ? lu.chemin : null) : null
+    };
+
     const data = fusionneBasePerso(base, perso);
 
     // Champs lexicaux personnalisés (indépendant du format familles/phonétique
@@ -3352,8 +3389,20 @@ async function chargeDictionnairePerso(plugin, opts){
     // Mots rares personnalisés (idem, indépendant) — format : { "motsRares": [{"mot":"...", "note":"..."}] }
     let raresCount = 0;
     if (Array.isArray(data.motsRares)) {
+      // la liste intégrée (MOTS_RARES_BASE) et la base publiée ont des mots
+      // en commun : sans ce filtre, ils seraient tirés deux fois plus souvent
+      const dejaPresents = new Set(MOTS_RARES.map(e => normaliseMot(e.mot)));
       data.motsRares.forEach(m => {
         if (m && m.mot) {
+          const w = normaliseMot(m.mot);
+          if (dejaPresents.has(w)) {
+            // garder la note et les tags de la base/perso, plus riches que la liste intégrée
+            const i = MOTS_RARES.findIndex(e => normaliseMot(e.mot) === w);
+            MOTS_RARES[i] = { mot: m.mot, note: m.note || MOTS_RARES[i].note || '', tags: Array.isArray(m.tags) ? m.tags : [] };
+            raresCount++;
+            return;
+          }
+          dejaPresents.add(w);
           MOTS_RARES.push({ mot: m.mot, note: m.note || '', tags: Array.isArray(m.tags) ? m.tags : [] });
           raresCount++;
         }
@@ -3460,15 +3509,6 @@ async function chargeDictionnairePerso(plugin, opts){
     if (phonMap.size > 0) PHONETIQUE_MOT = phonMap;
     if (synoMap.size > 0) SYNONYMES_PHONETIQUE = synoMap;
     if (cgramMap.size > 0) CGRAM_MOT = cgramMap;
-
-    // Stats pour l'onglet Réglages : rien de nouveau à calculer, seulement
-    // mémoriser ce qui l'est déjà ici (base capturée AVANT fusion, voir
-    // statsBase plus haut).
-    const pluginData = await plugin.loadData();
-    STATS_DICO = {
-      base: statsBase ? Object.assign({ version: (pluginData && pluginData.versionBase) || VERSION_BASE }, statsBase) : null,
-      perso: perso ? statsPersoDico(perso, lu ? lu.chemin : null) : null
-    };
 
     const nbGroupes = clesFormatB.length + clesFormatC.length;
     let messageCharge = `Carnet du Poète : dictionnaire de rimes complet chargé — ${nbGroupes} groupes phonétiques, ${totalMots} mots`;
@@ -4728,6 +4768,7 @@ function estFlexionDe(motCherche, candidat){
 function rendMotSelectionnable(el, mot, themeSuggere, note, selectionApi){
   if (!selectionApi) return;
   const w = normaliseMot(mot);
+  el.dataset.cpMot = w; // pour rafraîchir le surlignage depuis le panneau (désélection globale)
   const maj = () => el.toggleClass('cp-selectionne', selectionApi.estSelectionne(w));
   maj();
   el.addClass('cp-inspi-cliquable');
@@ -5128,8 +5169,9 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
             btnSauver.setText('Enregistrement…');
             const synARetenir = synEnLigne.map(texteDe).filter(m => !exclusSyn.has(m));
             const antoARetenir = antoEnLigne.map(texteDe).filter(m => !exclusAnto.has(m));
-            await enregistreSynonymePerso(plugin, saisie, synARetenir, antoARetenir);
-            btnSauver.setText('Enregistré ✓');
+            const ok = await enregistreSynonymePerso(plugin, saisie, synARetenir, antoARetenir);
+            btnSauver.setText(ok ? 'Enregistré ✓' : '💾 Réessayer l\'enregistrement');
+            if (!ok) btnSauver.disabled = false;
           });
         }
       };
@@ -5943,6 +5985,11 @@ function buildPanelInspiration(vue, panelInspi){
   const actionBarDiv = panelInspi.createDiv({ cls: 'cp-inspi-action-bar' });
   actionBarDiv.style.display = 'none';
 
+  // Resynchronise le surlignage de tous les mots affichés avec la sélection
+  // (après « Tout désélectionner », une croix ou un ajout réussi).
+  const rafraichitSurlignage = () => {
+    panelInspi.querySelectorAll('[data-cp-mot]').forEach(el => el.classList.toggle('cp-selectionne', selectionMots.has(el.dataset.cpMot)));
+  };
   const renderActionBar = () => {
     actionBarDiv.empty();
     if (selectionMots.size === 0) { actionBarDiv.style.display = 'none'; return; }
@@ -5954,10 +6001,10 @@ function buildPanelInspiration(vue, panelInspi){
       const chip = chipsRow.createSpan({ cls: 'cp-tag-chip' });
       chip.createSpan({ text: mot });
       const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
-      btnX.addEventListener('click', () => { toggleSelection(mot); });
+      btnX.addEventListener('click', () => { toggleSelection(mot); rafraichitSurlignage(); });
     });
     const btnClear = chipsRow.createEl('button', { cls: 'cp-link-btn', text: 'Tout désélectionner' });
-    btnClear.addEventListener('click', () => { selectionMots.clear(); renderActionBar(); });
+    btnClear.addEventListener('click', () => { selectionMots.clear(); renderActionBar(); rafraichitSurlignage(); });
 
     const actionsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-actions' });
     const btnChamp = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter à un champ lexical' });
@@ -5992,12 +6039,16 @@ function buildPanelInspiration(vue, panelInspi){
         if (!theme) { new Notice('Le thème est requis.'); return; }
         const motsClefs = clefsInput.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
         const mots = [...selectionMots.values()];
+        let ok = 0;
         for (const { mot, note } of mots) {
-          await ajouteMotChampLexicalPerso(vue.plugin, theme, motsClefs, mot, note || '', { silencieux: true });
+          if (await ajouteMotChampLexicalPerso(vue.plugin, theme, motsClefs, mot, note || '', { silencieux: true, sansRecharge: true })) ok++;
         }
-        new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) au champ lexical « ${theme} ».`);
+        if (ok > 0) await chargeDictionnairePerso(vue.plugin);
+        if (ok === 0) return; // échec déjà signalé : on garde la sélection pour réessayer
+        new Notice(`Carnet du Poète : ${ok} mot(s) ajouté(s) au champ lexical « ${theme} »${ok < mots.length ? ` (${mots.length - ok} échec(s))` : ''}.`);
         selectionMots.clear();
         renderActionBar();
+        rafraichitSurlignage();
       };
       btnValider.addEventListener('click', valider);
       themeInput.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
@@ -6005,12 +6056,16 @@ function buildPanelInspiration(vue, panelInspi){
 
     btnRare.addEventListener('click', async () => {
       const mots = [...selectionMots.values()];
+      let ok = 0;
       for (const { mot, note } of mots) {
-        await ajouteMotRarePerso(vue.plugin, mot, note || '', []);
+        if (await ajouteMotRarePerso(vue.plugin, mot, note || '', [], { sansRecharge: true })) ok++;
       }
-      new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) comme mot(s) rare(s) dans dictionnaire-perso.json.`);
+      if (ok > 0) await chargeDictionnairePerso(vue.plugin);
+      if (ok === 0) return;
+      new Notice(`Carnet du Poète : ${ok} mot(s) ajouté(s) comme mot(s) rare(s) dans dictionnaire-perso.json${ok < mots.length ? ` (${mots.length - ok} échec(s))` : ''}.`);
       selectionMots.clear();
       renderActionBar();
+      rafraichitSurlignage();
     });
   };
 
@@ -6806,7 +6861,8 @@ function buildPanelHasard(vue, panelHasard){
     if (!motCourant) return;
     const mot = motCourant;
     const tags = tagsDuMot(mot);
-    await ajouteMotRarePerso(vue.plugin, mot, noteCourante, tags);
+    // la zone tampon n'est vidée que si l'écriture a réussi (sinon les tags seraient perdus)
+    if (!(await ajouteMotRarePerso(vue.plugin, mot, noteCourante, tags))) return;
     await purgeMetaMot(vue.plugin, mot);
     new Notice(`« ${mot} » gravé dans dictionnaire-perso.json (zone tampon vidée).`);
     renderFiltresTags();
@@ -6838,7 +6894,7 @@ function buildPanelHasard(vue, panelHasard){
     const mot = inputMot.value.trim();
     if (!mot) { new Notice('Le mot est requis.'); return; }
     const tags = inputTags.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-    await ajouteMotRarePerso(vue.plugin, mot, inputNote.value.trim(), tags);
+    if (!(await ajouteMotRarePerso(vue.plugin, mot, inputNote.value.trim(), tags))) return;
     new Notice(`« ${mot} » ajouté à ton dictionnaire personnel.`);
     inputMot.value = ''; inputNote.value = ''; inputTags.value = '';
     renderFiltresTags();
@@ -6874,7 +6930,7 @@ function buildPanelNotes(vue, panelNotes){
     const valider = async () => {
       const note = input.value.trim();
       if (!note) return;
-      await enregistrer(note);
+      if (!(await enregistrer(note))) return; // échec déjà signalé : la ligne reste
       new Notice(`Carnet du Poète : note ajoutée pour « ${mot} ».`);
       ligne.remove();
     };
@@ -6892,7 +6948,7 @@ function buildPanelNotes(vue, panelNotes){
     } else {
       raresSansNote.forEach(e => {
         renderLigneEdition(listeRares, e.mot, '', async (note) => {
-          await ajouteMotRarePerso(vue.plugin, e.mot, note, []);
+          return ajouteMotRarePerso(vue.plugin, e.mot, note, []);
         });
       });
     }
@@ -6908,7 +6964,7 @@ function buildPanelNotes(vue, panelNotes){
     } else {
       champsSansNote.forEach(({ mot, theme }) => {
         renderLigneEdition(listeChamps, mot, `(${theme})`, async (note) => {
-          await ajouteMotChampLexicalPerso(vue.plugin, theme, [], mot, note, { silencieux: true });
+          return ajouteMotChampLexicalPerso(vue.plugin, theme, [], mot, note, { silencieux: true });
         });
       });
     }

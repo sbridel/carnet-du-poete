@@ -31,6 +31,11 @@ function buildPanelInspiration(vue, panelInspi){
   const actionBarDiv = panelInspi.createDiv({ cls: 'cp-inspi-action-bar' });
   actionBarDiv.style.display = 'none';
 
+  // Resynchronise le surlignage de tous les mots affichés avec la sélection
+  // (après « Tout désélectionner », une croix ou un ajout réussi).
+  const rafraichitSurlignage = () => {
+    panelInspi.querySelectorAll('[data-cp-mot]').forEach(el => el.classList.toggle('cp-selectionne', selectionMots.has(el.dataset.cpMot)));
+  };
   const renderActionBar = () => {
     actionBarDiv.empty();
     if (selectionMots.size === 0) { actionBarDiv.style.display = 'none'; return; }
@@ -42,10 +47,10 @@ function buildPanelInspiration(vue, panelInspi){
       const chip = chipsRow.createSpan({ cls: 'cp-tag-chip' });
       chip.createSpan({ text: mot });
       const btnX = chip.createSpan({ cls: 'cp-tag-chip-x', text: ' ×' });
-      btnX.addEventListener('click', () => { toggleSelection(mot); });
+      btnX.addEventListener('click', () => { toggleSelection(mot); rafraichitSurlignage(); });
     });
     const btnClear = chipsRow.createEl('button', { cls: 'cp-link-btn', text: 'Tout désélectionner' });
-    btnClear.addEventListener('click', () => { selectionMots.clear(); renderActionBar(); });
+    btnClear.addEventListener('click', () => { selectionMots.clear(); renderActionBar(); rafraichitSurlignage(); });
 
     const actionsRow = actionBarDiv.createDiv({ cls: 'cp-inspi-selection-actions' });
     const btnChamp = actionsRow.createEl('button', { cls: 'cp-hasard-graver-btn', text: '+ Ajouter à un champ lexical' });
@@ -80,12 +85,16 @@ function buildPanelInspiration(vue, panelInspi){
         if (!theme) { new Notice('Le thème est requis.'); return; }
         const motsClefs = clefsInput.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
         const mots = [...selectionMots.values()];
+        let ok = 0;
         for (const { mot, note } of mots) {
-          await ajouteMotChampLexicalPerso(vue.plugin, theme, motsClefs, mot, note || '', { silencieux: true });
+          if (await ajouteMotChampLexicalPerso(vue.plugin, theme, motsClefs, mot, note || '', { silencieux: true, sansRecharge: true })) ok++;
         }
-        new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) au champ lexical « ${theme} ».`);
+        if (ok > 0) await chargeDictionnairePerso(vue.plugin);
+        if (ok === 0) return; // échec déjà signalé : on garde la sélection pour réessayer
+        new Notice(`Carnet du Poète : ${ok} mot(s) ajouté(s) au champ lexical « ${theme} »${ok < mots.length ? ` (${mots.length - ok} échec(s))` : ''}.`);
         selectionMots.clear();
         renderActionBar();
+        rafraichitSurlignage();
       };
       btnValider.addEventListener('click', valider);
       themeInput.addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
@@ -93,12 +102,16 @@ function buildPanelInspiration(vue, panelInspi){
 
     btnRare.addEventListener('click', async () => {
       const mots = [...selectionMots.values()];
+      let ok = 0;
       for (const { mot, note } of mots) {
-        await ajouteMotRarePerso(vue.plugin, mot, note || '', []);
+        if (await ajouteMotRarePerso(vue.plugin, mot, note || '', [], { sansRecharge: true })) ok++;
       }
-      new Notice(`Carnet du Poète : ${mots.length} mot(s) ajouté(s) comme mot(s) rare(s) dans dictionnaire-perso.json.`);
+      if (ok > 0) await chargeDictionnairePerso(vue.plugin);
+      if (ok === 0) return;
+      new Notice(`Carnet du Poète : ${ok} mot(s) ajouté(s) comme mot(s) rare(s) dans dictionnaire-perso.json${ok < mots.length ? ` (${mots.length - ok} échec(s))` : ''}.`);
       selectionMots.clear();
       renderActionBar();
+      rafraichitSurlignage();
     });
   };
 

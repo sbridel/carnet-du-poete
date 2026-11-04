@@ -30,6 +30,9 @@ function fauxPlugin(fichiers, data) {
   };
 }
 
+const baseGz = (b) => zlib.gzipSync(JSON.stringify(b));
+const CHEMIN_BASE = '.obsidian/plugins/carnet-du-poete/dictionnaire-base.json.gz';
+
 module.exports = function testsDicoStats(m) {
   groupe('Stats dictionnaire — fonctions pures', () => {
     test('compte les mots et mots rares de la base', () => {
@@ -66,6 +69,42 @@ module.exports = function testsDicoStats(m) {
       assertEqual(st.perso.chemin, 'dictionnaire-perso.json', 'chemin après migration (racine du coffre)');
       assertEqual(st.perso.motsRares, 2);
       assertEqual(st.perso.octets, Buffer.byteLength(fichiers['dictionnaire-perso.json']), 'poids du nouveau fichier, pas de l\'ancien');
+    });
+  });
+
+  // Les tests asynchrones s'exécutent en parallèle : chacun attend la file
+  // de chargement du plugin, et ces vérifications sont regroupées dans un
+  // seul test pour qu'elles se suivent sans se marcher dessus.
+  groupe('Dictionnaire — données (lot A, 2.30.0)', () => {
+    test('chargements simultanés, doublons, stats hors ligne, échec d\'écriture', async () => {
+      // 1) deux chargements lancés en même temps : pas d'entrée en double
+      const perso = { formatPerso: 1, motsRares: [{ mot: 'zinzolin', note: 'violet' }] };
+      const f1 = { [CHEMIN_BASE]: baseGz(fabriqueBase()), 'dictionnaire-perso.json': JSON.stringify(perso) };
+      const p1 = fauxPlugin(f1, { versionBase: m.VERSION_BASE });
+      await Promise.all([m.chargeDictionnairePerso(p1), m.chargeDictionnairePerso(p1)]);
+      const n = m.MOTS_RARES.filter(e => e.mot === 'zinzolin').length;
+      assertEqual(n, 1, 'zinzolin chargé une seule fois');
+
+      // 2) un mot à la fois dans la liste intégrée et dans la base : une seule fois
+      const b2 = fabriqueBase(); b2.motsRares.push({ mot: 'smaragdin', note: 'vert (base)', tags: ['méral'] });
+      await m.chargeDictionnairePerso(fauxPlugin({ [CHEMIN_BASE]: baseGz(b2) }, { versionBase: m.VERSION_BASE }));
+      assertEqual(m.MOTS_RARES.filter(e => e.mot === 'smaragdin').length, 1, 'smaragdin unique');
+      assertEqual(new Set(m.MOTS_RARES.map(e => e.mot)).size, m.MOTS_RARES.length, 'aucun doublon du tout');
+
+      // 3) base absente (hors ligne), perso avec seulement des mots rares : Réglages le voit
+      const p3 = fauxPlugin({ 'dictionnaire-perso.json': JSON.stringify(perso) }, { versionBase: m.VERSION_BASE });
+      await m.chargeDictionnairePerso(p3);
+      const st = m._getStatsDico();
+      assertTrue(st && st.perso, 'perso présent dans les stats');
+      assertEqual(st.perso.motsRares, 1);
+
+      // 4) perso illisible : l'écriture renvoie false et ne touche pas au fichier
+      const f4 = { 'dictionnaire-perso.json': '{cassé' };
+      const errOrig = console.error; console.error = () => {}; // erreur attendue, ne pas polluer la sortie
+      let ok;
+      try { ok = await m.ajouteMotRarePerso(fauxPlugin(f4, { versionBase: m.VERSION_BASE }), 'abaca', '', ['like']); }
+      finally { console.error = errOrig; }
+      assertEqual(ok, false); assertEqual(f4['dictionnaire-perso.json'], '{cassé');
     });
   });
 };

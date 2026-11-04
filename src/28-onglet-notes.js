@@ -20,7 +20,7 @@ function buildPanelNotes(vue, panelNotes){
     const valider = async () => {
       const note = input.value.trim();
       if (!note) return;
-      await enregistrer(note);
+      if (!(await enregistrer(note))) return; // échec déjà signalé : la ligne reste
       new Notice(`Carnet du Poète : note ajoutée pour « ${mot} ».`);
       ligne.remove();
     };
@@ -38,7 +38,7 @@ function buildPanelNotes(vue, panelNotes){
     } else {
       raresSansNote.forEach(e => {
         renderLigneEdition(listeRares, e.mot, '', async (note) => {
-          await ajouteMotRarePerso(vue.plugin, e.mot, note, []);
+          return ajouteMotRarePerso(vue.plugin, e.mot, note, []);
         });
       });
     }
@@ -54,7 +54,7 @@ function buildPanelNotes(vue, panelNotes){
     } else {
       champsSansNote.forEach(({ mot, theme }) => {
         renderLigneEdition(listeChamps, mot, `(${theme})`, async (note) => {
-          await ajouteMotChampLexicalPerso(vue.plugin, theme, [], mot, note, { silencieux: true });
+          return ajouteMotChampLexicalPerso(vue.plugin, theme, [], mot, note, { silencieux: true });
         });
       });
     }
