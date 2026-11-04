@@ -11,7 +11,12 @@ const VIEW_TYPE = 'carnet-du-poete-view';
    ========================================================= */
 
 const VOYELLES = "aeiouyàâäéèêëîïôöùûüÿœ";
-const DIPHTONGUES_FIXES = ['ai','ei','au','eau','eu','œu','oeu','ou','oi','oy','ay','ée'];
+const DIPHTONGUES_FIXES = ['ai','ei','au','eau','eu','œu','oeu','ou','oi','oy','ay','ée',
+  // avec accent circonflexe (plaît, maître, boîte, goût, jeûne, août) : même son, jamais de diérèse
+  'aî','oî','oû','eû','aoû'];
+// Le tréma sépare toujours la voyelle de celle qui précède (na-ïf, No-ël,
+// a-ïeux, Sa-ül) : il ouvre un nouveau groupe vocalique.
+const VOYELLES_TREMA = 'ïëü';
 
 function estVoyelle(ch){ return !!ch && VOYELLES.includes(ch.toLowerCase()); }
 
@@ -51,7 +56,10 @@ function trouveGroupesAvecPositions(w){
         estVoyelleIci = estVoyelle(ch);
       }
     }
-    if (estVoyelleIci) {
+    if (estVoyelleIci && debut !== -1 && VOYELLES_TREMA.includes(ch)) {
+      groupes.push({ texte: w.slice(debut, i), debut, fin: i });
+      debut = i;
+    } else if (estVoyelleIci) {
       if (debut === -1) debut = i;
     } else if (debut !== -1) {
       groupes.push({ texte: w.slice(debut, i), debut, fin: i });
@@ -65,6 +73,7 @@ function trouveGroupesVoyelles(w){
   return trouveGroupesAvecPositions(w).map(g => g.texte);
 }
 
+// Un groupe qui commence par ï (aïeux, païen) se lit [j] + voyelle : jamais de diérèse.
 function detecteHiatus(w, groupes){
   let count = 0;
   groupes.forEach((g, idx) => {
@@ -73,7 +82,7 @@ function detecteHiatus(w, groupes){
     if (estDernier && g.endsWith('e') && w.endsWith(g)) {
       check = g.slice(0, -1); // on retire le e muet final pour juger le hiatus
     }
-    if (check.length >= 2 && DIPHTONGUES_FIXES.indexOf(check) === -1) {
+    if (check.length >= 2 && DIPHTONGUES_FIXES.indexOf(check) === -1 && check[0] !== 'ï') {
       count++;
     }
   });
@@ -288,7 +297,7 @@ function indicesHiatus(motBrut){
     if (estDernier && g.texte.endsWith('e') && w.endsWith(g.texte)) {
       check = g.texte.slice(0, -1);
     }
-    if (check.length >= 2 && DIPHTONGUES_FIXES.indexOf(check) === -1) {
+    if (check.length >= 2 && DIPHTONGUES_FIXES.indexOf(check) === -1 && check[0] !== 'ï') {
       indices.add(idx);
     }
   });
@@ -321,7 +330,11 @@ function analyseLigne(ligne){
     const estDernier = i === mots.length - 1;
     const motSuivant = !estDernier ? nettoieMot(mots[i + 1]) : null;
     const suivantVoyelleOuH = motSuivant ? /^[aeiouyàâäéèêëîïôöùûüÿœh]/.test(motSuivant) : false;
-    const finalEPrononce = !estDernier && !suivantVoyelleOuH;
+    // Le e muet final ne s'élide devant voyelle que dans la terminaison -e
+    // seule : dans -es et -ent (« vastes oiseaux », « suivent, indolents »,
+    // « gouffres amers »), il compte toujours à l'intérieur du vers.
+    const finEsOuEnt = /(es|ent)$/.test(nettoieMot(motBrut));
+    const finalEPrononce = !estDernier && (!suivantVoyelleOuH || finEsOuEnt);
     const r = compteSyllabesMot(motBrut, finalEPrononce);
     const syllabes = syllabifieMot(motBrut, finalEPrononce, new Set());
     let syllabesDierese = null;
@@ -3730,7 +3743,9 @@ const CLUSTERS_VALIDES_PHON = new Set(['pl','bl','kl','gl','fl','pR','bR','tR','
 
 function phonetiqueMot(mot){
   if (DEBUG_IGNORER_DICO_PERSO || !PHONETIQUE_MOT) return null;
-  const w = normaliseMot(mot);
+  // sans l'élision (m'attends -> attends), comme cleRicheMot, sinon le mot
+  // élidé n'a pas de phonétique et ne rime plus avec son partenaire
+  const w = retireContraction(normaliseMot(mot));
   return w ? (PHONETIQUE_MOT.get(w) || null) : null;
 }
 
@@ -3910,7 +3925,7 @@ const COULEURS_QUALITE = { pauvre: '#a1a8a8', suffisante: '#5f9ac0', riche: '#c2
    qui n'ont pas cette donnée. */
 function categoriesDuMot(mot){
   if (typeof CGRAM_MOT === 'undefined' || !CGRAM_MOT) return [];
-  return CGRAM_MOT.get(normaliseMot(mot)) || [];
+  return CGRAM_MOT.get(retireContraction(normaliseMot(mot))) || []; // s'aiment -> aiment
 }
 const COULEURS_CGRAM = { NOM: '#6b7f99', VER: '#a1735c', ADJ: '#8a6a94', ADV: '#748c6b', AUTRE: '#8a8a8a' };
 const LABELS_QUALITE = { pauvre: 'pauvre', suffisante: 'suffisante', riche: 'riche', tresriche: 'très riche', leonine: 'léonine' };

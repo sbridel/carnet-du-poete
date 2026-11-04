@@ -14,7 +14,9 @@ const CLUSTERS_VALIDES_PHON = new Set(['pl','bl','kl','gl','fl','pR','bR','tR','
 
 function phonetiqueMot(mot){
   if (DEBUG_IGNORER_DICO_PERSO || !PHONETIQUE_MOT) return null;
-  const w = normaliseMot(mot);
+  // sans l'élision (m'attends -> attends), comme cleRicheMot, sinon le mot
+  // élidé n'a pas de phonétique et ne rime plus avec son partenaire
+  const w = retireContraction(normaliseMot(mot));
   return w ? (PHONETIQUE_MOT.get(w) || null) : null;
 }
 
@@ -194,7 +196,7 @@ const COULEURS_QUALITE = { pauvre: '#a1a8a8', suffisante: '#5f9ac0', riche: '#c2
    qui n'ont pas cette donnée. */
 function categoriesDuMot(mot){
   if (typeof CGRAM_MOT === 'undefined' || !CGRAM_MOT) return [];
-  return CGRAM_MOT.get(normaliseMot(mot)) || [];
+  return CGRAM_MOT.get(retireContraction(normaliseMot(mot))) || []; // s'aiment -> aiment
 }
 const COULEURS_CGRAM = { NOM: '#6b7f99', VER: '#a1735c', ADJ: '#8a6a94', ADV: '#748c6b', AUTRE: '#8a8a8a' };
 const LABELS_QUALITE = { pauvre: 'pauvre', suffisante: 'suffisante', riche: 'riche', tresriche: 'très riche', leonine: 'léonine' };

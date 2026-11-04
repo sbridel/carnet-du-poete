@@ -93,7 +93,8 @@ module.exports = function testsDicoStats(m) {
 
       // 3) base absente (hors ligne), perso avec seulement des mots rares : Réglages le voit
       const p3 = fauxPlugin({ 'dictionnaire-perso.json': JSON.stringify(perso) }, { versionBase: m.VERSION_BASE });
-      await m.chargeDictionnairePerso(p3);
+      const warnOrig = console.warn; console.warn = () => {}; // téléchargement qui échoue : attendu
+      try { await m.chargeDictionnairePerso(p3); } finally { console.warn = warnOrig; }
       const st = m._getStatsDico();
       assertTrue(st && st.perso, 'perso présent dans les stats');
       assertEqual(st.perso.motsRares, 1);
