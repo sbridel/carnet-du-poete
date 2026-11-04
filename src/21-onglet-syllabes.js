@@ -38,7 +38,11 @@ function buildPanelSyllabes(vue, panelSyl){
   const formeWrap = toolbar.createDiv({ cls: 'cp-select-wrap' });
   const formeSelect = formeWrap.createEl('select', { cls: 'cp-forme-select' });
   formeWrap.createSpan({ cls: 'cp-select-arrow', text: '▾' });
-  FORMES_FIXES_ORDRE.forEach(id => formeSelect.createEl('option', { attr: { value: id }, text: id === 'libre' ? 'Forme : libre' : `Forme : ${FORMES_FIXES[id].nom}` }));
+  formeSelect.createEl('option', { attr: { value: 'libre' }, text: 'Forme : libre' });
+  FORMES_FIXES_GROUPES.forEach(g => {
+    const groupe = formeSelect.createEl('optgroup', { attr: { label: g.nom } });
+    g.ids.forEach(id => groupe.createEl('option', { attr: { value: id }, text: FORMES_FIXES[id].nom }));
+  });
   formeSelect.setAttr('title', 'Choisis une forme fixe pour vérifier que le poème en suit les règles (strophes, mètre, rimes, coupe…).');
   const toggleDiereseLabel = toolbar.createEl('label', { cls: 'cp-hasard-toggle-pool' });
   const toggleDierese = toggleDiereseLabel.createEl('input', { attr: { type: 'checkbox' } });

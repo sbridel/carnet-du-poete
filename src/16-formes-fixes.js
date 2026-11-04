@@ -58,11 +58,213 @@ function reglesStructure(c, tailles){
   return { libelle: `${tailles.length} strophes (${tailles.join(' + ')} vers)`, ok, vers: [], detail: ok ? '' : `trouvé : ${vues.join(' + ') || 'aucune'}` };
 }
 
+// Deux vers identiques (refrain) : même texte, sans tenir compte de la
+// ponctuation, de la casse ni des espaces.
+function texteVersNormalise(t){
+  return (t || '').toLowerCase().replace(/[’‘‛]/g, "'").replace(/[^a-zàâäéèêëîïôöùûüÿœç']+/gi, ' ').trim();
+}
+function memeVers(a, b){ return !!texteVersNormalise(a) && texteVersNormalise(a) === texteVersNormalise(b); }
+
+/* Vérifie un motif de rimes (ex. 'ABaAabAB' — la casse ne compte pas)
+   sur les vers d'indices donnés (tous les vers par défaut) : même lettre
+   du motif = même rime, lettres différentes = rimes différentes. Renvoie
+   les numéros des vers fautifs. */
+function fautesMotif(c, motif, indices){
+  const lettres = motif.replace(/\s+/g, '').split('');
+  const idx = indices || lettres.map((_, k) => k);
+  const rimeDe = new Map(), lettreDe = new Map(), fautes = [];
+  lettres.forEach((m, k) => {
+    const l = c.vers[idx[k]];
+    if (!l) return;
+    const cle = m.toLowerCase(), x = l.lettreGlobale;
+    if (!x) { fautes.push(l.numero); return; }
+    if (!rimeDe.has(cle)) {
+      if (lettreDe.has(x)) fautes.push(l.numero); // deux lettres du motif sur une même rime
+      rimeDe.set(cle, x); lettreDe.set(x, cle);
+    } else if (rimeDe.get(cle) !== x) fautes.push(l.numero);
+  });
+  return fautes;
+}
+
+const regleNbVers = (c, n) => ({ libelle: `${n} vers`, ok: c.vers.length === n, vers: [], detail: c.vers.length === n ? '' : `trouvé : ${c.vers.length}` });
+
+// Même mètre pour tous les vers donnés (celui du premier, diérèse comprise).
+function regleIsometrie(c, indices){
+  const vers = (indices || c.vers.map((_, i) => i)).map(i => c.vers[i]).filter(Boolean);
+  if (!vers.length) return regle('Isométrie', []);
+  const metre = vers[0].r.total;
+  return regle(`Isométrie (${metre} syllabes)`, vers.filter(l => !atteintMetre(l.r, metre)).map(l => l.numero));
+}
+
+// Mètres imposés vers par vers (haïku, tanka).
+function regleMetres(c, metres){
+  return regle(`Syllabes ${metres.join('-')}`, c.vers.filter((l, i) => metres[i] !== undefined && !atteintMetre(l.r, metres[i])).map(l => l.numero));
+}
+
+// Refrains : chaque paire [i, j] (numéros de vers, à partir de 1) doit être identique.
+function regleRefrains(c, libelle, paires){
+  const fautes = [];
+  paires.forEach(([i, j]) => { const a = c.vers[i - 1], b = c.vers[j - 1]; if (a && b && !memeVers(a.texte, b.texte)) fautes.push(j); });
+  return regle(libelle, fautes);
+}
+
 const FORMES_FIXES = {
   libre: { nom: 'Libre' },
 
+  haiku: {
+    nom: 'Haïku', famille: 'breves',
+    regles: c => [regleNbVers(c, 3), regleMetres(c, [5, 7, 5])]
+  },
+
+  tanka: {
+    nom: 'Tanka', famille: 'breves',
+    regles: c => [regleNbVers(c, 5), regleMetres(c, [5, 7, 5, 7, 7])]
+  },
+
+  triolet: {
+    nom: 'Triolet', famille: 'breves',
+    regles: c => [regleNbVers(c, 8), regleIsometrie(c),
+      regle('Rimes ABaAabAB', c.vers.length === 8 ? fautesMotif(c, 'ABaAabAB') : []),
+      regleRefrains(c, 'Refrains : le vers 1 revient en 4 et 7, le vers 2 en 8', [[1, 4], [1, 7], [2, 8]])]
+  },
+
+  shakespearien: {
+    nom: 'Sonnet shakespearien', famille: 'sonnets', coupes: { 12: 6, 10: 4 },
+    regles: c => [regleNbVers(c, 14), regleIsometrie(c),
+      regle('Rimes ABAB CDCD EFEF GG', c.vers.length === 14 ? fautesMotif(c, 'ABAB CDCD EFEF GG') : [])]
+  },
+
+  rondel: {
+    nom: 'Rondel', famille: 'refrain',
+    regles: c => [reglesStructure(c, [4, 4, 5]), regleIsometrie(c),
+      regle('Rimes ABBA ABAB ABBAA (deux rimes)', c.vers.length === 13 ? fautesMotif(c, 'ABBA ABAB ABBAA') : []),
+      regleRefrains(c, 'Refrains : les vers 1 et 2 reviennent en 7 et 8, le vers 1 en 13', [[1, 7], [2, 8], [1, 13]])]
+  },
+
+  rondeau: {
+    nom: 'Rondeau', famille: 'refrain',
+    // 5 + 3 vers + rentrement, puis 5 vers + rentrement : 15 lignes en 5 + 4 + 6.
+    regles(c){
+      const r = [reglesStructure(c, [5, 4, 6])];
+      if (c.vers.length !== 15) return r;
+      const principaux = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13];
+      r.push(regleIsometrie(c, principaux));
+      r.push(regle('Rimes AABBA AAB AABBA (deux rimes)', fautesMotif(c, 'AABBA AAB AABBA', principaux)));
+      const debut = texteVersNormalise(c.vers[0].texte);
+      const fautes = [9, 15].filter(n => {
+        const rent = texteVersNormalise(c.vers[n - 1].texte);
+        return !rent || rent === debut || !(debut + ' ').startsWith(rent + ' ');
+      });
+      r.push(regle('Rentrement : les premiers mots du poème reviennent en fin des strophes 2 et 3', fautes));
+      return r;
+    }
+  },
+
+  villanelle: {
+    nom: 'Villanelle', famille: 'refrain',
+    regles: c => [reglesStructure(c, [3, 3, 3, 3, 3, 4]), regleIsometrie(c),
+      regle('Rimes ABA ×5 puis ABAA (deux rimes)', c.vers.length === 19 ? fautesMotif(c, 'ABA ABA ABA ABA ABA ABAA') : []),
+      regleRefrains(c, 'Refrains : le vers 1 revient en 6, 12, 18 ; le vers 3 en 9, 15, 19',
+        [[1, 6], [1, 12], [1, 18], [3, 9], [3, 15], [3, 19]])]
+  },
+
+  ballade: {
+    nom: 'Ballade', famille: 'refrain',
+    // 3 huitains ababbcbC + envoi bcbC (octosyllabes), ou 3 dizains
+    // ababbccdcD + envoi ccdcD (décasyllabes) : mêmes rimes partout.
+    regles(c){
+      const dizains = c.strophes.length && c.strophes[0].length === 10;
+      const [taille, envoi, motif, motifEnvoi] = dizains ? [10, 5, 'ababbccdcD', 'ccdcD'] : [8, 4, 'ababbcbC', 'bcbC'];
+      const r = [reglesStructure(c, [taille, taille, taille, envoi])];
+      r.push(regleIsometrie(c));
+      if (c.vers.length === 3 * taille + envoi) {
+        r.push(regle(`Rimes ${motif} ×3 + envoi ${motifEnvoi}, les mêmes partout`, fautesMotif(c, motif + motif + motif + motifEnvoi)));
+        const fins = [taille, 2 * taille, 3 * taille, 3 * taille + envoi];
+        r.push(regleRefrains(c, 'Refrain en fin de chaque strophe et de l\'envoi', fins.slice(1).map(n => [fins[0], n])));
+      }
+      return r;
+    }
+  },
+
+  pantoum: {
+    nom: 'Pantoum', famille: 'enchainement',
+    regles(c){
+      const n = c.strophes.length;
+      const r = [{ libelle: 'Quatrains (au moins deux)', ok: n >= 2 && c.strophes.every(s => s.length === 4), vers: [], detail: '' }];
+      r.push(regleIsometrie(c));
+      const fautesRimes = [], fautesChaine = [];
+      c.strophes.forEach((s, k) => {
+        if (s.length !== 4) return;
+        const debut = c.vers.indexOf(s[0]);
+        fautesRimes.push(...fautesMotif(c, 'ABAB', [debut, debut + 1, debut + 2, debut + 3]));
+        const suiv = c.strophes[k + 1];
+        if (suiv && suiv.length === 4) {
+          if (!memeVers(s[1].texte, suiv[0].texte)) fautesChaine.push(suiv[0].numero);
+          if (!memeVers(s[3].texte, suiv[2].texte)) fautesChaine.push(suiv[2].numero);
+        }
+      });
+      r.push(regle('Rimes ABAB dans chaque quatrain', fautesRimes));
+      r.push(regle('Enchaînement : les vers 2 et 4 d\'une strophe deviennent les vers 1 et 3 de la suivante', fautesChaine));
+      const premier = c.vers[0], dernier = c.vers[c.vers.length - 1];
+      r.push(regle('Le dernier vers reprend le premier', premier && dernier && memeVers(premier.texte, dernier.texte) ? [] : (dernier ? [dernier.numero] : [])));
+      const s0 = c.strophes[0], sn = c.strophes[n - 1];
+      if (s0 && sn && s0.length === 4 && sn.length === 4) {
+        r.push(conseil('L\'avant-dernier vers reprend le 3e (bouclage classique)', memeVers(s0[2].texte, sn[1].texte) ? [] : [sn[1].numero]));
+      }
+      return r;
+    }
+  },
+
+  terzarima: {
+    nom: 'Terza rima', famille: 'enchainement',
+    regles(c){
+      const s = c.strophes;
+      const tercets = s.length && s[s.length - 1].length === 1 ? s.slice(0, -1) : s;
+      const final = tercets !== s ? s[s.length - 1][0] : null;
+      const r = [{ libelle: 'Tercets terminés par un vers isolé', ok: tercets.length >= 2 && tercets.every(t => t.length === 3) && !!final, vers: [], detail: '' }];
+      r.push(regleIsometrie(c));
+      const fautes = [];
+      tercets.forEach((t, k) => {
+        if (t.length !== 3) return;
+        if (t[0].lettreGlobale !== t[2].lettreGlobale || t[0].lettreGlobale === t[1].lettreGlobale) fautes.push(t[2].numero);
+        const suiv = tercets[k + 1];
+        if (suiv && suiv.length === 3 && suiv[0].lettreGlobale !== t[1].lettreGlobale) fautes.push(suiv[0].numero);
+      });
+      const dernierTercet = tercets[tercets.length - 1];
+      if (final && dernierTercet && dernierTercet.length === 3 && final.lettreGlobale !== dernierTercet[1].lettreGlobale) fautes.push(final.numero);
+      r.push(regle('Rimes enchaînées ABA BCB CDC…, le vers final sur la rime du milieu', fautes));
+      return r;
+    }
+  },
+
+  sextine: {
+    nom: 'Sextine', famille: 'enchainement',
+    // Les six mots de fin du 1er sizain reviennent dans chaque sizain
+    // suivant selon l'ordre 6-1-5-2-4-3 ; envoi de 3 vers qui les reprend.
+    regles(c){
+      const s = c.strophes;
+      const r = [reglesStructure(c, [6, 6, 6, 6, 6, 6, 3])];
+      r.push(regleIsometrie(c));
+      const fautes = [];
+      if (s.length >= 2 && s.slice(0, 6).every(x => x.length === 6)) {
+        let ordre = s[0].map(l => dernierMot(l.r));
+        for (let k = 1; k < 6; k++) {
+          ordre = [5, 0, 4, 1, 3, 2].map(i => ordre[i]);
+          s[k].forEach((l, i) => { if (!memeMotOuForme(dernierMot(l.r), ordre[i])) fautes.push(l.numero); });
+        }
+        r.push(regle('Mots-rimes en rotation 6-1-5-2-4-3', fautes));
+        const envoi = s[6];
+        if (envoi) {
+          const mots = new Set(envoi.flatMap(l => l.r.details.map(d => retireContraction(normaliseMot(d.mot)))));
+          const absents = s[0].map(l => dernierMot(l.r)).filter(m => ![...mots].some(x => memeMotOuForme(x, m)));
+          r.push(conseil('L\'envoi reprend les six mots-rimes', absents.length ? envoi.map(l => l.numero) : [], absents.length ? `manquent : ${absents.join(', ')}` : ''));
+        }
+      }
+      return r;
+    }
+  },
   sonnet: {
-    nom: 'Sonnet',
+    nom: 'Sonnet (français)', famille: 'sonnets',
     coupes: { 12: 6, 10: 4 },
     regles(c){
       const r = [reglesStructure(c, [4, 4, 3, 3])];
@@ -86,7 +288,7 @@ const FORMES_FIXES = {
   },
 
   fahsee: {
-    nom: 'Fahsee',
+    nom: 'Fahsee', famille: 'miennes',
     coupes: { 10: 5 },
     regles(c){
       const r = [reglesStructure(c, [5, 5, 5, 5, 5])];
@@ -132,7 +334,15 @@ const FORMES_FIXES = {
     }
   }
 };
-const FORMES_FIXES_ORDRE = ['libre', 'sonnet', 'fahsee'];
+// Menu Forme : groupes affichés (intitulés non sélectionnables), dans l'ordre.
+const FORMES_FIXES_GROUPES = [
+  { nom: 'Formes brèves', ids: ['haiku', 'tanka', 'triolet'] },
+  { nom: 'Sonnets', ids: ['sonnet', 'shakespearien'] },
+  { nom: 'Formes à refrain', ids: ['rondel', 'rondeau', 'villanelle', 'ballade'] },
+  { nom: 'Formes à enchaînement', ids: ['pantoum', 'terzarima', 'sextine'] },
+  { nom: 'Mes formes', ids: ['fahsee'] }
+];
+const FORMES_FIXES_ORDRE = ['libre', ...FORMES_FIXES_GROUPES.flatMap(g => g.ids)];
 
 function coupesDeForme(idForme){
   const f = FORMES_FIXES[idForme];

@@ -36,7 +36,7 @@ const A_EXPORTER = [
   'categoriesDuMot',
   // Stats Réglages + alternance (2.29.2)
   'statsBaseDico', 'statsPersoDico', 'chargeDictionnairePerso', 'VERSION_BASE', 'verifieAlternance', 'estFeminine',
-  'MOTS_RARES', 'ajouteMotRarePerso', 'avecCacheEnLigne', 'calculeHemistiche', 'verifieForme', 'memeMotOuForme', 'finitSurPause', 'commenceParHAspire',
+  'MOTS_RARES', 'ajouteMotRarePerso', 'avecCacheEnLigne', 'calculeHemistiche', 'verifieForme', 'FORMES_FIXES_ORDRE', 'memeMotOuForme', 'finitSurPause', 'commenceParHAspire',
 ];
 
 function chargeMoteur() {

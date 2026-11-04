@@ -55,10 +55,14 @@ Paste or type your verses: each line is broken down into syllables in real time
   against the classical alternation rule — across stanza breaks too. With **Hémistiche** ticked
   (default), alexandrines (6//6) and decasyllables (4//6) show their caesura as `//`, and a red
   *césure* badge flags a caesura inside a word or on a pronounced mute *e*.
-- **Fixed forms** — the **Forme** menu checks the poem against a sonnet or a Fahsee (five
-  5-line stanzas of 5 // 5 decasyllables rhyming ABABA, with linking and return words) and lists
-  each rule as ✓ or ✗ with the faulty lines. A form can impose its own caesura (5 // 5 for the
-  Fahsee's decasyllables instead of the usual 4 // 6).
+- **Fixed forms** — the **Forme** menu checks the poem against a chosen form and lists each rule
+  as ✓ or ✗ with the faulty lines (⚠ for hints the tool can't decide alone). Forms, grouped in the
+  menu: *haïku*, *tanka*, *triolet* (short forms); French and Shakespearean *sonnets*; *rondel*,
+  *rondeau* (with its *rentrement*), *villanelle*, *ballade* (refrain forms); *pantoum*, *terza
+  rima*, *sextine* (chained forms); and the *Fahsee* (five 5-line stanzas of 5 // 5 decasyllables
+  rhyming ABABA, with linking and return words). Depending on the form: stanza structure,
+  syllable counts or isometry, rhyme scheme, refrains and repeated lines, chained lines or
+  end-words, caesura (a form can impose its own, e.g. 5 // 5).
 - **Synérèse / diérèse** — when a word contains an ambiguous hiatus (*nation*, *poésie*,
   *paupière*), the main line shows the **synérèse** reading (hiatus as one syllable) and a
   second line underneath shows the **diérèse** (hiatus split in two). You choose the reading
