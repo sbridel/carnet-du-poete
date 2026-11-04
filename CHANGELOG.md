@@ -2,6 +2,8 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.29.2** — Definitions tab: the search field gets its own line, with *Chercher* and *Ouvrir sur
+  CNRTL ↗* below it. On a phone, the three side by side squeezed the field to a few pixels.
 - **2.29.1** — Dictionary statistics in Settings.
   - New "Dictionary" section: word and rare-word counts for the base, and the path, size and
     count of personal additions (rare words, lexical fields, synonyms) in your

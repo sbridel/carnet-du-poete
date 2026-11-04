@@ -2,7 +2,6 @@ const { Plugin, ItemView, Modal, Notice, requestUrl, PluginSettingTab, Setting }
 
 const VIEW_TYPE = 'carnet-du-poete-view';
 
-
 /* =========================================================
    MOTEUR SYLLABIQUE FRANÇAIS
    - règle du e caduc (compté seulement si non final de vers
@@ -828,7 +827,6 @@ const METRES = {
   8:'octosyllabe', 9:'ennéasyllabe', 10:'décasyllabe', 11:'hendécasyllabe', 12:'alexandrin'
 };
 
-
 /* =========================================================
    DICTIONNAIRE DE RIMES — ~60 familles de sons
    ========================================================= */
@@ -980,7 +978,6 @@ function motsClefsDepuisTheme(theme){
     .map(t => t.trim())
     .filter(t => t.length > 1);
 }
-
 
 /* =========================================================
    CHAMPS LEXICAUX — inspiration de vocabulaire
@@ -1342,7 +1339,6 @@ function chercheInspiration(motSaisi){
   return partiels;
 }
 
-
 /* =========================================================
    SYNONYMES & ANTONYMES
    ========================================================= */
@@ -1414,7 +1410,6 @@ const SYNONYMES_BASE = [
   { mot:"oubli", synonymes:["amnésie","effacement"], antonymes:["souvenir","mémoire"] }
 ];
 const SYNONYMES = SYNONYMES_BASE.slice();
-
 
 /* =========================================================
    MOTS RARES & OUBLIÉS — pour l'onglet "Hasard"
@@ -1496,7 +1491,6 @@ const MOTS_RARES_BASE = [
   { mot:"volute", note:"forme enroulée en spirale, comme une fumée qui monte" }
 ];
 const MOTS_RARES = MOTS_RARES_BASE.slice();
-
 
 /* =========================================================
    TAGS DES MOTS RARES — système unifié
@@ -1807,7 +1801,6 @@ function chercheSynonymes(motSaisi){
   }
   return { mot: correspondances[0] ? correspondances[0].mot : motSaisi, synonymes: [...synonymes], antonymes: [...antonymes] };
 }
-
 
 /* =========================================================
    SOURCES EN LIGNE (synonymes/antonymes)
@@ -2260,7 +2253,6 @@ const SOURCES_INSPIRATION = [
   { id: 'jdm', nom: 'JeuxDeMots' }
 ];
 
-
 /* =========================================================
    CNRTL (Trésor de la Langue Française informatisé)
    Définitions riches + étymologie, à la demande uniquement
@@ -2385,7 +2377,6 @@ function decoupeSectionsCnrtl(htmlEntries){
 
 
 
-
 /* =========================================================
    RIMES SOLIDES (source de rimes en ligne complémentaire)
    ========================================================= */
@@ -2506,7 +2497,6 @@ function genreDuVers(details){
   const dernier = details[details.length - 1].mot;
   return estFeminine(dernier) ? 'F' : 'M';
 }
-
 
 /* =========================================================
    DICTIONNAIRE PERSONNEL (optionnel) — deux formats acceptés
@@ -3642,7 +3632,6 @@ function decoupeSyllabesRime(mot){
   return syllabes;
 }
 
-
 /* ===== Moteur de rime phonétique (Format C) =====
    Même principe que le moteur orthographique ci-dessus, mais sur les vrais
    phonèmes SAMPA-like du dictionnaire complet : plus aucune heuristique à
@@ -3860,7 +3849,6 @@ function badgeQualite(badgeMot, mot, saisie){
   b.setAttr('title', `Rime ${q} (approximatif, orthographique)`);
   return q;
 }
-
 
 /* =========================================================
    MOTEUR D'ANALYSE SONORE (allitérations / assonances internes)
@@ -4442,14 +4430,11 @@ function analyseHomeoteleutes(texteComplet, exclureMotsOutils){
     .sort((a, b) => b.count - a.count);
 }
 
-
 /* Rendu partagé des résultats de rimes (panneau + fenêtre modale).
    filtres : { lettre, syllabes, qualites: Set, cgram: Set } — tous optionnels.
-   Tous les filtres, cgram compris, s'appliquent aussi aux sources en ligne
-   (RimesSolides, Wiktionnaire) : un mot en ligne qui existe aussi dans le
-   dictionnaire local (donc avec une catégorie connue) est filtré comme
-   n'importe quel mot local ; un mot totalement absent du dictionnaire
-   local reste affiché quoi qu'il arrive (voir categoriesDuMot). */
+   Le filtre grammatical (cgram) ne s'applique qu'au dictionnaire local :
+   les sources en ligne (RimesSolides, Wiktionnaire) l'ignorent, voir
+   appliqueFiltres(liste, avecCgram). */
 function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActives){
   container.empty();
   const saisie = (motSaisi || '').trim();
@@ -4458,7 +4443,7 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
 
   const resultat = chercheRimes(saisie);
 
-  const appliqueFiltres = (liste) => {
+  const appliqueFiltres = (liste, avecCgram = true) => {
     // Jamais le mot cherché ni ses propres flexions (armée → armées, armé,
     // armer…) : on ne rime pas un mot avec lui-même.
     let l = liste.filter(m => !estFlexionDe(saisie, m));
@@ -4481,12 +4466,15 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
     if (filtres.qualites) {
       l = l.filter(m => filtres.qualites.has(classeRime(saisie, m)));
     }
-    // Filtre grammatical (base 2.29+) : s'applique aussi aux sources en
-    // ligne, comme les autres filtres (voir l'en-tête de fichier). Un mot
-    // sans catégorie connue n'est jamais retiré (voir categoriesDuMot). 5
-    // cases : si toutes cochées, no-op ; si aucune, seuls les mots sans
-    // catégorie connue restent.
-    if (filtres.cgram) {
+    // Filtre grammatical (base 2.29+), dictionnaire local uniquement (voir
+    // appel avec avecCgram=false pour RimesSolides/Wiktionnaire ci-dessous :
+    // CGRAM_MOT vient de Lexique/Morphalou, pas des sources en ligne, et un
+    // mot qui s'y trouve par coïncidence ne doit pas être filtré comme si sa
+    // catégorie venait de la source en ligne elle-même). Un mot sans
+    // catégorie connue n'est jamais retiré (voir categoriesDuMot). 5 cases :
+    // si toutes cochées, no-op ; si aucune, seuls les mots sans catégorie
+    // connue restent.
+    if (avecCgram && filtres.cgram) {
       l = l.filter(m => {
         const cats = categoriesDuMot(m);
         return cats.length === 0 || cats.some(c => filtres.cgram.has(c));
@@ -4593,12 +4581,12 @@ function renderResultatsRimes(container, motSaisi, filtres, plugin, sourcesActiv
   let premiere = true;
   if (actives.includes('rimessolides')) {
     afficheSourceRimesEnLigne(container, saisie, 'RimesSolides', chercheRimesSolides(saisie),
-      `Rien trouvé sur RimesSolides pour « ${saisie} ».`, appliqueFiltres, premiere);
+      `Rien trouvé sur RimesSolides pour « ${saisie} ».`, l => appliqueFiltres(l, false), premiere);
     premiere = false;
   }
   if (actives.includes('wiktionnaire')) {
     afficheSourceRimesEnLigne(container, saisie, 'Wiktionnaire', chercheRimesWiktionnaire(saisie),
-      `Le Wiktionnaire ne classe « ${saisie} » dans aucune catégorie de rime.`, appliqueFiltres, premiere);
+      `Le Wiktionnaire ne classe « ${saisie} » dans aucune catégorie de rime.`, l => appliqueFiltres(l, false), premiere);
   }
 }
 
@@ -4683,7 +4671,6 @@ function estFlexionDe(motCherche, candidat){
   if (!radical) return false;
   return b.startsWith(radical) && TERMINAISONS_FLEXION.includes(b.slice(radical.length));
 }
-
 /* Rendu partagé des résultats d'inspiration (panneau + fenêtre modale). */
 /* Bouton "+" à côté d'un mot d'inspiration, ouvrant un petit formulaire
    inline pour l'ajouter à un champ lexical personnel (existant ou
@@ -4856,7 +4843,6 @@ function renderResultatsInspiration(container, motSaisi, plugin, sourcesActives,
     else remplir(corps.createDiv(), null);
   });
 }
-
 
 /* Rendu partagé des résultats de synonymes/antonymes. motRimeRef (optionnel)
    : mot par rapport auquel afficher un badge de qualité de rime sur chaque
@@ -5117,7 +5103,6 @@ async function renderResultatsSynonymes(container, motSaisi, plugin, sourcesActi
   });
 }
 
-
 /* =========================================================
    VUE PRINCIPALE
    ========================================================= */
@@ -5210,7 +5195,6 @@ class CarnetView extends ItemView {
 
   async onClose(){}
 }
-
 
 
 function buildPanelSyllabes(vue, panelSyl){
@@ -5711,7 +5695,6 @@ function buildPanelSyllabes(vue, panelSyl){
 }
 
 
-
 function buildPanelRimes(vue, panelRimes){
   const rimeForm = panelRimes.createDiv({ cls: 'cp-rime-form' });
   const motInput = rimeForm.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. lumière, chapeau, courage)' } });
@@ -5870,7 +5853,6 @@ function buildPanelRimes(vue, panelRimes){
 }
 
 
-
 function buildPanelInspiration(vue, panelInspi){
 
   const sourcesDiv = panelInspi.createDiv({ cls: 'cp-sources' });
@@ -6013,7 +5995,6 @@ function buildPanelInspiration(vue, panelInspi){
 }
 
 
-
 function buildPanelSynonymes(vue, panelSyno){
 
   const sourcesDiv = panelSyno.createDiv({ cls: 'cp-sources' });
@@ -6073,7 +6054,6 @@ function buildPanelSynonymes(vue, panelSyno){
     chercher();
   };
 }
-
 
 
 function buildPanelGuide(vue, panelGuide){
@@ -6235,10 +6215,9 @@ function buildPanelGuide(vue, panelGuide){
 }
 
 
-
 function buildPanelDefinitions(vue, panelDefs){
 
-  const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
+  const form = panelDefs.createDiv({ cls: 'cp-rime-form cp-defs-form' });
   const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });
   const btnChercher = form.createEl('button', { text: 'Chercher' });
   const lienOuvrirCnrtl = form.createEl('a', { cls: 'cp-icon-btn', text: 'Ouvrir sur CNRTL ↗', attr: { target: '_blank', rel: 'noopener', href: '#' } });
@@ -6331,7 +6310,6 @@ function buildPanelDefinitions(vue, panelDefs){
     chercher();
   };
 }
-
 
 
 function buildPanelHasard(vue, panelHasard){
@@ -6817,7 +6795,6 @@ function buildPanelHasard(vue, panelHasard){
 }
 
 
-
 function buildPanelNotes(vue, panelNotes){
 
   const btnRefresh = panelNotes.createEl('button', { cls: 'cp-link-btn', text: '↻ Rafraîchir la liste' });
@@ -6883,7 +6860,6 @@ function buildPanelNotes(vue, panelNotes){
   vue._rafraichitPanelNotes = rerender;
 }
 
-
 /* =========================================================
    MODALE DE RECHERCHE DE RIMES (depuis une sélection)
    ========================================================= */
@@ -6921,7 +6897,6 @@ class InspirationModal extends Modal {
   }
   onClose(){ this.contentEl.empty(); }
 }
-
 
 /* =========================================================
    STYLE INJECTÉ EN JS
@@ -7186,6 +7161,9 @@ const CARNET_CSS = `
 .cp-hasard-exclus, .cp-hasard-ajout{ margin-top:16px; font-size:0.85em; color: var(--text-muted); }
 .cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; }
 .cp-rime-form input{ flex:1; }
+/* Définitions : 3 éléments (champ + Chercher + lien CNRTL) — le champ seul sur la 1re ligne, les 2 boutons sur la 2e, sinon il est écrasé sur téléphone. */
+.cp-rime-form.cp-defs-form{ flex-wrap:wrap; }
+.cp-rime-form.cp-defs-form input{ flex:1 1 100%; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }
 .cp-syn-source-details{ border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:10px; background: var(--background-primary-alt); overflow:hidden; }
@@ -7273,7 +7251,6 @@ const CARNET_CSS = `
 .cp-hiatus-badge{ display:inline-block; font-size: 0.68em; color: var(--text-accent); border: 1px solid var(--text-accent); border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
 .cp-hiatus-badge-synerese{ color: var(--text-muted); border-color: var(--background-modifier-border); cursor: help; }
 `;
-
 
 /* =========================================================
    PLUGIN

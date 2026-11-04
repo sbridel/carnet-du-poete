@@ -1,7 +1,7 @@
 
 function buildPanelDefinitions(vue, panelDefs){
 
-  const form = panelDefs.createDiv({ cls: 'cp-rime-form' });
+  const form = panelDefs.createDiv({ cls: 'cp-rime-form cp-defs-form' });
   const motInput = form.createEl('input', { attr: { type: 'text', placeholder: 'Un mot… (ex. mélancolie, canopée, ire)' } });
   const btnChercher = form.createEl('button', { text: 'Chercher' });
   const lienOuvrirCnrtl = form.createEl('a', { cls: 'cp-icon-btn', text: 'Ouvrir sur CNRTL ↗', attr: { target: '_blank', rel: 'noopener', href: '#' } });

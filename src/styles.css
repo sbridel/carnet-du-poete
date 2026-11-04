@@ -253,6 +253,9 @@
 .cp-hasard-exclus, .cp-hasard-ajout{ margin-top:16px; font-size:0.85em; color: var(--text-muted); }
 .cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; }
 .cp-rime-form input{ flex:1; }
+/* Définitions : 3 éléments (champ + Chercher + lien CNRTL) — le champ seul sur la 1re ligne, les 2 boutons sur la 2e, sinon il est écrasé sur téléphone. */
+.cp-rime-form.cp-defs-form{ flex-wrap:wrap; }
+.cp-rime-form.cp-defs-form input{ flex:1 1 100%; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }
 .cp-syn-source-details{ border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:10px; background: var(--background-primary-alt); overflow:hidden; }

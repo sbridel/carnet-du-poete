@@ -253,6 +253,9 @@
 .cp-hasard-exclus, .cp-hasard-ajout{ margin-top:16px; font-size:0.85em; color: var(--text-muted); }
 .cp-hasard-exclus summary, .cp-hasard-ajout summary{ cursor:pointer; }
 .cp-rime-form input{ flex:1; }
+/* Définitions : 3 éléments (champ + Chercher + lien CNRTL) — le champ seul sur la 1re ligne, les 2 boutons sur la 2e, sinon il est écrasé sur téléphone. */
+.cp-rime-form.cp-defs-form{ flex-wrap:wrap; }
+.cp-rime-form.cp-defs-form input{ flex:1 1 100%; }
 .cp-son-label{ font-family: var(--font-text); font-style: italic; color: var(--text-accent); margin-bottom: 10px; }
 .cp-groupe{ margin-bottom: 10px; }
 .cp-syn-source-details{ border:1px solid var(--background-modifier-border); border-radius:8px; margin-bottom:10px; background: var(--background-primary-alt); overflow:hidden; }
@@ -319,7 +322,6 @@
 .cp-guide-section summary.cp-guide-titre{ cursor: pointer; margin: 10px 0; list-style: revert; }
 .cp-guide-corps{ padding: 4px 4px 8px 4px; }
 .cp-vide{ color: var(--text-muted); font-style: italic; font-size:0.9em; }
-.cp-inspi-intro{ color: var(--text-muted); font-size:0.85em; margin-bottom:14px; line-height:1.5; }
 .cp-inspi-liste{ display:flex; flex-direction:column; gap:6px; }
 .cp-inspi-mot{ display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; padding:5px 0; border-bottom:1px dashed var(--background-modifier-border); }
 .cp-inspi-mot:last-child{ border-bottom:none; }
