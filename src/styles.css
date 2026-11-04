@@ -120,6 +120,7 @@
 .cp-bilan-ok{ color: var(--text-muted); }
 .cp-bilan-ok .cp-bilan-icone{ color: var(--color-green, var(--text-success)); }
 .cp-bilan-ko .cp-bilan-icone{ color: var(--text-error); }
+.cp-bilan-vers{ text-decoration: underline dotted; cursor:pointer; }
 .cp-bilan-conseil .cp-bilan-icone{ color: var(--text-warning, var(--color-orange)); }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
 .cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-bottom:20px; }

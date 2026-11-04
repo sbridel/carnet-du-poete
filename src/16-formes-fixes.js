@@ -349,8 +349,49 @@ function coupesDeForme(idForme){
   return (f && f.coupes) || COUPES_PAR_DEFAUT;
 }
 
+/* Conseils de rime valables pour toute forme (⚠, jamais bloquants) :
+   - rime du même au même : un mot qui rime avec lui-même, ou avec un
+     composé/dérivé de lui-même (faire / défaire, jour / toujours) ;
+   - consonne finale écrite : en versification classique, les mots en -s,
+     -x, -z ne riment qu'entre eux, et plus largement la consonne finale
+     muette doit concorder à l'écrit (amour / jours, sang / absent). */
+function consonneFinaleEcrite(mot){
+  let w = retireContraction(normaliseMot(mot));
+  if (!w) return '';
+  if (w.length > 2 && w.endsWith('h') && estVoyelle(w[w.length - 2])) w = w.slice(0, -1); // h final muet (Shorah, ah)
+  const m = w.match(/[^aeiouyàâäéèêëîïôöùûüÿœ]+$/);
+  if (!m) return '';
+  const c = m[0];
+  if (/[sxz]$/.test(c)) return 'S'; // s, x, z : une seule classe
+  return c;
+}
+function reglesRimesCommunes(c){
+  const parRime = new Map();
+  c.vers.forEach(l => {
+    if (!l.lettreGlobale) return;
+    if (!parRime.has(l.lettreGlobale)) parRime.set(l.lettreGlobale, []);
+    parRime.get(l.lettreGlobale).push(l);
+  });
+  const memeAuMeme = [], consonnes = [];
+  parRime.forEach(groupe => {
+    for (let i = 1; i < groupe.length; i++) {
+      const a = dernierMot(groupe[i - 1].r), b = dernierMot(groupe[i].r);
+      const radical = w => retireContraction(normaliseMot(w)).replace(/[sx]$/, '');
+      const x = radical(a), y = radical(b);
+      if (memeVers(groupe[i - 1].texte, groupe[i].texte)) continue; // refrain ou vers repris : voulu par la forme
+      if (x && y && (x === y || (x.length >= 3 && y.endsWith(x)) || (y.length >= 3 && x.endsWith(y)))) memeAuMeme.push(groupe[i].numero);
+      if (consonneFinaleEcrite(a) !== consonneFinaleEcrite(b)) consonnes.push(groupe[i].numero);
+    }
+  });
+  return [
+    conseil('Rime du même au même (un mot avec lui-même ou son dérivé)', [...new Set(memeAuMeme)]),
+    conseil('Consonne finale écrite concordante (-s/-x/-z entre eux)', [...new Set(consonnes)], 'convention classique')
+  ];
+}
+
 function verifieForme(texte, idForme){
   const f = FORMES_FIXES[idForme];
   if (!f || !f.regles) return null;
-  return { nom: f.nom, regles: f.regles(contexteForme(texte, f.coupes)) };
+  const c = contexteForme(texte, f.coupes);
+  return { nom: f.nom, regles: [...f.regles(c), ...reglesRimesCommunes(c)] };
 }

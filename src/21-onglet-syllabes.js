@@ -17,6 +17,11 @@ function buildPanelSyllabes(vue, panelSyl){
   btnCopierBrouillon.createSpan({ cls: 'cp-icon-btn-label', text: 'Copier' });
   btnCopierBrouillon.setAttr('title', 'Copier le brouillon');
   btnCopierBrouillon.setAttr('aria-label', 'Copier le brouillon');
+  const btnNote = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
+  btnNote.createSpan({ text: '📄' });
+  btnNote.createSpan({ cls: 'cp-icon-btn-label', text: 'Note active' });
+  btnNote.setAttr('title', 'Charge la note ouverte dans le brouillon (le frontmatter est ignoré ; une propriété « forme: sonnet » règle le menu Forme).');
+  btnNote.setAttr('aria-label', 'Analyser la note active');
   const btnClear = actionsBar.createEl('button', { cls: 'cp-icon-btn' });
   btnClear.createSpan({ text: '🗑️' });
   btnClear.createSpan({ cls: 'cp-icon-btn-label', text: 'Effacer' });
@@ -398,6 +403,7 @@ function buildPanelSyllabes(vue, panelSyl){
     return parts.slice(0, h.apresSyllabe).join('‧') + ' // ' + parts.slice(h.apresSyllabe).join('‧');
   }).join(' ');
 
+  let poemeCourant = null;
   const renderBilan = (texte) => {
     bilanDiv.empty();
     const bilan = verifieForme(texte, formeSelect.value);
@@ -410,10 +416,25 @@ function buildPanelSyllabes(vue, panelSyl){
       const etat = r.ok ? 'ok' : (r.conseil ? 'conseil' : 'ko');
       const ligne = bilanDiv.createDiv({ cls: 'cp-bilan-regle cp-bilan-' + etat });
       ligne.createSpan({ cls: 'cp-bilan-icone', text: { ok: '✓', conseil: '⚠', ko: '✗' }[etat] });
-      let texteRegle = r.libelle;
-      if (!r.ok && r.vers.length) texteRegle += ` — vers ${r.vers.join(', ')}`;
-      if (!r.ok && r.detail) texteRegle += ` (${r.detail})`;
-      ligne.createSpan({ text: texteRegle });
+      ligne.createSpan({ text: r.libelle });
+      if (!r.ok && r.vers.length) {
+        ligne.createSpan({ text: ' — vers ' });
+        const versNonVides = poemeCourant ? poemeCourant.lignes.filter(l => !l.vide) : [];
+        r.vers.forEach((n, i) => {
+          if (i > 0) ligne.createSpan({ text: ', ' });
+          const l = versNonVides[n - 1];
+          const mot = l && l.r.details.length ? l.r.details[l.r.details.length - 1].mot : '';
+          const lien = ligne.createEl('a', { cls: 'cp-bilan-vers', text: String(n), attr: { href: '#' } });
+          lien.setAttr('title', mot ? `Chercher des rimes pour « ${mot} » (onglet Rimes)` : 'Vers ' + n);
+          lien.addEventListener('click', e => {
+            e.preventDefault();
+            if (!mot) return;
+            if (vue._switchTab) vue._switchTab('rimes');
+            if (vue._prefillRimeInput) vue._prefillRimeInput(mot);
+          });
+        });
+      }
+      if (!r.ok && r.detail) ligne.createSpan({ text: ` (${r.detail})` });
     });
   };
 
@@ -429,6 +450,7 @@ function buildPanelSyllabes(vue, panelSyl){
     }
 
     const poeme = analysePoeme(texteComplet);
+    poemeCourant = poeme;
     renderBilan(texteComplet);
     const coupes = coupesDeForme(formeSelect.value);
     let total = 0, nb = 0;
@@ -564,6 +586,33 @@ function buildPanelSyllabes(vue, panelSyl){
       saveState.setText('brouillon enregistré');
       setTimeout(() => saveState.setText(''), 1200);
     }, 700);
+  });
+
+  // Charge la note ouverte dans l'éditeur : corps sans frontmatter, et si
+  // le frontmatter porte « forme: <id ou nom> », le menu Forme s'y règle.
+  btnNote.addEventListener('click', async () => {
+    const fichier = vue.app.workspace.getActiveFile();
+    if (!fichier || fichier.extension !== 'md') { new Notice('Carnet du Poète : aucune note Markdown ouverte.'); return; }
+    let contenu = await vue.app.vault.read(fichier);
+    contenu = contenu.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+    const cache = vue.app.metadataCache.getFileCache(fichier);
+    const fm = cache && cache.frontmatter;
+    const voulue = fm && fm.forme != null ? String(fm.forme) : null;
+    if (voulue) {
+      const cible = normaliseMot(voulue);
+      const id = FORMES_FIXES_ORDRE.find(k => normaliseMot(k) === cible || (FORMES_FIXES[k].nom && normaliseMot(FORMES_FIXES[k].nom) === cible));
+      if (id) {
+        formeSelect.value = id;
+        const data = (await vue.plugin.loadData()) || {};
+        data.formePoeme = id;
+        await vue.plugin.saveData(data);
+      } else {
+        new Notice(`Carnet du Poète : forme « ${voulue} » inconnue (voir le menu Forme).`);
+      }
+    }
+    textarea.value = contenu.trim();
+    textarea.dispatchEvent(new Event('input'));
+    new Notice(`Carnet du Poète : « ${fichier.basename} » chargée dans le brouillon.`);
   });
 
   btnClear.addEventListener('click', async () => {

@@ -62,7 +62,11 @@ Paste or type your verses: each line is broken down into syllables in real time
   rima*, *sextine* (chained forms); and the *Fahsee* (five 5-line stanzas of 5 // 5 decasyllables
   rhyming ABABA, with linking and return words). Depending on the form: stanza structure,
   syllable counts or isometry, rhyme scheme, refrains and repeated lines, chained lines or
-  end-words, caesura (a form can impose its own, e.g. 5 // 5).
+  end-words, caesura (a form can impose its own, e.g. 5 // 5). Two rhyme hints apply to every
+  form: a word rhyming with itself or its derivative, and the classical written-consonant rule
+  (*-s*/*-x*/*-z* only rhyme together). Faulty line numbers link to the Rhymes tab. The **Note
+  active** button loads the open note into the draft; a `forme:` frontmatter property picks the
+  form.
 - **Synérèse / diérèse** — when a word contains an ambiguous hiatus (*nation*, *poésie*,
   *paupière*), the main line shows the **synérèse** reading (hiatus as one syllable) and a
   second line underneath shows the **diérèse** (hiatus split in two). You choose the reading
@@ -491,6 +495,21 @@ transcribes as [ɛ].
 
 ## Changelog
 
+- **2.31.0** — Eleven more fixed forms, note loading, rhyme hints.
+  - **Forme** menu, now grouped: short forms (*haïku*, *tanka*, *triolet*), sonnets (French,
+    Shakespearean), refrain forms (*rondel*, *rondeau* with its *rentrement*, *villanelle*,
+    *ballade*), chained forms (*pantoum*, *terza rima*, *sextine*), and *Fahsee*. Each checks
+    its stanza structure, metre, rhyme scheme and, where relevant, refrains, chained lines or
+    rotating end-words.
+  - **Note active** button in the Syllables tab: loads the open note into the draft (frontmatter
+    stripped); a `forme:` property in the frontmatter selects the form automatically.
+  - Two rhyme hints (⚠, never errors) for every form: *rime du même au même* (a word rhyming
+    with itself or its own derivative: *tient* / *retient*) and the classical written-consonant
+    rule (*-s*/*-x*/*-z* only rhyme together: *amour* / *jours*, *sang* / *absent*). Refrains and
+    repeated lines are exempt.
+  - In the compliance summary, each faulty line number is a link: click it to open the Rhymes
+    tab on that line's last word.
+  - 161 tests.
 - **2.30.0** — Fixed forms, hemistich and masculine/feminine alternation checks, and fixes.
   - Syllables tab: new **Forme** menu (*libre*, *Sonnet*, *Fahsee*). Picking a form shows a
     compliance summary above the analysis, one ✓/✗ line per rule with the faulty line numbers.
@@ -590,26 +609,5 @@ transcribes as [ɛ].
   - **Smaller file**: the dictionary is written without indentation and without empty
     synonym/antonym lists — 13 MB instead of 17 MB despite 75% more words — and the plugin now
     keeps it compact when it saves to it.
-- **2.26.0** — Rhymes tab: a second online source, and the same layout as Synonyms/Inspiration.
-  - **Wiktionnaire as a second opt-in online source**, next to RimesSolides. The plugin reads the
-    rhyme category the Wiktionnaire assigns to the searched word ("Rimes en français en …",
-    keeping the most specific one — /jo/ rather than /o/) and lists that category's members (up
-    to 1,000). Coverage is partial — many words have no rhyme category yet, in which case the
-    block says so — but it works as a fallback when RimesSolides is down and brings in rare words
-    and multi-word phrases. Its results go through exactly the same filters as RimesSolides
-    (strict-rhyme check, letter, syllables, quality, assonance mode); both sources now share one
-    rendering function.
-  - **The searched word's own inflections are no longer offered as rhymes** (searching *armée* no
-    longer lists *armées*, *armés*, *armé*, *armer*, *armez*), in the local dictionary and the
-    online sources alike — a word doesn't rhyme with itself. It is a heuristic without a
-    lemmatizer: the longest inflectional ending leaving a stem of at least 3 letters is removed,
-    and "stem + inflectional ending" candidates are dropped; for short words (*né*, *mer*) only
-    the -s/-x/-e/-es variants are, so *nez* still rhymes with *né*. Compounds (*réarmer*) are kept
-    on purpose: rhyming a word with its compound is discouraged, not forbidden, and prefix
-    detection would misfire (*séjour*, *réparer*).
-  - **Same layout as the Synonyms and Inspiration tabs**: a "dictionnaire local" collapsible
-    block, then one collapsible block per online source (the first open, the others folded). The
-    Wiktionnaire block's title shows the rhyme found, e.g. *armée — Wiktionnaire /me/*. The
-    "Search rhymes for the selected word" command's pop-up uses the same rendering.
 
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).

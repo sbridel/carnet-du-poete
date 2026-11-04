@@ -11,7 +11,7 @@ const strophes = (...s) => s.map(x => x.join('\n')).join('\n\n');
 
 module.exports = function testsFormes2(m) {
   const verif = (t, f) => m.verifieForme(t, f).regles;
-  const ko = (t, f, ignorer) => verif(t, f).filter(r => !r.ok && !(ignorer || /Isométrie|Syllabes/).test(r.libelle)).map(r => r.libelle);
+  const ko = (t, f, ignorer) => verif(t, f).filter(r => !r.ok && !r.conseil && !(ignorer || /Isométrie|Syllabes/).test(r.libelle)).map(r => r.libelle);
 
   groupe('Formes 2.31 — formes brèves', () => {
     test('haïku 5-7-5', () => {
@@ -64,7 +64,7 @@ module.exports = function testsFormes2(m) {
     const P = ['les fleurs dorment dans les prés', 'les blés mûrs sont moissonnés'];
     const pantoum = strophes([A1, B1, A2, AUTRES_B[0]], [B1, P[0], AUTRES_B[0], P[1]], [P[0], A2, P[1], A1]);
     test('pantoum valide (enchaînement et bouclage)', () => {
-      assertEqual(verif(pantoum, 'pantoum').filter(r => !r.ok && !/Isométrie/.test(r.libelle)).map(r => r.libelle).join(' | '), '');
+      assertEqual(verif(pantoum, 'pantoum').filter(r => !r.ok && !r.conseil && !/Isométrie/.test(r.libelle)).map(r => r.libelle).join(' | '), '');
     });
     test('pantoum : enchaînement rompu signalé', () => {
       assertTrue(ko(pantoum.replace(`${B1}\n${P[0]}`, `${AUTRES_B[1]}\n${P[0]}`), 'pantoum').some(l => l.startsWith('Enchaînement')));
@@ -75,9 +75,24 @@ module.exports = function testsFormes2(m) {
     const sizains = []; let ordre = mots.slice();
     for (let k = 0; k < 6; k++) { sizains.push(ordre.map((w, i) => `le vers ${i} de la strophe ${k} parle de ${w}`)); ordre = [5, 0, 4, 1, 3, 2].map(i => ordre[i]); }
     const sextine = strophes(...sizains, ['entre l\'ombre et le soleil', 'la pierre boit l\'eau', 'la nuit garde le chemin']);
-    test('sextine valide (rotation et envoi)', () => { assertEqual(verif(sextine, 'sextine').filter(r => !r.ok && !/Isométrie/.test(r.libelle)).map(r => r.libelle).join(' | '), ''); });
+    test('sextine valide (rotation et envoi)', () => { assertEqual(verif(sextine, 'sextine').filter(r => !r.ok && !r.conseil && !/Isométrie/.test(r.libelle)).map(r => r.libelle).join(' | '), ''); });
     test('sextine : rotation rompue signalée', () => {
       assertTrue(ko(sextine.replace('le vers 0 de la strophe 1 parle de chemin', 'le vers 0 de la strophe 1 parle de lune'), 'sextine').some(l => l.startsWith('Mots-rimes')));
+    });
+  });
+
+  groupe('Formes — conseils de rime (toutes formes)', () => {
+    const conseilsKo = (t, f) => verif(t, f).filter(r => r.conseil && !r.ok).map(r => r.libelle.split(' (')[0]);
+    test('rime du même au même : jour / toujours signalé, jour / amour non', () => {
+      const t = 'le vent passe sur le jour\nje pense encore toujours\nle vent passe sur le jour\nje pense encore à l\'amour';
+      const c = conseilsKo(t, 'haiku');
+      assertTrue(c.includes('Rime du même au même'));
+      assertTrue(!conseilsKo('le vent passe sur le jour\nje pense encore à l\'amour', 'haiku').includes('Rime du même au même'));
+    });
+    test('consonne finale écrite : amour / jours signalé, temps / printemps non', () => {
+      assertTrue(conseilsKo('je pense encore à l\'amour\nle vent passe sur les jours', 'haiku').includes('Consonne finale écrite concordante'));
+      assertTrue(!conseilsKo('voici venir le temps\nvoici venir le printemps', 'haiku').includes('Consonne finale écrite concordante'));
+      assertTrue(conseilsKo('il a versé son sang\nle roi était absent', 'haiku').includes('Consonne finale écrite concordante'));
     });
   });
 
