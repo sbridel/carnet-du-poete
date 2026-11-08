@@ -5757,6 +5757,26 @@ function verifieForme(texte, idForme){
    VUE PRINCIPALE
    ========================================================= */
 
+/* Synchronise la classe is-checked d'une pastille avec sa case, y compris
+   quand le code coche/décoche la case lui-même (input.checked = …, parfois
+   après un chargement asynchrone des réglages) : la propriété checked de
+   cette case est doublée d'un setter qui met la classe à jour. */
+function suiviPastille(input){
+  const lbl = input.closest('.cp-hasard-toggle-pool, .cp-cgram-pill');
+  if (!lbl) return;
+  const sync = () => lbl.classList.toggle('is-checked', !!input.checked);
+  const desc = typeof HTMLInputElement !== 'undefined' && Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+  if (desc && desc.get && desc.set) {
+    Object.defineProperty(input, 'checked', {
+      configurable: true,
+      get(){ return desc.get.call(this); },
+      set(v){ desc.set.call(this, v); sync(); },
+    });
+  }
+  input.addEventListener('change', sync);
+  sync();
+}
+
 class CarnetView extends ItemView {
   constructor(leaf, plugin){
     super(leaf);
@@ -5838,6 +5858,11 @@ class CarnetView extends ItemView {
     buildPanelDefinitions(this, panelDefs);
     buildPanelHasard(this, panelHasard);
     buildPanelNotes(this, panelNotes);
+
+    // État « coché » des pastilles porté par une classe (is-checked) plutôt
+    // que par :has(input:checked), signalé par la revue Obsidian.
+    container.querySelectorAll('.cp-hasard-toggle-pool input[type=checkbox], .cp-cgram-pill input[type=checkbox]')
+      .forEach(suiviPastille);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
     footer.setText('Dictionnaires phonétiques et lexicaux compilés à la main, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
@@ -7740,8 +7765,8 @@ const CARNET_CSS = `
 .cp-analyse{ margin-top: 14px; }
 .cp-ligne{ padding: 7px 0; border-bottom: 1px dashed var(--background-modifier-border); font-family: var(--font-monospace); font-size: 0.88em; }
 .cp-ligne:last-child{ border-bottom:none; }
-.cp-ligne-top{ display:flex; flex-wrap: wrap; align-items:center; row-gap: 4px; column-gap: 10px; }
-.cp-ligne-alt{ display:flex; flex-wrap: wrap; align-items:center; row-gap: 4px; column-gap: 10px; margin-top: 4px; padding-top: 4px; border-top: 1px dotted var(--background-modifier-border); opacity: 0.85; }
+.cp-ligne-top{ display:flex; flex-wrap: wrap; align-items:center; gap: 4px 10px; }
+.cp-ligne-alt{ display:flex; flex-wrap: wrap; align-items:center; gap: 4px 10px; margin-top: 4px; padding-top: 4px; border-top: 1px dotted var(--background-modifier-border); opacity: 0.85; }
 .cp-texte{ flex: 1 1 220px; min-width: 140px; color: var(--text-normal); white-space: pre-wrap; word-break: break-word; letter-spacing: 0.2px; }
 .cp-texte-alt{ flex: 1 1 220px; min-width: 140px; color: var(--text-muted); white-space: pre-wrap; word-break: break-word; font-style: italic; }
 .cp-badges{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-left:auto; }
@@ -7769,7 +7794,7 @@ const CARNET_CSS = `
 .cp-source-toggle{ display:inline-flex; align-items:center; cursor:pointer; color: var(--text-normal); gap:2px; }
 .cp-hasard-ligne-raccourcis{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px; }
 .cp-hasard-toggle-pool{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8em; font-weight:500; color: var(--text-muted); background: var(--background-primary-alt); border:1.5px solid var(--background-modifier-border); border-radius:14px; padding:4px 12px; }
-.cp-hasard-toggle-pool:has(input:checked){ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
+.cp-hasard-toggle-pool.is-checked{ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
 .cp-hasard-toggle-pool.active{ background: var(--text-accent); border-color: var(--text-accent); color: var(--text-on-accent, #fff); }
 .cp-hasard-toggle-pool input{ position:absolute; opacity:0; width:0; height:0; margin:0; pointer-events:none; }
 .cp-source-toggle input{ cursor:pointer; }
@@ -7806,13 +7831,13 @@ const CARNET_CSS = `
 .cp-qualite-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
 .cp-qualite-sousfiltres{ margin-left:16px; padding-left:10px; border-left: 2px solid var(--background-modifier-border); font-size:0.95em; opacity:0.85; }
 .cp-qualite-pill{ border-color: var(--qcolor); color: var(--qcolor); }
-.cp-qualite-pill:has(input:checked){ background: var(--qcolor); border-color: var(--qcolor); color:#2a2a2a; }
+.cp-qualite-pill.is-checked{ background: var(--qcolor); border-color: var(--qcolor); color:#2a2a2a; }
 /* Nature (filtre grammatical) : contour seul, jamais de fond plein — ces
    catégories ne sont reprises nulle part ailleurs dans l'affichage,
    contrairement aux couleurs de qualité, d'où un style plus discret. */
 .cp-cgram-filtres{ display:flex; gap:8px; flex-wrap:wrap; }
 .cp-cgram-pill{ display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.8em; font-weight:500; background:transparent; border:1.5px solid var(--background-modifier-border); border-radius:14px; padding:4px 12px; color: var(--text-faint); }
-.cp-cgram-pill:has(input:checked){ border-color: var(--ccolor); color: var(--ccolor); }
+.cp-cgram-pill.is-checked{ border-color: var(--ccolor); color: var(--ccolor); }
 .cp-cgram-pill input{ position:absolute; opacity:0; width:0; height:0; margin:0; pointer-events:none; }
 .cp-select-wrap{ position:relative; display:inline-flex; align-items:center; }
 .cp-select-wrap select{ padding-right:20px; }
@@ -7835,12 +7860,12 @@ const CARNET_CSS = `
 .cp-bilan-ok{ color: var(--text-muted); }
 .cp-bilan-ok .cp-bilan-icone{ color: var(--color-green, var(--text-success)); }
 .cp-bilan-ko .cp-bilan-icone{ color: var(--text-error); }
-.cp-bilan-vers{ text-decoration: underline dotted; cursor:pointer; }
+.cp-bilan-vers{ text-decoration: none; border-bottom: 1px dotted currentColor; cursor:pointer; }
 .cp-bilan-conseil .cp-bilan-icone{ color: var(--text-warning, var(--color-orange)); }
 .cp-schema-ligne{ display:flex; align-items:center; gap:8px; font-family: var(--font-monospace); font-size:0.8em; color: var(--text-muted); padding:2px 0; letter-spacing:0.15em; }
 .cp-hasard-bouton-wrap{ display:flex; justify-content:center; margin-bottom:20px; }
-.cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.1em; font-weight:600; background: var(--background-primary) !important; color: var(--text-muted) !important; border:1.5px solid var(--text-faint) !important; border-radius:24px; cursor:pointer; transition: background 0.15s, border-color 0.15s, transform 0.1s; }
-.cp-hasard-bouton:hover{ border-color: var(--text-muted) !important; color: var(--text-normal) !important; transform: translateY(-1px); }
+.carnet-poete-view .cp-hasard-bouton{ display:inline-flex; align-items:center; justify-content:center; text-align:center; width:auto; padding:12px 32px; font-family: var(--font-text); font-style:italic; font-size:1.1em; font-weight:600; background: var(--background-primary); color: var(--text-muted); border:1.5px solid var(--text-faint); border-radius:24px; cursor:pointer; transition: background 0.15s, border-color 0.15s, transform 0.1s; }
+.carnet-poete-view .cp-hasard-bouton:hover{ border-color: var(--text-muted); color: var(--text-normal); transform: translateY(-1px); }
 .cp-hasard-zone{ margin-top:22px; text-align:center; padding:24px 20px; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:12px; }
 .cp-hasard-mot{ font-family: var(--font-text); font-style:italic; font-weight:700; font-size:2em; color:#c0392b; margin-bottom:10px; }
 .cp-hasard-note{ font-size:0.9em; color: var(--text-muted); max-width:44ch; margin:0 auto 16px; line-height:1.6; }
@@ -8053,7 +8078,7 @@ const CARNET_CSS = `
 .cp-inspi-note{ font-size:0.82em; color: var(--text-muted); font-style:italic; }
 .cp-inspi-cliquable{ cursor:pointer; border-radius:3px; }
 .cp-inspi-cliquable:hover{ box-shadow: 0 0 0 2px var(--background-modifier-hover); }
-.cp-inspi-cliquable.cp-selectionne{ background:#c0392b !important; border-color:#c0392b !important; color:#fff !important; }
+.carnet-poete-view .cp-inspi-cliquable.cp-selectionne{ background:#c0392b; border-color:#c0392b; color:#fff; }
 .cp-inspi-action-bar{ display:flex; flex-direction:column; gap:10px; margin:14px 0; padding:12px; background: var(--background-primary-alt); border:1px solid var(--background-modifier-border); border-radius:8px; }
 .cp-inspi-selection-chips{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:0.85em; }
 .cp-inspi-selection-actions{ display:flex; flex-wrap:wrap; gap:10px; }

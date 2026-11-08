@@ -2,6 +2,26 @@
    VUE PRINCIPALE
    ========================================================= */
 
+/* Synchronise la classe is-checked d'une pastille avec sa case, y compris
+   quand le code coche/décoche la case lui-même (input.checked = …, parfois
+   après un chargement asynchrone des réglages) : la propriété checked de
+   cette case est doublée d'un setter qui met la classe à jour. */
+function suiviPastille(input){
+  const lbl = input.closest('.cp-hasard-toggle-pool, .cp-cgram-pill');
+  if (!lbl) return;
+  const sync = () => lbl.classList.toggle('is-checked', !!input.checked);
+  const desc = typeof HTMLInputElement !== 'undefined' && Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+  if (desc && desc.get && desc.set) {
+    Object.defineProperty(input, 'checked', {
+      configurable: true,
+      get(){ return desc.get.call(this); },
+      set(v){ desc.set.call(this, v); sync(); },
+    });
+  }
+  input.addEventListener('change', sync);
+  sync();
+}
+
 class CarnetView extends ItemView {
   constructor(leaf, plugin){
     super(leaf);
@@ -83,6 +103,11 @@ class CarnetView extends ItemView {
     buildPanelDefinitions(this, panelDefs);
     buildPanelHasard(this, panelHasard);
     buildPanelNotes(this, panelNotes);
+
+    // État « coché » des pastilles porté par une classe (is-checked) plutôt
+    // que par :has(input:checked), signalé par la revue Obsidian.
+    container.querySelectorAll('.cp-hasard-toggle-pool input[type=checkbox], .cp-cgram-pill input[type=checkbox]')
+      .forEach(suiviPastille);
 
     const footer = container.createEl('p', { cls: 'cp-footer' });
     footer.setText('Dictionnaires phonétiques et lexicaux compilés à la main, non exhaustifs — vous pouvez les étendre via un fichier dictionnaire-perso.json (familles de rimes, dictionnaire phonétique, champs lexicaux, synonymes).');
