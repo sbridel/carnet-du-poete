@@ -496,6 +496,13 @@ transcribes as [ɛ].
 
 ## Changelog
 
+- **2.31.1** — CSS lint fixes for the Obsidian plugin review.
+  - No more `!important` (more specific selectors instead) and no more `:has()`: toggle pills
+    now get an `is-checked` class, kept in sync even when the plugin ticks a box itself
+    (settings loaded, "tick all rich rhymes", quick filters).
+  - `gap` shorthand instead of `row-gap`/`column-gap`, and a dotted border instead of a
+    two-value `text-decoration`. Same look.
+
 - **2.31.0** — Eleven more fixed forms, note loading, rhyme hints.
   - **Forme** menu, now grouped: short forms (*haïku*, *tanka*, *triolet*), sonnets (French,
     Shakespearean), refrain forms (*rondel*, *rondeau* with its *rentrement*, *villanelle*,
@@ -577,40 +584,4 @@ transcribes as [ɛ].
   - Old dictionaries migrating straight from 2.27 or earlier are unaffected: the new field is
     ignored when deciding what counts as a personal change, so it can't inflate your personal
     file.
-- **2.28.0** — The dictionary is split into a published base and your personal layer.
-  - **`dictionnaire-base.json.gz`** (the ~210,000-word dictionary, 1.9 MB compressed instead of
-    13 MB) is **downloaded automatically** from the GitHub release on first launch, and again
-    only when a new base is published. Offline, the plugin keeps the base it already has.
-  - **`dictionnaire-perso.json` now holds only your own additions** (synonyms, rare words, tags,
-    notes, vocabulary themes) and is merged over the base on loading: a new base can no longer
-    erase your work, and words you never touched receive its corrections. When you annotate a
-    rare word, your note is shown above Didier Méral's (separated by `---`), which stays intact.
-  - **Automatic migration** of an old all-in-one file, after a timestamped backup copy.
-  - **Safer saving**: if `dictionnaire-perso.json` can't be read back (e.g. a broken edit made
-    outside Obsidian), the plugin now refuses to save instead of overwriting it with a nearly
-    empty file. The five saving functions share one read/write path.
-- **2.27.1** — The Rhymes tab now remembers its ticked online sources (RimesSolides,
-  Wiktionnaire) between sessions, like the Synonyms and Inspiration tabs already did; they
-  start unticked by default. The README was reorganised for easier reading: a quick start, a
-  two-level table of contents, one sub-section per tab, proper headings for the
-  `dictionnaire-perso.json` formats (A–F) and a table of online sources — and a few outdated
-  statements were corrected along the way.
-- **2.27.0** — A bigger, more accurate rhyme dictionary.
-  - **The published `dictionnaire-perso.json` grows from ~121,000 to ~210,000 words**: ~89,000
-    forms from **Morphalou 3.1** (nouns, adjectives, participles, infinitives, adverbs) join the
-    Lexique383 base, their phonetics converted to Lexique's notation (137 doubtful entries left
-    out). Every word now carries its **lineage** (`src`: L = Lexique383, M = Morphalou, R = Méral
-    rare word), explained in a `_legende` field at the top of the file; see the new "Data sources
-    & licences" section.
-  - **Future and simple-past *-ai* now rhyme in [e]** (2,289 forms corrected, marked `cor: "ai"`):
-    *aimerai* rhymes with *juré*, *jurer*, *jouerez* — no longer with *aimerais*, *jarret* or
-    *jetterait* ([ɛ]). Lexique383 transcribes them [ɛ], which classical French prosody rejects.
-  - **The rhyme engine now trusts the transcribed vowel over spelling** when both words are in the
-    phonetic dictionary: spelling alone cannot tell that *aimerai* ends in [e], and was vetoing
-    *aimerai*/*juré* even with a corrected dictionary. Spelling remains the fallback for words
-    outside the dictionary.
-  - **Smaller file**: the dictionary is written without indentation and without empty
-    synonym/antonym lists — 13 MB instead of 17 MB despite 75% more words — and the plugin now
-    keeps it compact when it saves to it.
-
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).

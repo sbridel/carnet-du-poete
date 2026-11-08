@@ -2,6 +2,13 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.31.1** — CSS lint fixes for the Obsidian plugin review.
+  - No more `!important` (more specific selectors instead) and no more `:has()`: toggle pills
+    now get an `is-checked` class, kept in sync even when the plugin ticks a box itself
+    (settings loaded, "tick all rich rhymes", quick filters).
+  - `gap` shorthand instead of `row-gap`/`column-gap`, and a dotted border instead of a
+    two-value `text-decoration`. Same look.
+
 - **2.31.0** — Eleven more fixed forms, note loading, rhyme hints.
   - **Forme** menu, now grouped: short forms (*haïku*, *tanka*, *triolet*), sonnets (French,
     Shakespearean), refrain forms (*rondel*, *rondeau* with its *rentrement*, *villanelle*,
