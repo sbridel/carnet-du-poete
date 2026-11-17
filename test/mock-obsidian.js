@@ -6,7 +6,9 @@
 class Plugin {}
 class ItemView {}
 class Modal {}
-class Notice {}
+// Notice garde un journal des messages affichés (tests des bilans de chargement, #1).
+class Notice { constructor(m){ Notice.journal.push(String(m)); } }
+Notice.journal = [];
 class PluginSettingTab {}
 class Setting {}
 function requestUrl() { return Promise.resolve({ json: {} }); }

@@ -108,4 +108,35 @@ module.exports = function testsDicoStats(m) {
       assertEqual(ok, false); assertEqual(f4['dictionnaire-perso.json'], '{cassé');
     });
   });
+  groupe('Bilans de chargement (issue #1, 2.31.2)', () => {
+    test('muets par défaut, affichés au rechargement manuel ou si le réglage est activé, erreurs toujours visibles', async () => {
+      const journal = m._journalNotices();
+      const fichiers = () => ({
+        [CHEMIN_BASE]: baseGz(fabriqueBase()),
+        '.obsidian/plugins/carnet-du-poete/dictionnaire-perso.json': JSON.stringify({ formatPerso: 1, motsRares: [{ mot: 'zinzolin', note: 'violet' }] }),
+      });
+      const nouveaux = (avant) => journal.slice(avant).filter(t => /chargé/.test(t));
+
+      let avant = journal.length;
+      await m.chargeDictionnairePerso(fauxPlugin(fichiers(), { versionBase: m.VERSION_BASE }));
+      assertEqual(nouveaux(avant).length, 0, 'aucun bilan au lancement par défaut');
+
+      avant = journal.length;
+      await m.chargeDictionnairePerso(fauxPlugin(fichiers(), { versionBase: m.VERSION_BASE }), { notifierAbsence: true });
+      assertTrue(nouveaux(avant).length > 0, 'rechargement manuel : bilans affichés');
+
+      m._setBilansChargement(true);
+      try {
+        avant = journal.length;
+        await m.chargeDictionnairePerso(fauxPlugin(fichiers(), { versionBase: m.VERSION_BASE }));
+        assertTrue(nouveaux(avant).some(t => /mot\(s\) rare\(s\)/.test(t)), 'réglage activé : bilans affichés');
+      } finally { m._setBilansChargement(false); }
+
+      avant = journal.length;
+      const casse = fichiers();
+      casse['.obsidian/plugins/carnet-du-poete/dictionnaire-perso.json'] = '{ pas du json';
+      await m.chargeDictionnairePerso(fauxPlugin(casse, { versionBase: m.VERSION_BASE }));
+      assertTrue(journal.slice(avant).some(t => /JSON est invalide/.test(t)), 'erreur toujours affichée');
+    });
+  });
 };

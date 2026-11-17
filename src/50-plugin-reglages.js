@@ -10,6 +10,7 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
     MODE_ASSONANCE = !!(data && data.modeAssonance);
     RIMES_CONTINUES = !data || data.rimesContinues !== false; // activé par défaut
     MOTS_RARES_META = (data && data.motsRaresMeta) || {};
+    AFFICHER_BILANS_CHARGEMENT = !!(data && data.afficherBilansChargement); // désactivé par défaut
 
     this.registerView(VIEW_TYPE, (leaf) => new CarnetView(leaf, this));
 
@@ -154,6 +155,19 @@ class CarnetSettingTab extends PluginSettingTab {
     } else {
       containerEl.createEl('p', { cls: 'setting-item-description', text: 'Personnel : aucun dictionnaire-perso.json trouvé.' });
     }
+
+    new Setting(containerEl)
+      .setName('Afficher les bilans de chargement')
+      .setDesc('Au lancement d\'Obsidian, affiche une notification par élément chargé (dictionnaire de rimes, mots rares, champs lexicaux…). Désactivé, ces bilans vont seulement dans la console. Les erreurs restent toujours affichées.')
+      .addToggle(toggle => {
+        toggle.setValue(AFFICHER_BILANS_CHARGEMENT);
+        toggle.onChange(async (value) => {
+          AFFICHER_BILANS_CHARGEMENT = value;
+          const data = (await this.plugin.loadData()) || {};
+          data.afficherBilansChargement = value;
+          await this.plugin.saveData(data);
+        });
+      });
 
     containerEl.createEl('h3', { text: 'Dictionnaire personnel' });
 

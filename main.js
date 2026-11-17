@@ -698,6 +698,12 @@ let RIMES_CONTINUES = false;
 // retirer du vault ni à recharger le plugin.
 let DEBUG_IGNORER_DICO_PERSO = false;
 
+// Bilans de chargement du dictionnaire (« N mots rares chargés »…) en
+// notification. Désactivés par défaut (issue #1 : encombrants sur mobile) :
+// ils vont alors dans la console. Erreurs et migrations restent toujours
+// affichées, ainsi que les bilans d'un rechargement demandé à la main.
+let AFFICHER_BILANS_CHARGEMENT = false;
+
 /* Classe la relation entre deux mots en fin de vers :
    - 'rime'      : terminaison réellement identique (voyelle + tout ce qui suit)
    - 'assonance' : même voyelle porteuse, mais terminaison différente
@@ -3395,6 +3401,12 @@ function chargeDictionnairePerso(plugin, opts){
 
 async function chargeDictionnairePersoInterne(plugin, opts){
   const notifierAbsence = !!(opts && opts.notifierAbsence);
+  // Bilan de succès : notification si le réglage est activé ou si
+  // l'utilisateur a demandé le rechargement à la main ; sinon console.
+  const bilan = (message) => {
+    if (AFFICHER_BILANS_CHARGEMENT || notifierAbsence) new Notice(message);
+    else console.log(`[Carnet du Poète] ${message.replace(/^Carnet du Poète : /, '')}`);
+  };
   // on repart toujours de la base pour ne jamais accumuler de doublons
   // si cette fonction est appelée plusieurs fois (rechargement manuel)
   FAMILLES.length = 0;
@@ -3507,7 +3519,7 @@ async function chargeDictionnairePersoInterne(plugin, opts){
         }
       });
       if (champsCount > 0) {
-        new Notice(`Carnet du Poète : ${champsCount} champ(s) lexical(aux) personnalisé(s) chargé(s).`);
+        bilan(`Carnet du Poète : ${champsCount} champ(s) lexical(aux) personnalisé(s) chargé(s).`);
       }
     }
 
@@ -3521,7 +3533,7 @@ async function chargeDictionnairePersoInterne(plugin, opts){
         }
       });
       if (synoCount > 0) {
-        new Notice(`Carnet du Poète : ${synoCount} entrée(s) de synonymes/antonymes personnalisée(s) chargée(s).`);
+        bilan(`Carnet du Poète : ${synoCount} entrée(s) de synonymes/antonymes personnalisée(s) chargée(s).`);
       }
     }
 
@@ -3547,7 +3559,7 @@ async function chargeDictionnairePersoInterne(plugin, opts){
         }
       });
       if (raresCount > 0) {
-        new Notice(`Carnet du Poète : ${raresCount} mot(s) rare(s) chargé(s) (base + personnels).`);
+        bilan(`Carnet du Poète : ${raresCount} mot(s) rare(s) chargé(s) (base + personnels).`);
       }
       reconstruitIndexMotsRares();
     }
@@ -3562,7 +3574,7 @@ async function chargeDictionnairePersoInterne(plugin, opts){
         }
       });
       if (count > 0) {
-        new Notice(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
+        bilan(`Carnet du Poète : ${count} famille(s) personnalisée(s) chargée(s) depuis dictionnaire-perso.json.`);
       } else if (champsCount === 0 && synoCount === 0 && raresCount === 0) {
         new Notice('Carnet du Poète : dictionnaire-perso.json trouvé, mais aucune famille valide dedans (il manque "son", "terms" ou "mots" quelque part).');
       }
@@ -3654,7 +3666,7 @@ async function chargeDictionnairePersoInterne(plugin, opts){
     if (totalMotsPhon > 0) messageCharge += `, ${totalMotsPhon} avec transcription phonétique complète`;
     if (totalMotsAvecSynonymes > 0) messageCharge += `, ${totalMotsAvecSynonymes} avec synonymes/antonymes`;
     messageCharge += '.';
-    new Notice(messageCharge);
+    if (AFFICHER_BILANS_CHARGEMENT || notifierAbsence) new Notice(messageCharge);
     console.log(`[Carnet du Poète] dictionnaire phonétique chargé : ${nbGroupes} groupes, ${totalMots} mots ` +
       `(${totalMotsPhon} avec phonétique complète, ${totalMotsAvecSynonymes} avec synonymes/antonymes).`);
   } catch (e) {
@@ -8106,6 +8118,7 @@ module.exports = class CarnetDuPoetePlugin extends Plugin {
     MODE_ASSONANCE = !!(data && data.modeAssonance);
     RIMES_CONTINUES = !data || data.rimesContinues !== false; // activé par défaut
     MOTS_RARES_META = (data && data.motsRaresMeta) || {};
+    AFFICHER_BILANS_CHARGEMENT = !!(data && data.afficherBilansChargement); // désactivé par défaut
 
     this.registerView(VIEW_TYPE, (leaf) => new CarnetView(leaf, this));
 
@@ -8250,6 +8263,19 @@ class CarnetSettingTab extends PluginSettingTab {
     } else {
       containerEl.createEl('p', { cls: 'setting-item-description', text: 'Personnel : aucun dictionnaire-perso.json trouvé.' });
     }
+
+    new Setting(containerEl)
+      .setName('Afficher les bilans de chargement')
+      .setDesc('Au lancement d\'Obsidian, affiche une notification par élément chargé (dictionnaire de rimes, mots rares, champs lexicaux…). Désactivé, ces bilans vont seulement dans la console. Les erreurs restent toujours affichées.')
+      .addToggle(toggle => {
+        toggle.setValue(AFFICHER_BILANS_CHARGEMENT);
+        toggle.onChange(async (value) => {
+          AFFICHER_BILANS_CHARGEMENT = value;
+          const data = (await this.plugin.loadData()) || {};
+          data.afficherBilansChargement = value;
+          await this.plugin.saveData(data);
+        });
+      });
 
     containerEl.createEl('h3', { text: 'Dictionnaire personnel' });
 

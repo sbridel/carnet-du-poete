@@ -694,6 +694,12 @@ let RIMES_CONTINUES = false;
 // retirer du vault ni à recharger le plugin.
 let DEBUG_IGNORER_DICO_PERSO = false;
 
+// Bilans de chargement du dictionnaire (« N mots rares chargés »…) en
+// notification. Désactivés par défaut (issue #1 : encombrants sur mobile) :
+// ils vont alors dans la console. Erreurs et migrations restent toujours
+// affichées, ainsi que les bilans d'un rechargement demandé à la main.
+let AFFICHER_BILANS_CHARGEMENT = false;
+
 /* Classe la relation entre deux mots en fin de vers :
    - 'rime'      : terminaison réellement identique (voyelle + tout ce qui suit)
    - 'assonance' : même voyelle porteuse, mais terminaison différente

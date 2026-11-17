@@ -55,7 +55,9 @@ function chargeMoteur() {
     // _setCgramTest : installe un mini CGRAM_MOT (mot -> ['NOM',...]) ; null pour le retirer.
     + `function _setCgramTest(cg){ CGRAM_MOT = cg ? new Map(Object.entries(cg)) : null; }\n`
     + `function _getStatsDico(){ return STATS_DICO; }\n`
-    + `module.exports = { ${A_EXPORTER.join(', ')}, _setRimesContinues, _setDicoTest, _setCgramTest, _getStatsDico };\n`;
+    + `function _setBilansChargement(v){ AFFICHER_BILANS_CHARGEMENT = v; }\n`
+    + `function _journalNotices(){ return Notice.journal; }\n`
+    + `module.exports = { ${A_EXPORTER.join(', ')}, _setRimesContinues, _setDicoTest, _setCgramTest, _getStatsDico, _setBilansChargement, _journalNotices };\n`;
 
   // Dossier temporaire avec sa propre arborescence node_modules/obsidian,
   // pour que le require('obsidian') tout en haut de main.js résolve vers
