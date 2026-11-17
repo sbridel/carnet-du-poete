@@ -496,6 +496,14 @@ transcribes as [ɛ].
 
 ## Changelog
 
+- **2.31.2** — Quieter startup: load summaries off by default.
+  - The success notifications shown at every launch (rhyme dictionary, rare words, lexical
+    fields, synonyms, custom families loaded) now go to the console only — they took a lot of
+    room on phone screens ([#1](https://github.com/sbridel/carnet-du-poete/issues/1)).
+  - New setting **Afficher les bilans de chargement** (Settings → Dictionnaire, off by default) to bring them
+    back. Reloading the personal dictionary by hand still shows them.
+  - Errors, migrations, base downloads and failed writes are always shown.
+
 - **2.31.1** — CSS lint fixes for the Obsidian plugin review.
   - No more `!important` (more specific selectors instead) and no more `:has()`: toggle pills
     now get an `is-checked` class, kept in sync even when the plugin ticks a box itself
@@ -572,16 +580,4 @@ transcribes as [ɛ].
   - Two bugs found and fixed while building it, with no effect elsewhere: the base's count was
     read after a merge that mutates it in place, and the perso's path/size still reflected the
     state from before a migration that had just run.
-- **2.29.0** — Grammatical filter in the Rhymes tab.
-  - New checkboxes — Nom, Verbe, Adjectif, Adverbe, Autres — narrow rhyme results by
-    grammatical category, on top of the existing letter/syllable/quality filters. A word can
-    match several categories at once (e.g. *abaissé*, verb and adjective) and passes if any
-    checked box fits.
-  - The base dictionary now carries this category for every word, from Lexique383 and, where
-    Lexique has no entry, Morphalou. A word with no known category (a Méral rare word, or a
-    RimesSolides/Wiktionnaire result absent from the local dictionary) is never hidden by the
-    filter.
-  - Old dictionaries migrating straight from 2.27 or earlier are unaffected: the new field is
-    ignored when deciding what counts as a personal change, so it can't inflate your personal
-    file.
 Full history of every version: see [CHANGELOG.md](CHANGELOG.md).

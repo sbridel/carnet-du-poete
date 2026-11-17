@@ -2,6 +2,14 @@
 
 Full version history, most recent first. The README only lists the 5 latest versions.
 
+- **2.31.2** — Quieter startup: load summaries off by default.
+  - The success notifications shown at every launch (rhyme dictionary, rare words, lexical
+    fields, synonyms, custom families loaded) now go to the console only — they took a lot of
+    room on phone screens ([#1](https://github.com/sbridel/carnet-du-poete/issues/1)).
+  - New setting **Afficher les bilans de chargement** (Settings → Dictionnaire, off by default) to bring them
+    back. Reloading the personal dictionary by hand still shows them.
+  - Errors, migrations, base downloads and failed writes are always shown.
+
 - **2.31.1** — CSS lint fixes for the Obsidian plugin review.
   - No more `!important` (more specific selectors instead) and no more `:has()`: toggle pills
     now get an `is-checked` class, kept in sync even when the plugin ticks a box itself
